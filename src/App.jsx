@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Home,
   Radio,
@@ -42,16 +42,117 @@ import {
   Disc3,
   AudioLines,
   PanelRightClose,
+  Settings,
+  Pencil,
+  Trash2,
+  LogOut,
+  ShieldCheck,
+  Shield,
+  UserRoundPlus,
+  UserMinus,
+  KeyRound,
+  AtSign,
+  CornerUpLeft,
+  Languages,
+  UsersRound,
+  Copy,
+  Globe,
+  Clock3,
 } from 'lucide-react'
 
 const SAAVN_BASES = ['https://saavn.sumit.co']
+let saavnCooldownUntil = 0
 const ITUNES_BASE = 'https://itunes.apple.com/search'
 const LRCLIB_BASE = 'https://lrclib.net/api'
 const LIBRARY_CACHE_KEY = 'echosync.library.v1'
 const LYRIC_CACHE_KEY = 'echosync.lyrics.v1'
 const LIKES_KEY = 'echosync.likes.v1'
 const THEME_KEY = 'echosync.theme.v1'
+const ACCOUNTS_KEY = 'echosync_accounts'
+const ACTIVE_USER_KEY = 'echosync_active_user'
+const ROOMS_KEY = 'echosync_rooms.v1'
+const ROOM_STATE_KEY = 'echosync_room_state.v1'
+const TRANSLATE_KEY = 'echosync_translate.v1'
+const TRANSLATION_CACHE_KEY = 'echosync.translation_cache.v1'
 const LOCK_MESSAGE = '🔒 Listener Mode: Only Room Admin or DJ can control playback'
+
+const AVATAR_PRESETS = [
+  { id: 'rose', av1: '#eda272', av2: '#a14e58' },
+  { id: 'ocean', av1: '#6b9ae7', av2: '#343e87' },
+  { id: 'orchid', av1: '#db7ea5', av2: '#763e76' },
+  { id: 'jade', av1: '#60b9a7', av2: '#296d70' },
+  { id: 'amber', av1: '#d9aa59', av2: '#8d5c34' },
+  { id: 'violet', av1: '#9187dc', av2: '#514093' },
+  { id: 'ember', av1: '#e2806a', av2: '#7d3040' },
+  { id: 'mint', av1: '#7fd0a4', av2: '#2f6b57' },
+]
+
+const ROOM_GRADIENTS = [
+  { id: 'midnight', c1: '#251c27', c2: '#94484e', accent: '#f16b73', accent2: '#f2b38e' },
+  { id: 'sufi', c1: '#332916', c2: '#9c7433', accent: '#d8a64c', accent2: '#efcf93' },
+  { id: 'punjabi', c1: '#172b24', c2: '#2d7d5e', accent: '#43c692', accent2: '#a7e2b9' },
+  { id: 'studio', c1: '#162430', c2: '#2e6582', accent: '#5bbde7', accent2: '#a9d8ee' },
+  { id: 'dusk', c1: '#2b1f33', c2: '#6f4b8f', accent: '#b98ce0', accent2: '#dcc2f0' },
+  { id: 'sunset', c1: '#33201b', c2: '#b25f3e', accent: '#ef8f5b', accent2: '#f4c191' },
+]
+
+function uid(prefix = 'id') {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+function slugifyHandle(value = '') {
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '.')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.|\.$/g, '')
+    .slice(0, 24)
+}
+
+function roomCode(seed = '') {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  let code = ''
+  for (let index = 0; index < 4; index += 1) {
+    code += alphabet[Math.floor(Math.random() * alphabet.length)]
+  }
+  return `ECHO-${code}${seed ? seed.slice(-2).toUpperCase() : ''}`.slice(0, 11)
+}
+
+function handleFromEmail(email = '') {
+  return slugifyHandle(String(email).split('@')[0])
+}
+
+function nameFromEmail(email = '') {
+  const prefix = String(email).split('@')[0].replace(/[._-]+/g, ' ').trim()
+  if (!prefix) return 'New Listener'
+  return prefix.split(' ').filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join(' ')
+}
+
+function readSessionUser() {
+  try {
+    return sessionStorage.getItem(ACTIVE_USER_KEY) || localStorage.getItem(ACTIVE_USER_KEY) || 'me'
+  } catch {
+    return 'me'
+  }
+}
+
+function writeSessionUser(id) {
+  try {
+    sessionStorage.setItem(ACTIVE_USER_KEY, id)
+    localStorage.setItem(ACTIVE_USER_KEY, id)
+  } catch {
+    /* session storage can be unavailable */
+  }
+}
+
+function loadStoredRooms() {
+  const stored = readStorage(ROOMS_KEY, null)
+  return Array.isArray(stored) && stored.length ? stored : null
+}
+
+function loadRoomStateSnapshot() {
+  return readStorage(ROOM_STATE_KEY, {})
+}
 
 const SEED_TRACKS = [
   { id: 'kesariya', title: 'Kesariya', artist: 'Arijit Singh', album: 'Brahmastra', duration: 268, c1: '#3c2d5c', c2: '#ca765b', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/9f/13/ca/9f13ca3b-e533-03e0-f19a-f0aaa774581d/196589311191.jpg/600x600bb.jpg' },
@@ -65,6 +166,12 @@ const SEED_TRACKS = [
   { id: 'sunflower', title: 'Sunflower', artist: 'Post Malone & Swae Lee', album: 'Into the Spider-Verse', duration: 158, c1: '#1d2d45', c2: '#cc9245', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/4b/30/2c/4b302cb6-7a14-5464-4e97-0577e9d0be49/18UMGIM82277.rgb.jpg/600x600bb.jpg' },
   { id: 'kahani-suno', title: 'Kahani Suno 2.0', artist: 'Kaifi Khalil', album: 'Kahani Suno 2.0', duration: 224, c1: '#34251e', c2: '#b35f48', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/9f/44/a6/9f44a6ef-4438-1794-26ac-7f73d167afbf/artwork.jpg/600x600bb.jpg' },
   { id: 'blinding-lights', title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', duration: 200, c1: '#2c171e', c2: '#c2354b', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/6f/bc/e6/6fbce6c4-c38c-72d8-4fd0-66cfff32f679/20UMGIM12176.rgb.jpg/600x600bb.jpg' },
+  { id: 'chaleya', title: 'Chaleya', artist: 'Arijit Singh', album: 'Jawan', duration: 200, c1: '#3a2330', c2: '#c96a5a', cover: 'https://c.saavncdn.com/047/Jawan-Hindi-2023-20230921190854-500x500.jpg' },
+  { id: 'tere-hawaale', title: 'Tere Hawaale', artist: 'Arijit Singh', album: 'Laal Singh Chaddha', duration: 346, c1: '#2a2a24', c2: '#b88a4e', cover: 'https://c.saavncdn.com/576/Laal-Singh-Chaddha-Hindi-2022-20220805121002-500x500.jpg' },
+  { id: 'kun-faya-kun', title: 'Kun Faya Kun', searchTitle: 'Kun Faaya Kun', artist: 'A.R. Rahman', album: 'Rockstar', duration: 473, c1: '#2a2519', c2: '#a07b3e', cover: 'https://c.saavncdn.com/408/Rockstar-Hindi-2011-20221212023139-500x500.jpg' },
+  { id: 'afreen-afreen', title: 'Afreen Afreen', artist: 'Rahat Fateh Ali Khan', album: 'Coke Studio Season 9', duration: 400, allowPreview: true, c1: '#2f2a1d', c2: '#b28e4a', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music71/v4/95/ff/b0/95ffb0d1-ba72-767e-a4e4-6e7989524b03/190394811402.jpg/600x600bb.jpg' },
+  { id: 'raataan-lambiyan', title: 'Raataan Lambiyan', artist: 'Jubin Nautiyal', album: 'Shershaah', duration: 230, c1: '#232b35', c2: '#a06a6a', cover: 'https://c.saavncdn.com/238/Shershaah-Original-Motion-Picture-Soundtrack--Hindi-2021-20210815181610-500x500.jpg' },
+  { id: 'kabira', title: 'Kabira', artist: 'Tochi Raina', album: 'Yeh Jawaani Hai Deewani', duration: 224, c1: '#2d2a20', c2: '#a88654', cover: 'https://c.saavncdn.com/440/Yeh-Jawaani-Hai-Deewani-2013-500x500.jpg' },
 ]
 
 const SEED_BY_ID = Object.fromEntries(SEED_TRACKS.map((track) => [track.id, track]))
@@ -76,6 +183,57 @@ const MEMBERS = {
   bilal: { id: 'bilal', name: 'Bilal Ahmed', handle: 'bilal.ahmed', initials: 'BA', av1: '#60b9a7', av2: '#296d70', online: true },
   sana: { id: 'sana', name: 'Sana Iqbal', handle: 'sana.iqbal', initials: 'SI', av1: '#d9aa59', av2: '#8d5c34', online: true },
   ayaan: { id: 'ayaan', name: 'Ayaan Raza', handle: 'ayaan.r', initials: 'AR', av1: '#9187dc', av2: '#514093', online: false },
+}
+
+const DEFAULT_ACCOUNTS = {
+  me: { id: 'me', name: 'Haris Mujahid', handle: 'haris', email: 'haris.mujahid@gmail.com', password: 'echosync', initials: 'HM', av1: '#eda272', av2: '#a14e58', preset: 'rose', online: true },
+  usman: { id: 'usman', name: 'Usman Ali', handle: 'usman.ali', email: 'usman.ali@gmail.com', password: 'echosync', initials: 'UA', av1: '#6b9ae7', av2: '#343e87', preset: 'ocean', online: true },
+  zara: { id: 'zara', name: 'Zara Khan', handle: 'zara.k', email: 'zara.khan@gmail.com', password: 'echosync', initials: 'ZK', av1: '#db7ea5', av2: '#763e76', preset: 'orchid', online: true },
+  bilal: { id: 'bilal', name: 'Bilal Ahmed', handle: 'bilal.ahmed', email: 'bilal.ahmed@gmail.com', password: 'echosync', initials: 'BA', av1: '#60b9a7', av2: '#296d70', preset: 'jade', online: true },
+  sana: { id: 'sana', name: 'Sana Iqbal', handle: 'sana.iqbal', email: 'sana.iqbal@gmail.com', password: 'echosync', initials: 'SI', av1: '#d9aa59', av2: '#8d5c34', preset: 'amber', online: true },
+  ayaan: { id: 'ayaan', name: 'Ayaan Raza', handle: 'ayaan.r', email: 'ayaan.raza@gmail.com', password: 'echosync', initials: 'AR', av1: '#9187dc', av2: '#514093', preset: 'violet', online: false },
+}
+
+function accountDisplay(account) {
+  if (!account) return { id: 'guest', name: 'Guest Listener', handle: 'guest', initials: 'GL', av1: '#7d8794', av2: '#3d4650', online: false }
+  return {
+    ...account,
+    initials: account.initials || initials(account.name || account.handle || 'Echo'),
+  }
+}
+
+const MembersContext = createContext({ ...MEMBERS, ...DEFAULT_ACCOUNTS })
+
+function useMembers() {
+  return useContext(MembersContext)
+}
+
+function rolesForRoom(room) {
+  const matrix = {}
+  room.members.forEach((id) => {
+    if (id === room.dj) matrix[id] = 'dj'
+    else matrix[id] = id === 'me' ? DEFAULT_ROLES[room.id] || 'listener' : 'listener'
+  })
+  return matrix
+}
+
+function roleMatrixFromRooms(rooms) {
+  const matrix = {}
+  rooms.forEach((room) => {
+    matrix[room.id] = rolesForRoom(room)
+  })
+  return matrix
+}
+
+function roleLabelFor(room, matrix, userId) {
+  return matrix?.[room.id]?.[userId] || (userId === 'me' ? DEFAULT_ROLES[room.id] || 'listener' : 'listener')
+}
+
+function randomAvatarPreset(seed = '') {
+  const value = seed || uid('av')
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) % 9973
+  return AVATAR_PRESETS[hash % AVATAR_PRESETS.length]
 }
 
 const ROOMS = [
@@ -183,9 +341,11 @@ const REPLY_OPTIONS = [
   'this room has immaculate taste',
 ]
 
-const BAD_MATCH = /\b(karaoke|instrumental|cover|tribute|remix|slowed|reverb|8d|8-d|lofi|lo-fi|nightcore|sped up|sped-up|made famous|in the style of|originally performed|workout|ringtone|mashup|dj mix|tribute)\b/i
+const HARD_BAD_MATCH = /\b(karaoke|instrumental|8-bit|8bit|ringtone|tribute|made famous|in the style of|originally performed|workout)\b/i
+const SOFT_BAD_MATCH = /\b(remix|slowed|reverb|8d|8-d|lofi|lo-fi|nightcore|sped up|sped-up|mashup|dj mix|flip|dance mix)\b/i
 
 const LYRIC_EMOJIS = ['❤️', '🔥', '😂', '🎧', '🌙', '✨', '💯', '🫶', '🥹', '🙌', '👀', '🎶', '💫', '😮‍💨']
+const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '🙏']
 
 function formatTime(value) {
   const seconds = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
@@ -262,12 +422,20 @@ function loadLibraryCache() {
 function buildInitialLibrary() {
   const cache = loadLibraryCache()
   const library = {}
+  const stale = []
   SEED_TRACKS.forEach((seed) => {
     const cached = cache[seed.id]
-    library[seed.id] = cached
+    const stalePreview = cached?.preview && !seed.allowPreview && seed.duration > 60
+    if (stalePreview) stale.push(seed.id)
+    library[seed.id] = cached && !stalePreview
       ? { ...seed, ...cached, id: seed.id, status: 'ready' }
       : { ...seed, status: 'pending', streamUrl: null, cover: null }
   })
+  if (stale.length) {
+    const stored = readStorage(LIBRARY_CACHE_KEY, {})
+    stale.forEach((id) => delete stored[id])
+    writeStorage(LIBRARY_CACHE_KEY, stored)
+  }
   return library
 }
 
@@ -327,6 +495,7 @@ function normalizeSaavn(raw) {
     decodeEntities(raw.primaryArtists || raw.artist || 'Unknown artist')
   return {
     id: `jio-${raw.id}`,
+    providerId: raw.id,
     provider: 'jiosaavn',
     providerLabel: 'JioSaavn',
     title: decodeEntities(raw.name || 'Unknown track'),
@@ -370,8 +539,10 @@ function titleOverlap(a, b) {
 }
 
 function scoreMatch(track, seed) {
-  if (!track?.streamUrl || !track.title || !track.artist) return -1
-  if (BAD_MATCH.test(track.title) || BAD_MATCH.test(track.artist)) return -1
+  if (!track?.title || !track?.artist) return -1
+  const haystack = `${track.title} ${track.album || ''}`
+  if (HARD_BAD_MATCH.test(haystack)) return -1
+  const softBad = SOFT_BAD_MATCH.test(haystack)
   const targetTitle = normalize(seed.title)
   const candidateTitle = normalize(track.title)
   if (!targetTitle || !candidateTitle) return -1
@@ -388,29 +559,59 @@ function scoreMatch(track, seed) {
   const candidateArtist = normalize(track.artist)
   const artistHit = seedArtists.some((artist) => {
     if (!artist) return false
-    return candidateArtist.includes(artist) || artist.includes(candidateArtist)
+    return candidateArtist.includes(artist) || artist.includes(candidateArtist) ||
+      normalize(seed.artist).includes(candidateArtist)
   })
   if (!artistHit) return -1
   score += 30
 
   const duration = track.fullDuration || track.duration
   if (duration && seed.duration) {
+    if (!track.preview && duration < 40 && seed.duration > 60) return -1
     const difference = Math.abs(duration - seed.duration)
-    if (difference > 55) return -1
     if (difference <= 5) score += 15
     else if (difference <= 20) score += 8
+    else if (difference > 45 && !(candidateTitle === targetTitle && artistHit)) return -1
+    else if (difference > 45) score -= 5
   }
+  if (softBad) score -= 22
   return score
 }
 
-function chooseBest(results, seed) {
+function rankCandidates(results, seed) {
   return results
     .map((track) => ({ track, score: scoreMatch(track, seed) }))
-    .filter((entry) => entry.score >= 70)
-    .sort((a, b) => b.score - a.score)[0]?.track || null
+    .filter((entry) => entry.score >= 55)
+    .sort((a, b) => b.score - a.score)
+}
+
+function chooseBest(results, seed) {
+  return rankCandidates(results, seed)[0]?.track || null
+}
+
+async function hydrateJioTrack(track) {
+  if (!track || track.streamUrl || !track.providerId) return track
+  if (Date.now() < saavnCooldownUntil) return track
+  for (const base of SAAVN_BASES) {
+    try {
+      const payload = await fetchJson(`${base}/api/songs/${track.providerId}`, { timeout: 5200 })
+      const raw = Array.isArray(payload?.data) ? payload.data[0] : payload?.data?.songs?.[0] || payload?.data
+      if (raw?.downloadUrl) {
+        const normalized = normalizeSaavn(raw)
+        if (normalized.streamUrl) return { ...track, ...normalized, cover: track.cover || normalized.cover }
+      }
+    } catch (error) {
+      if (error?.status === 429) {
+        saavnCooldownUntil = Date.now() + 10 * 60 * 1000
+        return track
+      }
+    }
+  }
+  return track
 }
 
 async function fetchJioSearch(query, limit = 12) {
+  if (Date.now() < saavnCooldownUntil) return []
   for (const base of SAAVN_BASES) {
     try {
       const payload = await fetchJson(
@@ -419,10 +620,13 @@ async function fetchJioSearch(query, limit = 12) {
       )
       const results = payload?.data?.results || payload?.data?.songs?.results || []
       if (Array.isArray(results) && results.length) {
-        return results.map(normalizeSaavn).filter((track) => track.streamUrl)
+        return results.map(normalizeSaavn)
       }
-    } catch {
-      /* try the next verified mirror */
+    } catch (error) {
+      if (error?.status === 429) {
+        saavnCooldownUntil = Date.now() + 10 * 60 * 1000
+        return []
+      }
     }
   }
   return []
@@ -449,7 +653,7 @@ async function searchEverything(query) {
   const jio = jioResult.status === 'fulfilled' ? jioResult.value : []
   const itunes = itunesResult.status === 'fulfilled' ? itunesResult.value : []
   const seen = new Set()
-  return [...jio, ...itunes].filter((track) => {
+  return [...jio.filter((track) => track.streamUrl), ...itunes].filter((track) => {
     const key = `${normalize(track.title)}::${normalize(track.artist)}`
     if (seen.has(key)) return false
     seen.add(key)
@@ -462,18 +666,27 @@ const resolutionPromises = new Map()
 async function resolveSeed(seed) {
   if (resolutionPromises.has(seed.id)) return resolutionPromises.get(seed.id)
   const task = (async () => {
-    const primaryQuery = `${seed.title} ${seed.artist}`
+    const searchTitle = seed.searchTitle || seed.title
+    const primaryQuery = `${searchTitle} ${seed.artist}`
+    const finalize = (best) => ({ ...seed, ...best, id: seed.id, c1: seed.c1, c2: seed.c2, cover: seed.cover || best.cover || null })
+
     let candidates = await fetchJioSearch(primaryQuery, 16)
-    let best = chooseBest(candidates, seed)
-    if (best) return { ...seed, ...best, id: seed.id, c1: seed.c1, c2: seed.c2, cover: seed.cover || best.cover || null }
+    let ranked = rankCandidates(candidates, seed)
+    for (const entry of ranked.slice(0, 3)) {
+      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
+      if (hydrated?.streamUrl) return finalize(hydrated)
+    }
 
     candidates = await fetchItunesSearch(primaryQuery, 16)
-    best = chooseBest(candidates, seed)
-    if (best) return { ...seed, ...best, id: seed.id, c1: seed.c1, c2: seed.c2, cover: seed.cover || best.cover || null }
+    let best = chooseBest(candidates, seed)
+    if (best) return finalize(best)
 
-    candidates = await fetchJioSearch(seed.title, 16)
-    best = chooseBest(candidates, seed)
-    if (best) return { ...seed, ...best, id: seed.id, c1: seed.c1, c2: seed.c2, cover: seed.cover || best.cover || null }
+    candidates = await fetchJioSearch(searchTitle, 16)
+    ranked = rankCandidates(candidates, seed)
+    for (const entry of ranked.slice(0, 3)) {
+      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
+      if (hydrated?.streamUrl) return finalize(hydrated)
+    }
 
     const error = new Error('No official stream found')
     error.code = 'UNRESOLVED'
@@ -583,6 +796,84 @@ async function fetchLyrics(track) {
   return null
 }
 
+const CURATED_TRANSLATIONS = {
+  kesariya: [
+    'A moment of love, a moment, my love',
+    'A moment of colour, a moment, my love',
+    'When I found you, I lost myself',
+    'My beloved, my beloved',
+  ],
+  pasoori: [
+    'I am a little stubborn, a little crazy',
+    'You are my world, the beat of my heart',
+    'This puzzle of love, this Pasoori',
+    'Tell me, how do I solve you?',
+  ],
+  'tum-hi-ho': [
+    'You are life and death for me',
+    'You are my peace, my sanctuary',
+    'Without you I am nothing',
+    'You are everything I have',
+  ],
+  'apna-bana-le': [
+    'Make me yours, my beloved',
+    'I am yours, make me yours',
+    'When you are not here, nothing feels right',
+    'Stay with me, make me yours',
+  ],
+}
+
+async function translateLine(text) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`
+  const payload = await fetchJson(url, { timeout: 3500 })
+  const pieces = Array.isArray(payload?.[0]) ? payload[0] : []
+  return pieces.map((piece) => (Array.isArray(piece) ? piece[0] : '') || '').join('').trim()
+}
+
+async function translateLines(lines, track, onProgress) {
+  const cache = readStorage(TRANSLATION_CACHE_KEY, {}) || {}
+  const curated = CURATED_TRANSLATIONS[track?.id] || []
+  const results = [...lines]
+  const deadline = Date.now() + 7000
+  let cacheDirty = false
+  let cursor = 0
+
+  const worker = async () => {
+    while (cursor < results.length && Date.now() < deadline) {
+      const index = cursor
+      cursor += 1
+      const line = results[index]
+      if (!line?.text?.trim() || line.enText) continue
+      if (curated[index]) {
+        results[index] = { ...line, enText: curated[index] }
+        onProgress?.([...results])
+        continue
+      }
+      const cacheKey = `${track?.id || 'track'}::${index}::${line.text}`
+      if (cache[cacheKey]) {
+        results[index] = { ...line, enText: cache[cacheKey] }
+        continue
+      }
+      let translated = ''
+      try {
+        translated = await translateLine(line.text)
+      } catch {
+        translated = ''
+      }
+      if (translated && translated.toLowerCase() !== line.text.trim().toLowerCase()) {
+        cache[cacheKey] = translated
+        cacheDirty = true
+        results[index] = { ...line, enText: translated }
+        onProgress?.([...results])
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: 10 }, () => worker()))
+  if (cacheDirty) writeStorage(TRANSLATION_CACHE_KEY, cache)
+  return results
+}
+
 function Logo() {
   return (
     <div className="brand">
@@ -601,19 +892,20 @@ function Avatar({ member, size = '', online = false, className = '' }) {
     <span
       className={`avatar ${size} ${className}`}
       style={{ '--av1': member.av1, '--av2': member.av2 }}
-      title={member.name}
+      title={member.name ? `${member.name} @${member.handle || ''}` : undefined}
     >
-      {member.initials}
+      {member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : member.initials}
       {online && <i className="avatar-online" />}
     </span>
   )
 }
 
 function AvatarStack({ ids = [], size = 'xs', max = 4 }) {
+  const members = useMembers()
   return (
     <div className="avatar-stack">
       {ids.slice(0, max).map((id) => (
-        <Avatar key={id} member={MEMBERS[id]} size={size} />
+        <Avatar key={id} member={members[id]} size={size} />
       ))}
     </div>
   )
@@ -658,6 +950,7 @@ function Equalizer({ className = 'live-eq' }) {
 
 function Sidebar({
   room,
+  rooms,
   view,
   onNavigate,
   onSearch,
@@ -666,6 +959,8 @@ function Sidebar({
   onInvite,
   likedCount,
   onOpenProfile,
+  onCreateRoom,
+  currentUser,
 }) {
   return (
     <aside className="sidebar">
@@ -685,7 +980,7 @@ function Sidebar({
         <button className={`nav-item ${view === 'rooms' ? 'active' : ''}`} onClick={() => onNavigate('rooms')}>
           <Radio />
           <span>Rooms</span>
-          <span className="nav-count">04</span>
+          <span className="nav-count">{String(rooms.length).padStart(2, '0')}</span>
         </button>
         <button className="nav-item" onClick={onSearch}>
           <Search />
@@ -701,10 +996,10 @@ function Sidebar({
       <div className="side-section">
         <div className="side-label">
           <span>LISTENING ROOMS</span>
-          <button onClick={onInvite} aria-label="Create room"><Plus size={13} /></button>
+          <button onClick={onCreateRoom} aria-label="Create room"><Plus size={13} /></button>
         </div>
         <div className="room-list">
-          {ROOMS.map((item) => (
+          {rooms.map((item) => (
             <button
               key={item.id}
               className={`room-link ${room.id === item.id && view === 'room' ? 'active' : ''}`}
@@ -727,10 +1022,10 @@ function Sidebar({
           <button onClick={onInvite}><UserPlus size={11} /> Copy invite link</button>
         </div>
         <button className="profile" onClick={onOpenProfile}>
-          <Avatar member={MEMBERS.me} online />
+          <Avatar member={currentUser} online />
           <span className="profile-meta">
-            <strong>{MEMBERS.me.name}</strong>
-            <span><Crown size={10} /> {role} of {room.name}</span>
+            <strong>{currentUser?.name || 'Sign in'}</strong>
+            <span>@{currentUser?.handle || 'guest'} · <Crown size={10} /> {role}</span>
           </span>
           <MoreHorizontal size={15} />
         </button>
@@ -748,6 +1043,8 @@ function StageBar({
   onToggleChat,
   chatOpen,
   onHome,
+  currentUser,
+  onOpenProfile,
 }) {
   return (
     <header className="stage-bar">
@@ -765,6 +1062,9 @@ function StageBar({
       </div>
 
       <div className="stage-actions">
+        <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label="Account and profile">
+          <Avatar member={currentUser} />
+        </button>
         <button className="icon-btn" onClick={onSearch} aria-label="Search">
           <Search />
         </button>
@@ -824,19 +1124,27 @@ function VoiceRow({
   )
 }
 
-function RoomsView({ library, currentRoom, onJoin }) {
+function RoomsView({ rooms, library, currentRoom, onJoin, onCreate }) {
   return (
     <div className="rooms-view">
       <div className="eyebrow">
         <span className="live-pill"><Radio size={9} /> DISCOVER</span>
         <span className="seg" />
-        <span>4 ROOMS LIVE</span>
+        <span>{String(rooms.length).padStart(2, '0')} ROOMS LIVE</span>
       </div>
       <h1 className="page-title">Find your <em>frequency.</em></h1>
       <p className="page-sub">Small rooms, shared speakers, and a queue that moves together. Step into a room and stay a while.</p>
 
       <div className="rooms-grid">
-        {ROOMS.map((room) => {
+        <button className="room-card create-room-card" onClick={onCreate}>
+          <div className="rc-create-glyph"><Plus /></div>
+          <h2 className="rc-title">Start a room</h2>
+          <p className="rc-sub">Pick a vibe, invite the room, and become its Admin.</p>
+          <div className="rc-foot">
+            <span className="rc-join"><UsersRound size={11} /> Create listening room</span>
+          </div>
+        </button>
+        {rooms.map((room) => {
           const firstCover = room.trackIds.map((id) => library[id]?.cover).find(Boolean)
           return (
             <button
@@ -942,6 +1250,9 @@ function LyricsPanel({
   onLock,
   onRetry,
   showTrack = true,
+  translateOn = false,
+  translating = false,
+  onToggleTranslate,
 }) {
   const scrollRef = useRef(null)
   const pauseUntil = useRef(0)
@@ -1035,17 +1346,26 @@ function LyricsPanel({
 
         {lyrics?.status === 'ready' && lyrics.type === 'synced' && (
           <>
-            {lyrics.lines.map((line, index) => (
-              <button
-                key={`${line.time}-${index}`}
-                className={`lyric-line ${index === activeIndex ? 'active' : ''}`}
-                data-lyric-index={index}
-                onClick={() => seekLine(line)}
-              >
-                <span className="lyric-time">{formatTime(line.time)}</span>
-                {line.text}
-              </button>
-            ))}
+            {lyrics.lines.map((line, index) => {
+              const translated = translateOn ? line.enText : null
+              return (
+                <button
+                  key={`${line.time}-${index}`}
+                  className={`lyric-line ${index === activeIndex ? 'active' : ''} ${translated ? 'translated' : ''}`}
+                  data-lyric-index={index}
+                  onClick={() => seekLine(line)}
+                  title={translated ? line.text : undefined}
+                >
+                  <span className="lyric-time">{formatTime(line.time)}</span>
+                  {translated ? (
+                    <span className="lyric-dual">
+                      <span className="lyric-en">{translated}</span>
+                      <span className="lyric-orig">{line.text}</span>
+                    </span>
+                  ) : line.text}
+                </button>
+              )
+            })}
             {lyrics.instrumental && (
               <div className="lyrics-placeholder" style={{ minHeight: 100 }}>
                 <p>This one lets the instruments do the talking.</p>
@@ -1074,12 +1394,547 @@ function LyricsPanel({
                 ? 'unavailable'
                 : 'time-synced lyrics'}
         </span>
+        {lyrics?.status === 'ready' && lyrics.type === 'synced' && onToggleTranslate && (
+          <button
+            className={`translate-btn ${translateOn ? 'on' : ''}`}
+            onClick={onToggleTranslate}
+            disabled={translating}
+          >
+            <Globe />
+            {translating ? 'Translating…' : translateOn ? 'Showing English' : 'Translate to English'}
+          </button>
+        )}
         <button className={`auto-toggle ${autoScroll ? 'on' : ''}`} onClick={() => setAutoScroll((value) => !value)}>
           <Sparkles />
           {pausedHint && autoScroll ? 'Paused' : autoScroll ? 'Auto' : 'Manual'}
         </button>
       </div>
     </div>
+  )
+}
+
+function ModalShell({ children, onClose, size = '' }) {
+  return (
+    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className={`modal ${size}`} role="dialog" aria-modal="true">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function AccountModal({ accounts, currentUserId, currentUser, onClose, onSignIn, onSignUp, onSignOut, onSaveProfile, onSwitchUser }) {
+  const [tab, setTab] = useState('profile')
+  const [authMode, setAuthMode] = useState('signin')
+  const [form, setForm] = useState({
+    name: currentUser.name || '',
+    email: currentUser.email || '',
+    handle: currentUser.handle || '',
+    preset: currentUser.preset || 'rose',
+    avatarUrl: currentUser.avatarUrl || '',
+  })
+  const [auth, setAuth] = useState({ name: '', email: '', handle: '', password: '' })
+  const [authHint, setAuthHint] = useState('')
+
+  useEffect(() => {
+    setForm({
+      name: currentUser.name || '',
+      email: currentUser.email || '',
+      handle: currentUser.handle || '',
+      preset: currentUser.preset || 'rose',
+      avatarUrl: currentUser.avatarUrl || '',
+    })
+  }, [currentUser])
+
+  const selectedPreset = AVATAR_PRESETS.find((preset) => preset.id === form.preset) || AVATAR_PRESETS[0]
+  const preview = accountDisplay({
+    ...currentUser,
+    name: form.name || currentUser.name,
+    initials: initials(form.name || currentUser.name),
+    av1: selectedPreset.av1,
+    av2: selectedPreset.av2,
+    avatarUrl: form.avatarUrl.trim(),
+  })
+
+  const submitProfile = (event) => {
+    event.preventDefault()
+    const name = form.name.trim()
+    if (!name) return
+    onSaveProfile({
+      name,
+      email: form.email.trim(),
+      handle: slugifyHandle(form.handle || form.email) || currentUser.handle,
+      preset: selectedPreset.id,
+      av1: selectedPreset.av1,
+      av2: selectedPreset.av2,
+      avatarUrl: form.avatarUrl.trim(),
+    })
+  }
+
+  const quickFillFromGoogle = () => {
+    const email = auth.email.trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setAuthHint('Enter a Gmail address above, then tap Quick Fill.')
+      return
+    }
+    const existing = Object.values(accounts).find((account) => account.email?.toLowerCase() === email)
+    if (existing) {
+      setAuth({ name: existing.name, email, handle: existing.handle, password: existing.password })
+      setAuthMode('signin')
+      setAuthHint(`Welcome back, ${existing.name.split(' ')[0]} — password filled.`)
+      return
+    }
+    setAuth({
+      name: nameFromEmail(email),
+      email,
+      handle: slugifyHandle(handleFromEmail(email)),
+      password: '',
+      preset: randomAvatarPreset(email).id,
+    })
+    setAuthMode('signup')
+    setAuthHint(`Filled from ${email} — pick a password to create the account.`)
+  }
+
+  const submitAuth = (event) => {
+    event.preventDefault()
+    if (authMode === 'signin') {
+      onSignIn(auth.email, auth.password)
+      return
+    }
+    if (!auth.name.trim() || !auth.email.trim() || !auth.password) return
+    onSignUp({
+      name: auth.name,
+      email: auth.email,
+      password: auth.password,
+      handle: auth.handle,
+      preset: auth.preset,
+    })
+  }
+
+  const demoAccounts = Object.values(accounts).filter((account) => DEFAULT_ACCOUNTS[account.id])
+
+  return (
+    <ModalShell onClose={onClose} size="modal-account">
+      <div className="modal-head">
+        <div>
+          <span className="eyebrow"><span className="seg" /> ACCOUNT</span>
+          <h2>{tab === 'profile' ? 'Your listening identity' : 'Sign in or switch'}</h2>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="Close account"><X /></button>
+      </div>
+      <div className="modal-tabs">
+        <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRoundPlus /> Profile</button>
+        <button className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}><UsersRound /> Accounts</button>
+      </div>
+
+      {tab === 'profile' ? (
+        <form className="modal-body profile-form" onSubmit={submitProfile}>
+          <div className="profile-top">
+            <Avatar member={preview} size="avatar-xl" online />
+            <div>
+              <strong>{preview.name}</strong>
+              <span>@{preview.handle} · {preview.email}</span>
+              <small>Avatar shows across every room and chat.</small>
+            </div>
+          </div>
+
+          <div className="field-row">
+            <label className="field">
+              <span>Display name</span>
+              <input value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} placeholder="Your name" />
+            </label>
+            <label className="field">
+              <span>@handle</span>
+              <input value={form.handle} onChange={(event) => setForm((value) => ({ ...value, handle: event.target.value }))} placeholder="your.handle" />
+            </label>
+          </div>
+          <label className="field">
+            <span>Gmail address</span>
+            <input type="email" value={form.email} onChange={(event) => setForm((value) => ({ ...value, email: event.target.value }))} placeholder="you@gmail.com" />
+          </label>
+
+          <div className="field">
+            <span>Avatar preset</span>
+            <div className="preset-grid">
+              {AVATAR_PRESETS.map((preset) => (
+                <button
+                  type="button"
+                  key={preset.id}
+                  className={`preset-swatch ${form.preset === preset.id ? 'selected' : ''}`}
+                  style={{ '--av1': preset.av1, '--av2': preset.av2 }}
+                  onClick={() => setForm((value) => ({ ...value, preset: preset.id }))}
+                  aria-label={`${preset.id} avatar`}
+                >
+                  <span />
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="field">
+            <span>Or paste an image URL</span>
+            <input value={form.avatarUrl} onChange={(event) => setForm((value) => ({ ...value, avatarUrl: event.target.value }))} placeholder="https://…" />
+          </label>
+
+          <div className="modal-actions">
+            <button type="button" className="text-btn ghosted" onClick={onSignOut}><LogOut size={12} /> Sign out</button>
+            <button type="submit" className="primary-btn">Save profile</button>
+          </div>
+        </form>
+      ) : (
+        <div className="modal-body auth-body">
+          <div className="demo-accounts">
+            <span className="modal-hint">Demo accounts · tap to fill</span>
+            <div className="demo-chips">
+              {demoAccounts.map((account) => (
+                <button
+                  key={account.id}
+                  className={`demo-chip ${account.id === currentUserId ? 'active' : ''}`}
+                  onClick={() => {
+                    setAuth({ name: account.name, email: account.email, handle: account.handle, password: account.password })
+                    setAuthMode('signin')
+                  }}
+                >
+                  <Avatar member={account} size="xs" />
+                  <span>{account.name.split(' ')[0]}<small>@{account.handle}</small></span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="auth-switch">
+            <button className={authMode === 'signin' ? 'active' : ''} onClick={() => setAuthMode('signin')}>Sign in</button>
+            <button className={authMode === 'signup' ? 'active' : ''} onClick={() => setAuthMode('signup')}>Create account</button>
+          </div>
+
+          <form className="auth-form" onSubmit={submitAuth}>
+            {authMode === 'signup' && (
+              <label className="field">
+                <span>Display name</span>
+                <input value={auth.name} onChange={(event) => setAuth((value) => ({ ...value, name: event.target.value }))} placeholder="Your name" />
+              </label>
+            )}
+            <label className="field">
+              <span>Gmail address</span>
+              <input type="email" value={auth.email} onChange={(event) => setAuth((value) => ({ ...value, email: event.target.value }))} placeholder="you@gmail.com" autoComplete="email" />
+            </label>
+            <button className="text-btn google-quick" type="button" onClick={quickFillFromGoogle}>
+              <Globe size={12} /> Continue with Google (Quick Fill)
+            </button>
+            {authHint && <span className="modal-hint">{authHint}</span>}
+            {authMode === 'signup' && (
+              <label className="field">
+                <span>@handle (optional)</span>
+                <input value={auth.handle} onChange={(event) => setAuth((value) => ({ ...value, handle: event.target.value }))} placeholder="your.handle" />
+              </label>
+            )}
+            <label className="field">
+              <span>Password</span>
+              <input type="password" value={auth.password} onChange={(event) => setAuth((value) => ({ ...value, password: event.target.value }))} placeholder="••••••••" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} />
+            </label>
+            <button className="primary-btn full" type="submit">
+              <KeyRound />
+              {authMode === 'signin' ? 'Sign in to EchoSync' : 'Create my account'}
+            </button>
+          </form>
+
+          <div className="switch-list">
+            <span className="modal-hint">Switch this tab’s view instantly</span>
+            {Object.values(accounts).map((account) => (
+              <button key={account.id} className={`switch-row ${account.id === currentUserId ? 'active' : ''}`} onClick={() => onSwitchUser(account.id)}>
+                <Avatar member={account} size="sm" online={account.id === currentUserId} />
+                <span>
+                  <strong>{account.name}</strong>
+                  <small>@{account.handle} · {account.email}</small>
+                </span>
+                {account.id === currentUserId ? <span className="switch-current"><Check /> Current</span> : <span className="switch-hint">Use view</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </ModalShell>
+  )
+}
+
+function MembersModal({
+  room,
+  currentUserId,
+  canModerate,
+  roles,
+  members,
+  requests,
+  onClose,
+  onAddMember,
+  onKick,
+  onAssignRole,
+  onResolveRequest,
+}) {
+  const [query, setQuery] = useState('')
+  const [copied, setCopied] = useState(false)
+  const code = room.code || `ECHO-${room.id.replace(/[^a-z0-9]/gi, '').slice(0, 4).toUpperCase()}`
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch {
+      /* clipboard can be unavailable */
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
+
+  const submit = (event) => {
+    event.preventDefault()
+    if (onAddMember(query)) setQuery('')
+  }
+
+  return (
+    <ModalShell onClose={onClose} size="modal-members">
+      <div className="modal-head">
+        <div>
+          <span className="eyebrow"><span className="seg" /> {room.name}</span>
+          <h2>Members & roles</h2>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="Close members"><X /></button>
+      </div>
+      <div className="modal-body">
+        <button className={`invite-code ${copied ? 'copied' : ''}`} onClick={copyCode}>
+          <span>
+            <small>INVITE CODE</small>
+            <strong>{code}</strong>
+          </span>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          <em>{copied ? 'Copied' : 'Click to copy'}</em>
+        </button>
+
+        {canModerate && (
+          <form className="add-member" onSubmit={submit}>
+            <div className="add-member-copy">
+              <strong>Add someone</strong>
+              <small>Invite by Gmail address or @handle. New people join as Listeners.</small>
+            </div>
+            <div className="add-member-row">
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="friend@gmail.com or @handle" />
+              <button className="primary-btn" type="submit"><UserRoundPlus /> Add</button>
+            </div>
+          </form>
+        )}
+
+        {canModerate && requests.length > 0 && (
+          <div className="pending-requests">
+            <span className="modal-hint">PENDING REQUESTS</span>
+            {requests.map((request) => (
+              <div className="pending-row" key={request.id}>
+                <Avatar member={members[request.userId]} size="sm" />
+                <span>
+                  <strong>{members[request.userId]?.name || request.userId}</strong>
+                  <small>Wants {request.requested === 'admin' ? 'Admin' : 'DJ'} access</small>
+                </span>
+                <button className="request-approve" onClick={() => onResolveRequest(request.id, true)}><Check size={12} /> Approve</button>
+                <button className="request-decline" onClick={() => onResolveRequest(request.id, false)}><X size={12} /> Decline</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="member-list">
+          <span className="modal-hint">{room.members.length} IN THE ROOM</span>
+          {room.members.map((id) => {
+            const member = members[id]
+            const memberRole = roles[id] || 'listener'
+            const isSelf = id === currentUserId
+            return (
+              <div className="member-row" key={id}>
+                <Avatar member={member} size="sm" online={member?.online} />
+                <span className="member-copy">
+                  <strong>{member?.name || id} {isSelf && <em>you</em>}</strong>
+                  <small>@{member?.handle || id}</small>
+                </span>
+                {canModerate && !isSelf ? (
+                  <select
+                    className={`role-select ${memberRole}`}
+                    value={memberRole}
+                    onChange={(event) => onAssignRole(id, event.target.value)}
+                    aria-label={`Role for ${member?.name || id}`}
+                  >
+                    <option value="listener">Listener</option>
+                    <option value="dj">DJ</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                ) : (
+                  <span className={`role-label ${memberRole}`}>
+                    {memberRole === 'admin' ? <ShieldCheck /> : memberRole === 'dj' ? <Disc3 /> : <Headphones />}
+                    {ROLE_COPY[memberRole]?.label || 'Listener'}
+                  </span>
+                )}
+                {canModerate && !isSelf && (
+                  <button className="icon-btn member-kick" onClick={() => onKick(id)} aria-label={`Remove ${member?.name || id}`}>
+                    <UserMinus />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <div className="social-note"><Shield size={9} /> Admins decide who plays what. DJs can control the queue.</div>
+      </div>
+    </ModalShell>
+  )
+}
+
+function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
+  const [form, setForm] = useState(() => ({
+    name: room?.name || '',
+    tagline: room?.tagline || '',
+    description: room?.description || '',
+    gradient: ROOM_GRADIENTS.find((gradient) => gradient.accent === room?.accent)?.id || ROOM_GRADIENTS[0].id,
+    private: Boolean(room?.private),
+    listeners: room?.listeners || 8,
+    trackIds: room?.trackIds ? [...room.trackIds] : SEED_TRACKS.slice(0, 6).map((seed) => seed.id),
+  }))
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const toggleTrack = (id) => {
+    setForm((value) => ({
+      ...value,
+      trackIds: value.trackIds.includes(id) ? value.trackIds.filter((trackId) => trackId !== id) : [...value.trackIds, id],
+    }))
+  }
+
+  const submit = (event) => {
+    event.preventDefault()
+    if (!form.name.trim()) return
+    const payload = {
+      name: form.name,
+      tagline: form.tagline,
+      description: form.description,
+      private: form.private,
+      listeners: Number(form.listeners) || 2,
+      trackIds: form.trackIds.length ? form.trackIds : SEED_TRACKS.slice(0, 4).map((seed) => seed.id),
+    }
+    if (mode === 'create') onCreate({ ...payload, gradient: form.gradient })
+    else onUpdate(payload)
+  }
+
+  return (
+    <ModalShell onClose={onClose} size="modal-room">
+      <div className="modal-head">
+        <div>
+          <span className="eyebrow"><span className="seg" /> {mode === 'create' ? 'NEW ROOM' : 'ROOM SETTINGS'}</span>
+          <h2>{mode === 'create' ? 'Start a listening room' : `Tune ${room?.name}`}</h2>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="Close room editor"><X /></button>
+      </div>
+      <form className="modal-body room-form" onSubmit={submit}>
+        <div className="field-row">
+          <label className="field">
+            <span>Room name</span>
+            <input value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} placeholder="Sunday Slow Jams" />
+          </label>
+          <label className="field">
+            <span>Tagline</span>
+            <input value={form.tagline} onChange={(event) => setForm((value) => ({ ...value, tagline: event.target.value }))} placeholder="One line about the vibe" />
+          </label>
+        </div>
+        <label className="field">
+          <span>Description</span>
+          <textarea rows={2} value={form.description} onChange={(event) => setForm((value) => ({ ...value, description: event.target.value }))} placeholder="What happens in this room?" />
+        </label>
+
+        <div className="field">
+          <span>Room gradient</span>
+          <div className="gradient-grid">
+            {ROOM_GRADIENTS.map((gradient) => (
+              <button
+                type="button"
+                key={gradient.id}
+                className={`gradient-swatch ${form.gradient === gradient.id ? 'selected' : ''}`}
+                style={{ '--c1': gradient.c1, '--c2': gradient.c2 }}
+                onClick={() => setForm((value) => ({ ...value, gradient: gradient.id }))}
+                aria-label={`${gradient.id} gradient`}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="field-row compact">
+          <label className="field">
+            <span>Room privacy</span>
+            <select value={form.private ? 'private' : 'open'} onChange={(event) => setForm((value) => ({ ...value, private: event.target.value === 'private' }))}>
+              <option value="open">Open · anyone with the code</option>
+              <option value="private">Private · invite only</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Listener count</span>
+            <input type="number" min="1" max="9999" value={form.listeners} onChange={(event) => setForm((value) => ({ ...value, listeners: event.target.value }))} />
+          </label>
+        </div>
+
+        <div className="field">
+          <span>Queue · pick at least one</span>
+          <div className="track-picker">
+            {SEED_TRACKS.map((seed) => (
+              <button
+                type="button"
+                key={seed.id}
+                className={`track-chip ${form.trackIds.includes(seed.id) ? 'selected' : ''}`}
+                onClick={() => toggleTrack(seed.id)}
+              >
+                <span className="track-chip-art" style={{ '--c1': seed.c1, '--c2': seed.c2 }}>
+                  {form.trackIds.includes(seed.id) ? <Check size={10} /> : null}
+                </span>
+                <span>
+                  <strong>{seed.title}</strong>
+                  <small>{seed.artist}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          {mode === 'edit' && (
+            <button
+              type="button"
+              className={`text-btn danger-btn ${confirmDelete ? 'confirm' : ''}`}
+              onClick={() => {
+                if (confirmDelete) onDelete()
+                else setConfirmDelete(true)
+              }}
+            >
+              <Trash2 size={12} /> {confirmDelete ? 'Tap again to delete room' : 'Delete room'}
+            </button>
+          )}
+          <span className="grow" />
+          <button type="button" className="text-btn ghosted" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" type="submit">{mode === 'create' ? <Plus /> : <Check />} {mode === 'create' ? 'Create room' : 'Save changes'}</button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+function MessageText({ text, members, currentUserId, onTag }) {
+  const parts = String(text).split(/(@[\w.]+)/g)
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (!part.startsWith('@')) return <span key={`${part}-${index}`}>{part}</span>
+        const handle = part.slice(1).toLowerCase()
+        const member = Object.values(members).find((candidate) => candidate?.handle === handle)
+        const mine = member?.id === currentUserId
+        return (
+          <button
+            key={`${part}-${index}`}
+            className={`mention-pill ${mine ? 'mine' : ''}`}
+            onClick={() => member && onTag(member)}
+          >
+            {part}
+          </button>
+        )
+      })}
+    </>
   )
 }
 
@@ -1101,11 +1956,38 @@ function ChatPanel({
   onSeek,
   onLock,
   onRetryLyrics,
+  onDeleteMessage,
+  onReply,
+  replyTo,
+  onCancelReply,
   open,
+  currentUser,
+  canModerate,
+  memberRoles,
+  translateOn,
+  translating,
+  onToggleTranslate,
 }) {
+  const members = useMembers()
   const chatRef = useRef(null)
+  const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
-  const typingMember = typingMemberId ? MEMBERS[typingMemberId] : null
+  const [menuFor, setMenuFor] = useState(null)
+  const [mention, setMention] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
+  const highlightTimer = useRef(null)
+  const typingMember = typingMemberId ? members[typingMemberId] : null
+  const mentionMatches = mention
+    ? room.members
+      .map((id) => members[id])
+      .filter(Boolean)
+      .filter((member) => {
+        const query = mention.query.toLowerCase()
+        if (!query) return true
+        return member.handle?.toLowerCase().includes(query) || member.name?.toLowerCase().includes(query)
+      })
+      .slice(0, 6)
+    : []
 
   useEffect(() => {
     if (activeTab !== 'chat') return
@@ -1116,7 +1998,49 @@ function ChatPanel({
 
   useEffect(() => {
     setEmojiOpen(false)
+    setMenuFor(null)
+    setMention(null)
+    setHighlightId(null)
   }, [room.id])
+
+  useEffect(() => () => clearTimeout(highlightTimer.current), [])
+
+  const handleDraftChange = (event) => {
+    const value = event.target.value
+    const cursor = event.target.selectionStart || value.length
+    onDraft(value)
+    const beforeCursor = value.slice(0, cursor)
+    const match = beforeCursor.match(/(?:^|\s)@([\w.]{0,24})$/)
+    if (match) setMention({ query: match[1], start: beforeCursor.length - match[1].length - 1 })
+    else setMention(null)
+  }
+
+  const insertMention = (member) => {
+    const start = mention ? mention.start : draft.length
+    const end = mention ? mention.start + mention.query.length + 1 : draft.length
+    const next = `${draft.slice(0, start)}@${member.handle} ${draft.slice(end)}`
+    onDraft(next)
+    setMention(null)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  const scrollToMessage = (id) => {
+    const node = chatRef.current?.querySelector(`[data-msg-id="${id}"]`)
+    if (!node) return
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightId(id)
+    clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 1800)
+  }
+
+  const submitMessage = () => {
+    setMention(null)
+    setEmojiOpen(false)
+    onSend()
+  }
+
+  const roleOf = (userId) => memberRoles?.[userId] || (userId === room.dj ? 'dj' : 'listener')
+  const currentLabel = currentUser?.handle || 'guest'
 
   return (
     <aside className={`social ${open ? 'mobile-open' : ''}`}>
@@ -1157,31 +2081,72 @@ function ChatPanel({
           <div className="chat-body" ref={chatRef}>
             <div className="chat-day"><span>Tonight · {room.name}</span></div>
             {messages.map((message) => {
-              const author = MEMBERS[message.author] || MEMBERS.me
-              const mine = message.author === 'me'
+              if (message.system) {
+                return (
+                  <div className="msg-system" key={message.id}>
+                    <ShieldCheck />
+                    <span><MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} /></span>
+                  </div>
+                )
+              }
+              const author = members[message.author] || members.me || { name: 'Listener', handle: 'listener' }
+              const mine = message.author === currentUser?.id
+              const canDelete = mine || canModerate
               return (
-                <div className={`msg-row ${mine ? 'mine' : ''}`} key={message.id}>
+                <div
+                  className={`msg-row ${mine ? 'mine' : ''} ${highlightId === message.id ? 'highlight' : ''}`}
+                  key={message.id}
+                  data-msg-id={message.id}
+                >
                   {!mine && <Avatar member={author} size="sm" />}
                   <div className="msg-main">
                     {!mine && (
                       <div className="msg-author">
                         {author.name}
-                        {message.author === room.dj && <span className="dj-tag">DJ</span>}
+                        <span className="msg-handle">@{author.handle}</span>
+                        {roleOf(message.author) === 'dj' && <span className="dj-tag">DJ</span>}
                       </div>
                     )}
                     <div className="bubble">
-                      {message.text}
+                      {message.replyTo && (
+                        <button className="reply-quote" onClick={() => scrollToMessage(message.replyTo.id)}>
+                          <strong>{message.replyTo.name || message.replyTo.handle}</strong>
+                          <span>{message.replyTo.text}</span>
+                        </button>
+                      )}
+                      <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
                       <span className="bubble-meta">
                         {message.time}
                         {mine && (message.read ? <CheckCheck /> : <Check />)}
                       </span>
-                      <button
-                        className="msg-react-trigger"
-                        onClick={() => onReact(message.id, '❤️')}
-                        aria-label="React with heart"
-                      >
-                        <Smile />
-                      </button>
+                      <div className="msg-actions">
+                        <button className="msg-action" onClick={() => onReply(message)} aria-label="Reply to message">
+                          <CornerUpLeft />
+                        </button>
+                        <button
+                          className="msg-action"
+                          onClick={() => setMenuFor((value) => (value === message.id ? null : message.id))}
+                          aria-label="Message options"
+                        >
+                          <MoreHorizontal />
+                        </button>
+                        {menuFor === message.id && (
+                          <div className="msg-menu">
+                            <button onClick={() => { onReply(message); setMenuFor(null) }}><CornerUpLeft /> Reply</button>
+                            <button onClick={() => { insertMention(author); setMenuFor(null) }}><AtSign /> Tag @{author.handle}</button>
+                            <div className="msg-menu-emojis">
+                              {REACTION_EMOJIS.map((emoji) => (
+                                <button key={emoji} onClick={() => { onReact(message.id, emoji); setMenuFor(null) }}>{emoji}</button>
+                              ))}
+                            </div>
+                            {canDelete && (
+                              <button className="danger" onClick={() => { onDeleteMessage(message.id); setMenuFor(null) }}>
+                                <Trash2 /> Delete
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     {message.reactions?.length > 0 && (
                       <div className="msg-reactions">
@@ -1212,6 +2177,31 @@ function ChatPanel({
           </div>
 
           <div className="chat-composer">
+            {replyTo && (
+              <div className="reply-bar">
+                <span className="reply-bar-accent" />
+                <div>
+                  <strong>{replyTo.name} <span>@{replyTo.handle}</span></strong>
+                  <p>{replyTo.text}</p>
+                </div>
+                <button className="icon-btn" onClick={onCancelReply} aria-label="Cancel reply"><X /></button>
+              </div>
+            )}
+            {mention && mentionMatches.length > 0 && (
+              <div className="mention-pop">
+                <div className="mention-pop-label">Tag a member of {room.name}</div>
+                {mentionMatches.map((member) => (
+                  <button key={member.id} className="mention-option" onClick={() => insertMention(member)}>
+                    <Avatar member={member} size="sm" />
+                    <span>
+                      <strong>{member.name}</strong>
+                      <small>@{member.handle}</small>
+                    </span>
+                    <em>{ROLE_COPY[roleOf(member.id)]?.label || 'Listener'}</em>
+                  </button>
+                ))}
+              </div>
+            )}
             {emojiOpen && (
               <div className="emoji-pop">
                 {LYRIC_EMOJIS.map((emoji) => (
@@ -1222,25 +2212,44 @@ function ChatPanel({
             <button className="emoji-btn" onClick={() => setEmojiOpen((value) => !value)} aria-label="Add emoji">
               <Smile />
             </button>
+            <button
+              className="emoji-btn"
+              onClick={() => {
+                const prefix = draft && !draft.endsWith(' ') ? ' ' : ''
+                const next = `${draft}${prefix}@`
+                onDraft(next)
+                setMention({ query: '', start: draft.length + prefix.length })
+                requestAnimationFrame(() => inputRef.current?.focus())
+              }}
+              aria-label="Mention a member"
+            >
+              <AtSign />
+            </button>
             <div className="composer-input">
               <input
+                ref={inputRef}
                 value={draft}
-                onChange={(event) => onDraft(event.target.value)}
+                onChange={handleDraftChange}
                 onKeyDown={(event) => {
+                  if (mention && mentionMatches.length && event.key === 'Tab') {
+                    event.preventDefault()
+                    insertMention(mentionMatches[0])
+                    return
+                  }
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
-                    onSend()
+                    submitMessage()
                   }
                 }}
-                placeholder="Message the room…"
+                placeholder={`Message the room as @${currentLabel}…`}
                 aria-label="Room message"
               />
-              <button className="send-btn" onClick={onSend} aria-label="Send message">
+              <button className="send-btn" onClick={submitMessage} aria-label="Send message">
                 <Send />
               </button>
             </div>
           </div>
-          <div className="social-note"><Lock size={9} /> Room chat stays in this room · reactions are live</div>
+          <div className="social-note"><Lock size={9} /> Room chat stays in this room · replies and tags are live</div>
         </>
       ) : (
         <LyricsPanel
@@ -1251,6 +2260,9 @@ function ChatPanel({
           onSeek={onSeek}
           onLock={onLock}
           onRetry={onRetryLyrics}
+          translateOn={translateOn}
+          translating={translating}
+          onToggleTranslate={onToggleTranslate}
         />
       )}
     </aside>
@@ -1275,7 +2287,6 @@ function RoomView({
   micLevel,
   speaking,
   duckTest,
-  onSelectRole,
   onLock,
   onTogglePlay,
   onNext,
@@ -1290,12 +2301,19 @@ function RoomView({
   onToggleMic,
   onDuckTest,
   onOpenFull,
+  currentUser,
+  pendingRequest,
+  onRequestRole,
+  onOpenMembers,
+  onOpenSettings,
+  roleRequests,
+  onResolveRequest,
+  onFindFull,
 }) {
-  const [roleOpen, setRoleOpen] = useState(false)
-  const roleRef = useRef(null)
+  const members = useMembers()
   const words = room.name.split(' ')
   const lastWord = words.pop()
-  const linePeople = room.members.filter((id) => id !== 'me').slice(0, 4)
+  const linePeople = room.members.filter((id) => id !== currentUser?.id).slice(0, 4)
   const linePositions = [15, 33, 54, 74]
   const total = duration || track?.duration || 0
   const pct = total ? Math.min(100, Math.max(0, (progress / total) * 100)) : 0
@@ -1303,15 +2321,7 @@ function RoomView({
   const failed = track?.status === 'error'
   const pending = track?.status === 'pending' || track?.status === 'resolving'
   const RoleIcon = ROLE_COPY[role]?.Icon || Headphones
-
-  useEffect(() => {
-    if (!roleOpen) return undefined
-    const close = (event) => {
-      if (roleRef.current && !roleRef.current.contains(event.target)) setRoleOpen(false)
-    }
-    document.addEventListener('pointerdown', close)
-    return () => document.removeEventListener('pointerdown', close)
-  }, [roleOpen])
+  const requestable = role === 'listener' ? 'dj' : role === 'dj' ? 'admin' : null
 
   const seekFromEvent = (event) => {
     if (!canControl) {
@@ -1342,43 +2352,74 @@ function RoomView({
           <AvatarStack ids={room.members} size="sm" max={4} />
           <span className="meta-listeners"><b>{room.listeners.toLocaleString()}</b> listening now</span>
           <div className="meta-divider" />
-          <div ref={roleRef} style={{ position: 'relative' }}>
-            <button className="role-chip" onClick={() => setRoleOpen((value) => !value)}>
-              <RoleIcon />
-              <span>Viewing as <b>{ROLE_COPY[role]?.label}</b></span>
-              <ChevronDown size={10} />
+          <span className="role-chip static">
+            <RoleIcon />
+            <span>Viewing as <b>{ROLE_COPY[role]?.label}</b></span>
+          </span>
+          {requestable && (
+            <button
+              className={`text-btn ${pendingRequest ? 'ghosted' : ''}`}
+              onClick={() => onRequestRole(requestable)}
+              disabled={Boolean(pendingRequest)}
+              title={pendingRequest ? `${pendingRequest.requested} access pending approval` : undefined}
+            >
+              {pendingRequest ? <Clock3 size={12} /> : <ShieldCheck size={12} />}
+              {pendingRequest
+                ? `Awaiting ${pendingRequest.requested === 'admin' ? 'Admin' : 'DJ'} approval`
+                : `Request ${requestable === 'admin' ? 'Admin' : 'DJ'} access`}
             </button>
-            {roleOpen && (
-              <div className="role-menu">
-                <div className="role-menu-label">WHO CAN CONTROL PLAYBACK</div>
-                {Object.entries(ROLE_COPY).map(([key, option]) => {
-                  const Icon = option.Icon
-                  return (
-                    <button
-                      key={key}
-                      className={`role-option ${role === key ? 'selected' : ''}`}
-                      onClick={() => {
-                        onSelectRole(key)
-                        setRoleOpen(false)
-                      }}
-                    >
-                      <Icon />
-                      <span>
-                        {option.label}
-                        <small>{option.note}</small>
-                      </span>
-                      {role === key && <Check className="check" size={12} />}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          )}
+          <button className="text-btn" onClick={onOpenMembers}>
+            <UsersRound size={12} /> Members · {room.members.length}
+          </button>
+          {role === 'admin' && (
+            <button className="text-btn" onClick={onOpenSettings}>
+              <Settings size={12} /> Room settings
+            </button>
+          )}
           <button className="text-btn" onClick={onInvite}>
             <UserPlus size={12} /> Invite
           </button>
         </div>
       </section>
+
+      {role === 'admin' && roleRequests?.length > 0 && (
+        <section className="request-banner">
+          <div className="request-banner-copy">
+            <span className="request-icon"><ShieldCheck /></span>
+            <div>
+              <strong>{roleRequests.length === 1 ? '1 role request' : `${roleRequests.length} role requests`} waiting</strong>
+              <p>Listener and DJ members are asking for more access in {room.name}.</p>
+            </div>
+          </div>
+          <div className="request-banner-list">
+            {roleRequests.map((request) => {
+              const requester = members[request.userId]
+              return (
+                <div className="request-row" key={request.id}>
+                  <Avatar member={requester} size="sm" />
+                  <span className="request-row-copy">
+                    <strong>{requester?.name || request.userId}</strong>
+                    <small>@{requester?.handle || 'listener'} · wants <b>{request.requested === 'admin' ? 'Admin' : 'DJ'}</b></small>
+                  </span>
+                  <button className="request-approve" onClick={() => onResolveRequest(request.id, true)}>
+                    <Check size={12} /> Approve
+                  </button>
+                  <button className="request-decline" onClick={() => onResolveRequest(request.id, false)}>
+                    <X size={12} /> Decline
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {role === 'admin' && roleRequests?.length === 0 && (
+        <button className="chip-btn" onClick={onOpenMembers}>
+          <ShieldCheck size={12} /> {room.members.length} members · manage roles
+        </button>
+      )}
 
       <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
         <Cover track={track} size="cover-size-hero" showQuality playing={isPlaying} />
@@ -1415,7 +2456,8 @@ function RoomView({
               >
                 <div className="timeline-fill" style={{ width: `${pct}%` }} />
                 {linePeople.map((id, index) => {
-                  const member = MEMBERS[id]
+                  const member = members[id]
+                  if (!member) return null
                   return (
                     <span
                       key={id}
@@ -1474,12 +2516,17 @@ function RoomView({
           </div>
 
           <div className="now-foot">
-            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.provider === 'itunes' ? 'Official preview · 30 seconds' : ready ? 'Ad-free stream · 320 kbps' : 'Ready in the room'}</span>
+            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.preview ? 'Official preview · 30 seconds' : ready ? 'Ad-free stream · 320 kbps' : 'Ready in the room'}</span>
             <span className="dot" />
             <span>{room.listeners.toLocaleString()} in the room</span>
             <span className={`dot`} />
             <span>{canControl ? 'You have control' : 'Listen-only mode'}</span>
             <span className="grow" />
+            {track?.preview && (
+              <button className="text-btn find-full" onClick={() => onFindFull(track)}>
+                <Search size={11} /> Find Full Version
+              </button>
+            )}
             <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track">
               <Heart />
             </button>
@@ -1504,7 +2551,7 @@ function RoomView({
         </div>
         <div className="head-actions">
           <button className="text-btn" onClick={onSearch}><Plus /> Add a song</button>
-          <span className="source-badge">{queue.length} tracks</span>
+          <span className="source-badge">{queue.length} {queue.length === 1 ? 'track' : 'tracks'}</span>
         </div>
       </div>
 
@@ -1968,8 +3015,31 @@ function initialMessages() {
 export default function App() {
   const [theme, setTheme] = useState(() => (readStorage(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark'))
   const [view, setView] = useState('room')
-  const [activeRoomId, setActiveRoomId] = useState('midnight-radio')
-  const [roles, setRoles] = useState(DEFAULT_ROLES)
+  const [accounts, setAccounts] = useState(() => {
+    const stored = readStorage(ACCOUNTS_KEY, null)
+    if (stored && typeof stored === 'object' && Object.keys(stored).length) {
+      return { ...DEFAULT_ACCOUNTS, ...stored }
+    }
+    return { ...DEFAULT_ACCOUNTS }
+  })
+  const [currentUserId, setCurrentUserId] = useState(() => readSessionUser() || 'me')
+  const [rooms, setRooms] = useState(() => loadStoredRooms() || ROOMS)
+  const [activeRoomId, setActiveRoomId] = useState(() => {
+    const initialRooms = loadStoredRooms() || ROOMS
+    const fromUrl = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('room')
+    if (fromUrl && initialRooms.some((room) => room.id === fromUrl)) return fromUrl
+    return initialRooms[0].id
+  })
+  const [roles, setRoles] = useState(() => roleMatrixFromRooms(loadStoredRooms() || ROOMS))
+  const [roleRequests, setRoleRequests] = useState({})
+  const [authOpen, setAuthOpen] = useState(false)
+  const [membersOpen, setMembersOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [createRoomOpen, setCreateRoomOpen] = useState(false)
+  const [replyTo, setReplyTo] = useState(null)
+  const [joinPill, setJoinPill] = useState(null)
+  const [translateOn, setTranslateOn] = useState(() => readStorage(TRANSLATE_KEY, false) === true)
+  const [translating, setTranslating] = useState(false)
   const [library, setLibrary] = useState(buildInitialLibrary)
   const [queues, setQueues] = useState(() => Object.fromEntries(ROOMS.map((room) => [room.id, [...room.trackIds]])))
   const [currentByRoom, setCurrentByRoom] = useState({})
@@ -2006,15 +3076,43 @@ export default function App() {
   const tabIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const activeRoomRef = useRef(activeRoomId)
   const currentIndexRef = useRef(0)
+  const queuesRef = useRef(queues)
   const isPlayingRef = useRef(false)
+  const controlRef = useRef(false)
+  const hasInteractedRef = useRef(false)
+  const roomsRef = useRef(rooms)
+  const currentUserRef = useRef(null)
+  const memberIndexRef = useRef({})
+  const joinTargetRef = useRef(null)
   const toastTimerRef = useRef(null)
   const chatTimersRef = useRef([])
   const micRef = useRef({ stream: null, ctx: null, analyser: null, raf: null, loudAt: 0, quietAt: 0 })
   const duckRef = useRef({ interval: null, timer: null })
 
-  const activeRoom = ROOMS.find((room) => room.id === activeRoomId) || ROOMS[0]
-  const role = roles[activeRoomId] || 'listener'
+  const activeRoom = rooms.find((room) => room.id === activeRoomId) || rooms[0]
+  const role = roles[activeRoomId]?.[currentUserId] || 'listener'
   const canControl = role === 'admin' || role === 'dj'
+  const canModerate = role === 'admin'
+  const currentUser = useMemo(() => {
+    const account = accounts[currentUserId]
+    if (account) return accountDisplay(account)
+    const preset = randomAvatarPreset(currentUserId)
+    return accountDisplay({
+      id: currentUserId,
+      name: nameFromEmail(`${currentUserId}@echosync.app`),
+      handle: slugifyHandle(currentUserId) || 'listener',
+      email: `${currentUserId}@echosync.app`,
+      preset: preset.id,
+      av1: preset.av1,
+      av2: preset.av2,
+      online: true,
+    })
+  }, [accounts, currentUserId])
+  const memberIndex = useMemo(() => {
+    const merged = { ...MEMBERS, ...accounts }
+    merged[currentUserId] = currentUser
+    return merged
+  }, [accounts, currentUser, currentUserId])
   const queueIds = queues[activeRoomId] || []
   const queue = queueIds.map((id) => {
     if (library[id]) return library[id]
@@ -2034,6 +3132,18 @@ export default function App() {
   }, [activeRoomId])
 
   useEffect(() => {
+    roomsRef.current = rooms
+  }, [rooms])
+
+  useEffect(() => {
+    currentUserRef.current = currentUser
+  }, [currentUser])
+
+  useEffect(() => {
+    memberIndexRef.current = memberIndex
+  }, [memberIndex])
+
+  useEffect(() => {
     currentIndexRef.current = currentIndex
   }, [currentIndex])
 
@@ -2042,12 +3152,85 @@ export default function App() {
   }, [isPlaying])
 
   useEffect(() => {
+    controlRef.current = canControl
+  }, [canControl])
+
+  useEffect(() => {
+    queuesRef.current = queues
+  }, [queues])
+
+  useEffect(() => {
+    const markInteraction = () => {
+      hasInteractedRef.current = true
+    }
+    window.addEventListener('pointerdown', markInteraction, { once: true })
+    window.addEventListener('keydown', markInteraction, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', markInteraction)
+      window.removeEventListener('keydown', markInteraction)
+    }
+  }, [])
+
+  useEffect(() => {
     writeStorage(THEME_KEY, theme)
   }, [theme])
 
   useEffect(() => {
     writeStorage(LIKES_KEY, liked)
   }, [liked])
+
+  useEffect(() => {
+    writeStorage(ACCOUNTS_KEY, accounts)
+  }, [accounts])
+
+  useEffect(() => {
+    writeStorage(ROOMS_KEY, rooms)
+  }, [rooms])
+
+  useEffect(() => {
+    writeSessionUser(currentUserId)
+  }, [currentUserId])
+
+  useEffect(() => {
+    writeStorage(TRANSLATE_KEY, translateOn)
+  }, [translateOn])
+
+  useEffect(() => {
+    if (!translateOn) {
+      setTranslating(false)
+      return undefined
+    }
+    if (lyrics.status !== 'ready' || lyrics.type !== 'synced' || !lyrics.lines?.length) return undefined
+    if (lyrics.lines.every((line) => line.enText || !line.text?.trim())) return undefined
+    const curated = CURATED_TRANSLATIONS[track?.id] || []
+    if (curated.length) {
+      setLyrics((previous) => {
+        if (previous.status !== 'ready' || previous.type !== 'synced') return previous
+        return {
+          ...previous,
+          lines: previous.lines.map((line, index) => (
+            curated[index] && !line.enText ? { ...line, enText: curated[index] } : line
+          )),
+        }
+      })
+    }
+    let cancelled = false
+    setTranslating(true)
+    const publish = (next) => {
+      if (cancelled) return
+      setLyrics((previous) => (previous.status === 'ready' && previous.type === 'synced' ? { ...previous, lines: next } : previous))
+    }
+    translateLines(lyrics.lines, track, publish)
+      .then(publish)
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setTranslating(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translateOn, lyricsKey, lyrics.status, lyricsRefresh])
 
   useEffect(() => {
     let cancelled = false
@@ -2113,10 +3296,18 @@ export default function App() {
     }
     if (isPlaying) {
       const playback = audio.play()
-      if (playback?.catch) {
-        playback.catch(() => {
+      if (playback?.then) {
+        playback.then(() => {
+          joinTargetRef.current = null
+          setJoinPill(null)
+        }).catch(() => {
           setIsPlaying(false)
-          showToast('Press play once to let the room join you in audio.')
+          if (joinTargetRef.current != null) {
+            setJoinPill({ time: joinTargetRef.current, roomName: activeRoomRef.current })
+            joinTargetRef.current = null
+          } else {
+            showToast('Press play once to let the room join you in audio.')
+          }
         })
       }
     } else {
@@ -2192,9 +3383,97 @@ export default function App() {
     if (typeof BroadcastChannel === 'undefined') return undefined
     const channel = new BroadcastChannel('echosync-room-sync')
     channelRef.current = channel
+
+    const applyState = (data) => {
+      setSyncMs(Math.max(2, Math.min(399, Math.round(Date.now() - data.ts))))
+      const roomQueue = queuesRef.current[data.roomId] || []
+      let index = typeof data.index === 'number' ? data.index : currentIndexRef.current
+      if (typeof data.index !== 'number' && data.trackId) {
+        const found = roomQueue.indexOf(data.trackId)
+        if (found >= 0) index = found
+      }
+      const indexChanged = index !== currentIndexRef.current
+      if (indexChanged) setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: index }))
+      const elapsed = data.isPlaying ? Math.max(0, Date.now() - data.ts) / 1000 : 0
+      const target = (data.time || 0) + elapsed
+      const actual = audioRef.current?.currentTime ?? 0
+      const drift = Math.abs(actual - target)
+      const lateJoin = !hasInteractedRef.current && !controlRef.current && data.isPlaying
+      if (lateJoin) {
+        joinTargetRef.current = target
+        pendingSeekRef.current = target
+        setSeekSignal((value) => value + 1)
+        setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: index }))
+        setIsPlaying(true)
+        return
+      }
+      if (indexChanged || !data.heartbeat || drift > 0.25) {
+        pendingSeekRef.current = target
+        setSeekSignal((value) => value + 1)
+      }
+      if (typeof data.isPlaying === 'boolean') setIsPlaying(data.isPlaying)
+    }
+
     channel.onmessage = (event) => {
       const data = event.data
       if (!data || data.sender === tabIdRef.current) return
+
+      if (data.type === 'room-added' && data.room) {
+        setRooms((previous) => (previous.some((room) => room.id === data.room.id) ? previous : [...previous, data.room]))
+        setRoles((previous) => (
+          previous[data.room.id] ? previous : { ...previous, [data.room.id]: { [data.room.dj]: 'admin' } }
+        ))
+        if (Array.isArray(data.room.trackIds)) {
+          setQueues((previous) => ({ ...previous, [data.room.id]: [...data.room.trackIds] }))
+        }
+        return
+      }
+
+      if (data.type === 'room-updated' && data.room) {
+        setRooms((previous) => previous.map((room) => (room.id === data.room.id ? { ...room, ...data.room } : room)))
+        if (Array.isArray(data.room.trackIds)) {
+          setQueues((previous) => ({ ...previous, [data.room.id]: [...data.room.trackIds] }))
+        }
+        return
+      }
+
+      if (data.type === 'room-deleted' && data.roomId) {
+        setRooms((previous) => previous.filter((room) => room.id !== data.roomId))
+        setRoles((previous) => {
+          const next = { ...previous }
+          delete next[data.roomId]
+          return next
+        })
+        setQueues((previous) => {
+          const next = { ...previous }
+          delete next[data.roomId]
+          return next
+        })
+        setMessages((previous) => {
+          const next = { ...previous }
+          delete next[data.roomId]
+          return next
+        })
+        if (activeRoomRef.current === data.roomId) {
+          setIsPlaying(false)
+          audioRef.current?.pause()
+          const fallback = roomsRef.current.find((room) => room.id !== data.roomId)
+          if (fallback) {
+            activeRoomRef.current = fallback.id
+            setActiveRoomId(fallback.id)
+          }
+        }
+        return
+      }
+
+      if (data.type === 'member-changed' && data.roomId) {
+        setRooms((previous) => previous.map((room) => (
+          room.id === data.roomId && Array.isArray(data.members) ? { ...room, members: data.members } : room
+        )))
+        if (data.roles) setRoles((previous) => ({ ...previous, [data.roomId]: data.roles }))
+        return
+      }
+
       if (data.roomId !== activeRoomRef.current) return
 
       if (data.type === 'chat' && data.message) {
@@ -2203,48 +3482,89 @@ export default function App() {
           if (list.some((message) => message.id === data.message.id)) return previous
           return { ...previous, [data.roomId]: [...list, data.message] }
         })
+        const me = currentUserRef.current
+        const text = data.message.text || ''
+        if (me && data.message.author !== me.id && text) {
+          const escaped = me.handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          if (new RegExp(`@${escaped}(?![\\w.])`, 'i').test(text)) {
+            const sender = memberIndexRef.current[data.message.author]
+            showToast(`${sender?.name?.split(' ')[0] || 'Someone'} tagged you in the room chat`)
+          }
+        }
         return
       }
 
-      if (data.type === 'state') {
-        setSyncMs(Math.max(2, Math.round(Date.now() - data.ts)))
-        const indexChanged = typeof data.index === 'number' && data.index !== currentIndexRef.current
-        if (indexChanged) {
-          setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: data.index }))
-        }
-        if (typeof data.isPlaying === 'boolean') setIsPlaying(data.isPlaying)
-        const elapsed = data.isPlaying ? Math.max(0, Date.now() - data.ts) / 1000 : 0
-        const target = (data.time || 0) + elapsed
-        const actual = audioRef.current?.currentTime ?? 0
-        if (indexChanged || !data.heartbeat || Math.abs(actual - target) > 1.1) {
-          pendingSeekRef.current = target
-          setSeekSignal((value) => value + 1)
-        }
+      if (data.type === 'chat-delete' && data.messageId) {
+        setMessages((previous) => ({
+          ...previous,
+          [data.roomId]: (previous[data.roomId] || []).filter((message) => message.id !== data.messageId),
+        }))
+        return
       }
+
+      if (data.type === 'join-sync-request') {
+        channel.postMessage(roomSnapshot({ heartbeat: false }))
+        return
+      }
+
+      if (data.type === 'role-request' && data.request) {
+        setRoleRequests((previous) => {
+          const list = previous[data.roomId] || []
+          if (list.some((request) => request.id === data.request.id)) return previous
+          return { ...previous, [data.roomId]: [...list, data.request] }
+        })
+        return
+      }
+
+      if (data.type === 'role-resolved') {
+        setRoleRequests((previous) => ({
+          ...previous,
+          [data.roomId]: data.requestId
+            ? (previous[data.roomId] || []).filter((request) => request.id !== data.requestId)
+            : previous[data.roomId],
+        }))
+        if (data.approved && data.userId && data.role) {
+          setRoles((previous) => ({
+            ...previous,
+            [data.roomId]: { ...(previous[data.roomId] || {}), [data.userId]: data.role },
+          }))
+          if (data.userId === currentUserRef.current?.id) {
+            showToast(`You're now ${ROLE_COPY[data.role]?.label || 'a member'} in this room`)
+          }
+        } else if (data.userId === currentUserRef.current?.id) {
+          showToast('Your role request was declined', 'lock')
+        }
+        return
+      }
+
+      if (data.type === 'state') applyState(data)
     }
-    channel.postMessage({ type: 'hello', roomId: activeRoomRef.current, sender: tabIdRef.current, ts: Date.now() })
+
+    channel.postMessage({ type: 'join-sync-request', roomId: activeRoomRef.current, sender: tabIdRef.current, ts: Date.now() })
+    const stored = loadRoomStateSnapshot()
+    if (stored?.roomId === activeRoomRef.current && stored.ts && Date.now() - stored.ts < 15000) applyState(stored)
     return () => {
       channel.close()
       channelRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     const timer = setInterval(() => {
-      const channel = channelRef.current
-      if (!channel || !isPlayingRef.current) return
-      channel.postMessage({
-        type: 'state',
-        roomId: activeRoomRef.current,
-        sender: tabIdRef.current,
-        index: currentIndexRef.current,
-        isPlaying: true,
-        time: audioRef.current?.currentTime || 0,
-        ts: Date.now(),
-        heartbeat: true,
-      })
-    }, 7000)
+      if (!controlRef.current || !isPlayingRef.current) return
+      announce({ heartbeat: true })
+    }, 1000)
     return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth <= 1050) setChatOpen(false)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
   useEffect(() => {
@@ -2283,17 +3603,24 @@ export default function App() {
     showToast(LOCK_MESSAGE, 'lock')
   }
 
-  function announce(overrides = {}) {
-    channelRef.current?.postMessage({
+  function roomSnapshot(overrides = {}) {
+    const snapshot = {
       type: 'state',
-      roomId: activeRoomId,
+      roomId: activeRoomRef.current,
       sender: tabIdRef.current,
-      index: currentIndex,
-      isPlaying,
+      index: currentIndexRef.current,
+      trackId: (queuesRef.current[activeRoomRef.current] || [])[currentIndexRef.current] || null,
+      isPlaying: isPlayingRef.current,
       time: audioRef.current?.currentTime || 0,
       ts: Date.now(),
       ...overrides,
-    })
+    }
+    writeStorage(ROOM_STATE_KEY, snapshot)
+    return snapshot
+  }
+
+  function announce(overrides = {}) {
+    channelRef.current?.postMessage(roomSnapshot(overrides))
   }
 
   async function ensurePlayable(candidate) {
@@ -2329,6 +3656,7 @@ export default function App() {
     setProgress(0)
     setDuration(library[queueIds[index]]?.duration || 0)
     setIsPlaying(true)
+    setJoinPill(null)
     announce({ index, isPlaying: true, time: 0 })
   }
 
@@ -2424,13 +3752,101 @@ export default function App() {
     showToast(exists ? 'Removed from your library' : 'Saved to your library')
   }
 
-  function chooseRole(nextRole) {
-    setRoles((previous) => ({ ...previous, [activeRoomId]: nextRole }))
-    showToast(`Viewing as ${ROLE_COPY[nextRole].label} in ${activeRoom.name}`)
+  function ensureMembership(roomId, userId) {
+    setRooms((previous) => previous.map((room) => (
+      room.id === roomId && !room.members.includes(userId) ? { ...room, members: [...room.members, userId] } : room
+    )))
+    setRoles((previous) => {
+      const matrix = previous[roomId] || {}
+      if (matrix[userId]) return previous
+      return { ...previous, [roomId]: { ...matrix, [userId]: 'listener' } }
+    })
+  }
+
+  function pushSystemMessage(roomId, text) {
+    const message = { id: uid('sys'), system: true, text, time: clockNow(), reactions: [] }
+    setMessages((previous) => ({ ...previous, [roomId]: [...(previous[roomId] || []), message] }))
+    channelRef.current?.postMessage({ type: 'chat', roomId, sender: tabIdRef.current, message })
+  }
+
+  function switchUser(userId) {
+    setCurrentUserId(userId)
+    ensureMembership(activeRoomId, userId)
+    showToast(`Viewing as ${accounts[userId]?.name || userId}`)
+  }
+
+  function signIn(email, password) {
+    const typed = email.trim().toLowerCase()
+    const account = Object.values(accounts).find((candidate) => candidate.email?.toLowerCase() === typed)
+    if (!account) {
+      showToast('No account with that email. Create one instead.', 'lock')
+      return false
+    }
+    if (account.password !== password) {
+      showToast('That password doesn’t match.', 'lock')
+      return false
+    }
+    setCurrentUserId(account.id)
+    ensureMembership(activeRoomId, account.id)
+    setAuthOpen(false)
+    showToast(`Welcome back, ${account.name.split(' ')[0]}`)
+    return true
+  }
+
+  function signUp({ name, email, password, handle, preset: presetId }) {
+    const typed = email.trim().toLowerCase()
+    if (Object.values(accounts).some((candidate) => candidate.email?.toLowerCase() === typed)) {
+      showToast('That email is already registered. Sign in instead.', 'lock')
+      return false
+    }
+    const cleanHandle = slugifyHandle(handle || handleFromEmail(typed))
+    const id = cleanHandle || uid('user')
+    if (accounts[id]) {
+      showToast('That handle is taken — try another.', 'lock')
+      return false
+    }
+    const preset = AVATAR_PRESETS.find((option) => option.id === presetId) || randomAvatarPreset(id)
+    const account = {
+      id,
+      name: name.trim(),
+      handle: cleanHandle,
+      email: typed,
+      password,
+      initials: initials(name),
+      av1: preset.av1,
+      av2: preset.av2,
+      preset: preset.id,
+      online: true,
+    }
+    setAccounts((previous) => ({ ...previous, [id]: account }))
+    setCurrentUserId(id)
+    ensureMembership(activeRoomId, id)
+    setAuthOpen(false)
+    showToast(`Account created — welcome, ${account.name.split(' ')[0]}`)
+    return true
+  }
+
+  function signOut() {
+    setCurrentUserId('me')
+    setAuthOpen(false)
+    showToast('Signed out — you can sign back in anytime')
+  }
+
+  function saveProfile(patch) {
+    setAccounts((previous) => ({
+      ...previous,
+      [currentUserId]: {
+        ...previous[currentUserId],
+        ...patch,
+        initials: initials(patch.name || currentUser.name),
+      },
+    }))
+    showToast('Profile saved')
   }
 
   function joinRoom(room) {
     const changed = room.id !== activeRoomId
+    ensureMembership(room.id, currentUserId)
     if (changed) {
       audioRef.current?.pause()
       if (audioRef.current) audioRef.current.currentTime = 0
@@ -2438,11 +3854,279 @@ export default function App() {
       setProgress(0)
       setDuration(0)
       setDraft('')
+      setReplyTo(null)
+      setJoinPill(null)
       setActiveRoomId(room.id)
+      setTimeout(() => {
+        channelRef.current?.postMessage({ type: 'join-sync-request', roomId: room.id, sender: tabIdRef.current, ts: Date.now() })
+      }, 60)
     }
     setView('room')
     if (typeof window !== 'undefined' && window.innerWidth <= 1050) setChatOpen(false)
     showToast(changed ? `Joined ${room.name}` : `You’re already in ${room.name}`)
+  }
+
+  function requestRole(requested) {
+    const roomId = activeRoomId
+    const existing = (roleRequests[roomId] || []).find((request) => request.userId === currentUserId)
+    if (existing) {
+      showToast(`Your ${existing.requested === 'admin' ? 'Admin' : 'DJ'} request is still pending`)
+      return
+    }
+    const request = { id: uid('req'), userId: currentUserId, requested, at: Date.now() }
+    setRoleRequests((previous) => ({ ...previous, [roomId]: [...(previous[roomId] || []), request] }))
+    pushSystemMessage(roomId, `${currentUser.name} requested ${requested === 'admin' ? 'Admin' : 'DJ'} access`)
+    channelRef.current?.postMessage({ type: 'role-request', roomId, sender: tabIdRef.current, request })
+    showToast('Request sent — a room Admin will review it')
+  }
+
+  function resolveRoleRequest(requestId, approve) {
+    const roomId = activeRoomId
+    const request = (roleRequests[roomId] || []).find((item) => item.id === requestId)
+    if (!request) return
+    setRoleRequests((previous) => ({ ...previous, [roomId]: (previous[roomId] || []).filter((item) => item.id !== requestId) }))
+    if (approve) {
+      setRoles((previous) => ({ ...previous, [roomId]: { ...(previous[roomId] || {}), [request.userId]: request.requested } }))
+      pushSystemMessage(roomId, `${accounts[request.userId]?.name || 'A member'} is now ${request.requested === 'admin' ? 'Admin' : 'DJ'} in ${activeRoom.name}`)
+    } else {
+      pushSystemMessage(roomId, `Role request from ${accounts[request.userId]?.name || 'a member'} was declined`)
+    }
+    channelRef.current?.postMessage({
+      type: 'role-resolved',
+      roomId,
+      sender: tabIdRef.current,
+      requestId,
+      userId: request.userId,
+      role: request.requested,
+      approved: approve,
+    })
+    showToast(approve ? 'Request approved' : 'Request declined')
+  }
+
+  function createRoom(input) {
+    const gradient = ROOM_GRADIENTS.find((option) => option.id === input.gradient) || ROOM_GRADIENTS[0]
+    const id = `${slugifyHandle(input.name) || 'room'}-${Math.random().toString(36).slice(2, 6)}`
+    const trackIds = input.trackIds?.length ? input.trackIds : SEED_TRACKS.slice(0, 6).map((seed) => seed.id)
+    const room = {
+      id,
+      name: input.name.trim(),
+      tagline: input.tagline?.trim() || 'A room built for the moment.',
+      description: input.description?.trim() || input.tagline?.trim() || 'A fresh listening room on EchoSync.',
+      accent: gradient.accent,
+      accent2: gradient.accent2,
+      trackIds,
+      members: [currentUserId],
+      listeners: Math.max(2, Number(input.listeners) || 2),
+      private: Boolean(input.private),
+      dj: currentUserId,
+      c1: gradient.c1,
+      c2: gradient.c2,
+      code: roomCode(id),
+      createdBy: currentUserId,
+      createdAt: Date.now(),
+    }
+    setRooms((previous) => [...previous, room])
+    setQueues((previous) => ({ ...previous, [room.id]: [...trackIds] }))
+    setRoles((previous) => ({ ...previous, [room.id]: { [currentUserId]: 'admin' } }))
+    setActiveRoomId(room.id)
+    setView('room')
+    setCreateRoomOpen(false)
+    pushSystemMessage(room.id, `${currentUser.name} created this room · invite code ${room.code}`)
+    channelRef.current?.postMessage({ type: 'room-added', sender: tabIdRef.current, room })
+    showToast(`Room created — invite code ${room.code}`)
+  }
+
+  function updateRoom(patch) {
+    const roomId = activeRoomId
+    const updatedRoom = { ...activeRoom, ...patch }
+    setRooms((previous) => previous.map((room) => (room.id === roomId ? { ...room, ...patch } : room)))
+    channelRef.current?.postMessage({ type: 'room-updated', sender: tabIdRef.current, room: updatedRoom })
+    if (Array.isArray(patch.trackIds)) {
+      setQueues((previous) => ({ ...previous, [roomId]: [...patch.trackIds] }))
+      setCurrentByRoom((previous) => ({ ...previous, [roomId]: 0 }))
+      pendingSeekRef.current = 0
+      setProgress(0)
+      announce({ index: 0, time: 0 })
+    }
+    pushSystemMessage(roomId, `${currentUser.name} updated the room settings`)
+    setSettingsOpen(false)
+    showToast('Room updated')
+  }
+
+  function deleteRoom() {
+    const roomId = activeRoomId
+    if (rooms.length <= 1) {
+      showToast('EchoSync needs at least one room.', 'lock')
+      return
+    }
+    const remaining = rooms.filter((room) => room.id !== roomId)
+    setRooms(remaining)
+    setRoles((previous) => {
+      const next = { ...previous }
+      delete next[roomId]
+      return next
+    })
+    setQueues((previous) => {
+      const next = { ...previous }
+      delete next[roomId]
+      return next
+    })
+    setMessages((previous) => {
+      const next = { ...previous }
+      delete next[roomId]
+      return next
+    })
+    setIsPlaying(false)
+    audioRef.current?.pause()
+    setActiveRoomId(remaining[0].id)
+    setSettingsOpen(false)
+    channelRef.current?.postMessage({ type: 'room-deleted', sender: tabIdRef.current, roomId })
+    showToast('Room deleted')
+  }
+
+  function addMember(input) {
+    const roomId = activeRoomId
+    const query = input.trim().toLowerCase()
+    if (!query) return false
+    const byHandle = query.startsWith('@') ? query.slice(1) : null
+    const existing = Object.values(accounts).find((account) => (
+      account.email?.toLowerCase() === query
+      || (byHandle && account.handle === byHandle)
+      || (!byHandle && account.handle === query)
+    ))
+    let account = existing
+    if (!account) {
+      if (!query.includes('@')) {
+        showToast('Add members by Gmail address or @handle.', 'lock')
+        return false
+      }
+      const email = query
+      const id = slugifyHandle(handleFromEmail(email)) || uid('user')
+      if (accounts[id]) {
+        showToast('They’re already on EchoSync — try their @handle.', 'lock')
+        return false
+      }
+      const preset = randomAvatarPreset(id)
+      const displayName = nameFromEmail(email)
+      account = {
+        id,
+        name: displayName,
+        handle: slugifyHandle(handleFromEmail(email)),
+        email,
+        password: uid('pw'),
+        initials: initials(displayName),
+        av1: preset.av1,
+        av2: preset.av2,
+        preset: preset.id,
+        online: false,
+      }
+      setAccounts((previous) => ({ ...previous, [id]: account }))
+      showToast(`Invited ${account.name} to EchoSync`)
+    }
+    if (activeRoom.members.includes(account.id)) {
+      showToast(`${account.name} is already in ${activeRoom.name}`)
+      return true
+    }
+    ensureMembership(roomId, account.id)
+    const members = activeRoom.members.includes(account.id) ? activeRoom.members : [...activeRoom.members, account.id]
+    channelRef.current?.postMessage({
+      type: 'member-changed',
+      sender: tabIdRef.current,
+      roomId,
+      members,
+      roles: { ...(roles[roomId] || {}), [account.id]: roles[roomId]?.[account.id] || 'listener' },
+    })
+    pushSystemMessage(roomId, `${account.name} joined ${activeRoom.name}`)
+    showToast(`${account.name} added to ${activeRoom.name}`)
+    return true
+  }
+
+  function kickMember(userId) {
+    const roomId = activeRoomId
+    if (userId === currentUserId) {
+      showToast('You can’t remove your own session.', 'lock')
+      return
+    }
+    setRooms((previous) => previous.map((room) => (
+      room.id === roomId ? { ...room, members: room.members.filter((id) => id !== userId) } : room
+    )))
+    setRoles((previous) => {
+      const matrix = { ...(previous[roomId] || {}) }
+      delete matrix[userId]
+      return { ...previous, [roomId]: matrix }
+    })
+    const nextRoles = { ...(roles[roomId] || {}) }
+    delete nextRoles[userId]
+    channelRef.current?.postMessage({
+      type: 'member-changed',
+      sender: tabIdRef.current,
+      roomId,
+      members: activeRoom.members.filter((id) => id !== userId),
+      roles: nextRoles,
+    })
+    pushSystemMessage(roomId, `Admin removed @${accounts[userId]?.handle || userId} from the room`)
+    showToast('Member removed')
+  }
+
+  function assignRole(userId, nextRole) {
+    const roomId = activeRoomId
+    const nextRoles = { ...(roles[roomId] || {}), [userId]: nextRole }
+    setRoles((previous) => ({ ...previous, [roomId]: nextRoles }))
+    channelRef.current?.postMessage({
+      type: 'role-resolved',
+      sender: tabIdRef.current,
+      roomId,
+      requestId: null,
+      userId,
+      role: nextRole,
+      approved: true,
+    })
+    pushSystemMessage(roomId, `${accounts[userId]?.name || 'A member'} is now ${nextRole === 'admin' ? 'Admin' : nextRole === 'dj' ? 'DJ' : 'Listener'}`)
+    showToast('Role updated')
+  }
+
+  function acceptJoin() {
+    const stored = loadRoomStateSnapshot()
+    let target = joinPill?.time || 0
+    if (stored?.roomId === activeRoomId && stored.ts) {
+      target = (stored.time || 0) + (stored.isPlaying ? Math.max(0, Date.now() - stored.ts) / 1000 : 0)
+    }
+    pendingSeekRef.current = target
+    setSeekSignal((value) => value + 1)
+    setIsPlaying(true)
+    setJoinPill(null)
+  }
+
+  async function findFullVersion(previewTrack) {
+    if (!previewTrack) return
+    showToast('Searching for the full-length version…')
+    try {
+      const candidates = await fetchJioSearch(`${previewTrack.title} ${previewTrack.artist}`, 16)
+      const ranked = rankCandidates(candidates, { ...previewTrack, preview: false })
+      for (const entry of ranked.slice(0, 4)) {
+        const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
+        if (hydrated?.streamUrl && (hydrated.duration || 0) > 60) {
+          const replacement = {
+            ...hydrated,
+            id: previewTrack.id,
+            status: 'ready',
+            preview: false,
+            c1: previewTrack.c1,
+            c2: previewTrack.c2,
+          }
+          setLibrary((previous) => ({ ...previous, [previewTrack.id]: replacement }))
+          saveLibraryEntry(previewTrack.id, replacement)
+          pendingSeekRef.current = 0
+          setProgress(0)
+          setDuration(replacement.duration || 0)
+          showToast(`Full version found — “${replacement.title}”`)
+          return
+        }
+      }
+      showToast('No full-length stream found for this one — keeping the preview.', 'lock')
+    } catch {
+      showToast('Could not reach the music source just now.', 'lock')
+    }
   }
 
   async function copyInvite() {
@@ -2469,20 +4153,30 @@ export default function App() {
     if (!text) return
     const roomId = activeRoomId
     const senderRoom = activeRoom
+    const replySnapshot = replyTo
+      ? { id: replyTo.id, name: replyTo.name, handle: replyTo.handle, text: replyTo.text.slice(0, 140) }
+      : null
     const message = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      author: 'me',
+      author: currentUserId,
       text: text.slice(0, 500),
       time: clockNow(),
       reactions: [],
       read: false,
+      ...(replySnapshot ? { replyTo: replySnapshot } : {}),
     }
     setMessages((previous) => ({ ...previous, [roomId]: [...(previous[roomId] || []), message] }))
     broadcastChat(message)
     setDraft('')
+    setReplyTo(null)
 
-    const others = senderRoom.members.filter((id) => id !== 'me')
-    const responderId = others[Math.floor(Math.random() * others.length)] || 'usman'
+    const mentionMatch = text.match(/@([\w.]+)/)
+    const mentioned = mentionMatch
+      ? senderRoom.members.map((id) => memberIndex[id]).find((member) => member?.handle === mentionMatch[1].toLowerCase())
+      : null
+    const others = senderRoom.members.filter((id) => id !== currentUserId && memberIndex[id])
+    const responderId = mentioned?.id || others[Math.floor(Math.random() * others.length)]?.id || 'usman'
+    const responder = memberIndex[responderId]
     const typingTimer = setTimeout(() => {
       setTyping((previous) => ({ ...previous, [roomId]: responderId }))
     }, 850 + Math.random() * 600)
@@ -2498,6 +4192,7 @@ export default function App() {
         text: REPLY_OPTIONS[Math.floor(Math.random() * REPLY_OPTIONS.length)],
         time: clockNow(),
         reactions: [],
+        ...(replySnapshot && Math.random() > 0.45 ? { replyTo: replySnapshot } : {}),
       }
       setMessages((previous) => ({
         ...previous,
@@ -2505,8 +4200,21 @@ export default function App() {
           .map((item) => (item.id === message.id ? { ...item, read: true } : item))
           .concat(reply),
       }))
+      if (mentioned && responder) {
+        showToast(`${responder.name.split(' ')[0]} was tagged in ${activeRoom.name}`)
+      }
     }, 2800 + Math.random() * 1100)
     chatTimersRef.current.push(typingTimer, replyTimer)
+  }
+
+  function deleteMessage(messageId) {
+    const roomId = activeRoomId
+    setMessages((previous) => ({
+      ...previous,
+      [roomId]: (previous[roomId] || []).filter((message) => message.id !== messageId),
+    }))
+    channelRef.current?.postMessage({ type: 'chat-delete', roomId, sender: tabIdRef.current, messageId })
+    showToast('Message deleted')
   }
 
   function reactToMessage(messageId, emoji) {
@@ -2712,6 +4420,7 @@ export default function App() {
   }
 
   return (
+    <MembersContext.Provider value={memberIndex}>
     <div className={`app ${theme}`} style={rootStyle}>
       <div className="ambient" />
       <audio
@@ -2736,9 +4445,11 @@ export default function App() {
       <div className={`shell ${chatOpen ? '' : 'chat-collapsed'}`}>
         <Sidebar
           room={activeRoom}
+          rooms={rooms}
           view={view}
           role={ROLE_COPY[role]?.label}
           likedCount={liked.length}
+          currentUser={currentUser}
           onNavigate={(nextView) => {
             setView(nextView)
             if (typeof window !== 'undefined' && window.innerWidth <= 1050 && nextView !== 'room') setChatOpen(false)
@@ -2746,14 +4457,27 @@ export default function App() {
           onSearch={() => setSearchOpen(true)}
           onJoinRoom={joinRoom}
           onInvite={copyInvite}
-          onOpenProfile={() => showToast('Signed in as Haris Mujahid · @haris')}
+          onCreateRoom={() => setCreateRoomOpen(true)}
+          onOpenProfile={() => setAuthOpen(true)}
         />
 
         <main className="stage">
+          {joinPill && (
+            <button className="join-live-pill" onClick={acceptJoin}>
+              <span className="join-live-dot" />
+              <span>
+                <small>🔊 LIVE ROOM PLAYING AT {formatTime(joinPill.time)}</small>
+                <strong>Tap to Sync Audio Immediately</strong>
+              </span>
+              <AudioLines size={16} />
+            </button>
+          )}
           <StageBar
             room={activeRoom}
             view={view}
             theme={theme}
+            currentUser={currentUser}
+            onOpenProfile={() => setAuthOpen(true)}
             onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
             onSearch={() => setSearchOpen(true)}
             onToggleChat={() => setChatOpen((value) => !value)}
@@ -2781,7 +4505,14 @@ export default function App() {
                 micLevel={micLevel}
                 speaking={speaking}
                 duckTest={duckTest}
-                onSelectRole={chooseRole}
+                currentUser={currentUser}
+                pendingRequest={(roleRequests[activeRoomId] || []).find((request) => request.userId === currentUserId)}
+                roleRequests={roleRequests[activeRoomId] || []}
+                onRequestRole={requestRole}
+                onResolveRequest={resolveRoleRequest}
+                onOpenMembers={() => setMembersOpen(true)}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onFindFull={findFullVersion}
                 onLock={lockToast}
                 onTogglePlay={togglePlay}
                 onNext={nextTrack}
@@ -2799,7 +4530,13 @@ export default function App() {
               />
             )}
             {view === 'rooms' && (
-              <RoomsView library={library} currentRoom={activeRoom} onJoin={joinRoom} />
+              <RoomsView
+                rooms={rooms}
+                library={library}
+                currentRoom={activeRoom}
+                onJoin={joinRoom}
+                onCreate={() => setCreateRoomOpen(true)}
+              />
             )}
             {view === 'library' && (
               <LibraryView
@@ -2863,7 +4600,19 @@ export default function App() {
           onSeek={seekTo}
           onLock={lockToast}
           onRetryLyrics={() => setLyricsRefresh((value) => value + 1)}
-          open={chatOpen}
+          onDeleteMessage={deleteMessage}
+          onReply={(message) => {
+            const author = memberIndex[message.author] || {}
+            setReplyTo({ id: message.id, name: author.name || 'Listener', handle: author.handle || 'listener', text: message.text })
+          }}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+          currentUser={currentUser}
+          canModerate={canModerate}
+          memberRoles={roles[activeRoomId] || {}}
+          translateOn={translateOn}
+          translating={translating}
+          onToggleTranslate={() => setTranslateOn((value) => !value)}
         />
         {chatOpen && <div className="chat-scrim" onClick={() => setChatOpen(false)} />}
       </div>
@@ -2903,7 +4652,56 @@ export default function App() {
         />
       )}
 
+      {authOpen && (
+        <AccountModal
+          accounts={accounts}
+          currentUserId={currentUserId}
+          currentUser={currentUser}
+          onClose={() => setAuthOpen(false)}
+          onSignIn={signIn}
+          onSignUp={signUp}
+          onSignOut={signOut}
+          onSaveProfile={saveProfile}
+          onSwitchUser={switchUser}
+        />
+      )}
+
+      {membersOpen && (
+        <MembersModal
+          room={activeRoom}
+          currentUserId={currentUserId}
+          canModerate={canModerate}
+          roles={roles[activeRoomId] || {}}
+          members={memberIndex}
+          requests={roleRequests[activeRoomId] || []}
+          onClose={() => setMembersOpen(false)}
+          onAddMember={addMember}
+          onKick={kickMember}
+          onAssignRole={assignRole}
+          onResolveRequest={resolveRoleRequest}
+        />
+      )}
+
+      {settingsOpen && (
+        <RoomModal
+          mode="edit"
+          room={activeRoom}
+          onClose={() => setSettingsOpen(false)}
+          onUpdate={updateRoom}
+          onDelete={deleteRoom}
+        />
+      )}
+
+      {createRoomOpen && (
+        <RoomModal
+          mode="create"
+          onClose={() => setCreateRoomOpen(false)}
+          onCreate={createRoom}
+        />
+      )}
+
       <Toast toast={toast} />
     </div>
+    </MembersContext.Provider>
   )
 }
