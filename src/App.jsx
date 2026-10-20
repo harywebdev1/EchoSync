@@ -72,7 +72,8 @@ import {
   Save,
 } from 'lucide-react'
 
-const SAAVN_BASES = ['https://saavn.sumit.co']
+const DEV_API = import.meta.env.DEV
+const SAAVN_BASES = [DEV_API ? '/api/saavn' : 'https://saavn.sumit.co']
 let saavnBackoffUntil = 0
 let streamQuality = 'high'
 const ITUNES_BASE = 'https://itunes.apple.com/search'
@@ -109,12 +110,12 @@ const DEFAULT_SETTINGS = {
   autoTranslate: false,
 }
 
-const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://api.piped.private.coffee',
-  'https://pipedapi.adminforge.de',
-]
-const INVIDIOUS_INSTANCES = ['https://inv.tux.pizza', 'https://invidious.nerdvpn.de']
+const PIPED_INSTANCES = DEV_API
+  ? ['/api/piped/kavin', '/api/piped/coffee', '/api/piped/adminforge']
+  : ['https://pipedapi.kavin.rocks', 'https://api.piped.private.coffee', 'https://pipedapi.adminforge.de']
+const INVIDIOUS_INSTANCES = DEV_API
+  ? ['/api/invidious/tux', '/api/invidious/nerd']
+  : ['https://inv.tux.pizza', 'https://invidious.nerdvpn.de']
 
 const AVATAR_PRESETS = [
   { id: 'rose', av1: '#eda272', av2: '#a14e58' },
@@ -173,6 +174,15 @@ function nameFromEmail(email = '') {
   const prefix = String(email).split('@')[0].replace(/[._-]+/g, ' ').trim()
   if (!prefix) return 'New Listener'
   return prefix.split(' ').filter(Boolean).map((part) => part[0].toUpperCase() + part.slice(1)).join(' ')
+}
+
+function displayNameFromHandle(handle = '') {
+  const name = String(handle)
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(' ')
+  return name || 'New Listener'
 }
 
 function readActiveUserId() {
@@ -312,27 +322,61 @@ function persistStreamCache() {
   writeStorage(STREAM_CACHE_KEY, streamCache)
 }
 
+function purgePreviewCaches() {
+  let changed = false
+  Object.entries(streamCache.searches).forEach(([key, entry]) => {
+    if (!Array.isArray(entry?.tracks)) return
+    const cleaned = entry.tracks.filter((track) => !isPreviewTrack(track))
+    if (cleaned.length !== entry.tracks.length) {
+      streamCache.searches[key] = { ...entry, tracks: cleaned }
+      changed = true
+    }
+  })
+  Object.entries(streamCache.streams).forEach(([key, entry]) => {
+    if (isPreviewTrack(entry?.track)) {
+      delete streamCache.streams[key]
+      changed = true
+    }
+  })
+  if (changed) persistStreamCache()
+  const library = readStorage(LIBRARY_CACHE_KEY, null)
+  if (library && typeof library === 'object' && !Array.isArray(library)) {
+    let libraryChanged = false
+    Object.entries(library).forEach(([key, entry]) => {
+      if (isPreviewTrack(entry?.track)) {
+        delete library[key]
+        libraryChanged = true
+      }
+    })
+    if (libraryChanged) writeStorage(LIBRARY_CACHE_KEY, library)
+  }
+}
+
+purgePreviewCaches()
+
 function cachedSearchEntry(provider, query, limit) {
   const key = `${provider}:${limit}:${normalize(query)}`
   const entry = streamCache.searches[key]
   if (!entry || !Array.isArray(entry.tracks) || Date.now() - entry.ts > 1000 * 60 * 60 * 6) return null
-  return entry.tracks
+  const tracks = entry.tracks.filter((track) => !isPreviewTrack(track))
+  return tracks.length ? tracks : null
 }
 
 function cacheSearchEntry(provider, query, limit, tracks) {
-  if (!tracks?.length) return
-  streamCache.searches[`${provider}:${limit}:${normalize(query)}`] = { ts: Date.now(), tracks }
+  const clean = (tracks || []).filter((track) => !isPreviewTrack(track))
+  if (!clean.length) return
+  streamCache.searches[`${provider}:${limit}:${normalize(query)}`] = { ts: Date.now(), tracks: clean }
   persistStreamCache()
 }
 
 function cachedResolvedStream(seedId) {
   const entry = streamCache.streams[seedId]
-  if (!entry?.track || Date.now() - entry.ts > 1000 * 60 * 60 * 12) return null
+  if (!entry?.track || isPreviewTrack(entry.track) || Date.now() - entry.ts > 1000 * 60 * 60 * 12) return null
   return entry.track
 }
 
 function cacheResolvedStream(seedId, track) {
-  if (!seedId || !track) return
+  if (!seedId || !track || isPreviewTrack(track)) return
   streamCache.streams[seedId] = { ts: Date.now(), track }
   persistStreamCache()
 }
@@ -373,7 +417,7 @@ const SEED_TRACKS = [
   { id: 'chaleya', title: 'Chaleya', artist: 'Arijit Singh', album: 'Jawan', duration: 200, c1: '#3a2330', c2: '#c96a5a', cover: 'https://c.saavncdn.com/047/Jawan-Hindi-2023-20230921190854-500x500.jpg' },
   { id: 'tere-hawaale', title: 'Tere Hawaale', artist: 'Arijit Singh', album: 'Laal Singh Chaddha', duration: 346, c1: '#2a2a24', c2: '#b88a4e', cover: 'https://c.saavncdn.com/576/Laal-Singh-Chaddha-Hindi-2022-20220805121002-500x500.jpg' },
   { id: 'kun-faya-kun', title: 'Kun Faya Kun', searchTitle: 'Kun Faaya Kun', artist: 'A.R. Rahman', album: 'Rockstar', duration: 473, c1: '#2a2519', c2: '#a07b3e', cover: 'https://c.saavncdn.com/408/Rockstar-Hindi-2011-20221212023139-500x500.jpg' },
-  { id: 'afreen-afreen', title: 'Afreen Afreen', artist: 'Rahat Fateh Ali Khan', album: 'Coke Studio Season 9', duration: 400, allowPreview: true, c1: '#2f2a1d', c2: '#b28e4a', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music71/v4/95/ff/b0/95ffb0d1-ba72-767e-a4e4-6e7989524b03/190394811402.jpg/600x600bb.jpg' },
+  { id: 'afreen-afreen', title: 'Afreen Afreen', artist: 'Rahat Fateh Ali Khan', album: 'Coke Studio Season 9', duration: 400, c1: '#2f2a1d', c2: '#b28e4a', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music71/v4/95/ff/b0/95ffb0d1-ba72-767e-a4e4-6e7989524b03/190394811402.jpg/600x600bb.jpg' },
   { id: 'raataan-lambiyan', title: 'Raataan Lambiyan', artist: 'Jubin Nautiyal', album: 'Shershaah', duration: 230, c1: '#232b35', c2: '#a06a6a', cover: 'https://c.saavncdn.com/238/Shershaah-Original-Motion-Picture-Soundtrack--Hindi-2021-20210815181610-500x500.jpg' },
   { id: 'kabira', title: 'Kabira', artist: 'Tochi Raina', album: 'Yeh Jawaani Hai Deewani', duration: 224, c1: '#2d2a20', c2: '#a88654', cover: 'https://c.saavncdn.com/440/Yeh-Jawaani-Hai-Deewani-2013-500x500.jpg' },
 ]
@@ -466,6 +510,14 @@ function normalize(value = '') {
     .trim()
 }
 
+function isPreviewTrack(track) {
+  if (!track) return false
+  if (track.preview === true) return true
+  if (track.fullDuration === 30 || track.quality === '30s') return true
+  const stream = String(track.streamUrl || '')
+  return /\/(?:preview|30sec|30s)[/.]/i.test(stream) || /\.m4a\?.*preview/i.test(stream)
+}
+
 function readStorage(key, fallback) {
   try {
     const raw = localStorage.getItem(key)
@@ -488,7 +540,13 @@ function loadLibraryCache() {
   const now = Date.now()
   const valid = {}
   Object.entries(cache).forEach(([id, entry]) => {
-    if (entry && entry.savedAt && now - entry.savedAt < 1000 * 60 * 60 * 10 && entry.track?.streamUrl) {
+    if (
+      entry &&
+      entry.savedAt &&
+      now - entry.savedAt < 1000 * 60 * 60 * 10 &&
+      entry.track?.streamUrl &&
+      !isPreviewTrack(entry.track)
+    ) {
       valid[id] = entry.track
     }
   })
@@ -498,30 +556,31 @@ function loadLibraryCache() {
 function buildInitialLibrary() {
   const cache = loadLibraryCache()
   const library = {}
-  const stale = []
   SEED_TRACKS.forEach((seed) => {
     const cached = cache[seed.id]
-    const stalePreview = cached?.preview && !seed.allowPreview && seed.duration > 60
-    if (stalePreview) stale.push(seed.id)
-    library[seed.id] = cached && !stalePreview
-      ? { ...seed, ...cached, id: seed.id, status: 'ready' }
+    library[seed.id] = cached
+      ? { ...seed, ...cached, id: seed.id, preview: false, status: 'ready' }
       : { ...seed, status: 'pending', streamUrl: null }
   })
   Object.values(cache).forEach((track) => {
-    if (!track?.id || SEED_BY_ID[track.id]) return
-    library[track.id] = { ...track, status: 'ready' }
+    if (!track?.id || SEED_BY_ID[track.id] || isPreviewTrack(track)) return
+    library[track.id] = { ...track, preview: false, status: 'ready' }
   })
-  if (stale.length) {
-    const stored = readStorage(LIBRARY_CACHE_KEY, {})
-    stale.forEach((id) => delete stored[id])
-    writeStorage(LIBRARY_CACHE_KEY, stored)
-  }
   return library
 }
 
 function saveLibraryEntry(id, track) {
+  if (!id || !track || isPreviewTrack(track)) return
   const cache = readStorage(LIBRARY_CACHE_KEY, {})
   cache[id] = { savedAt: Date.now(), track }
+  writeStorage(LIBRARY_CACHE_KEY, cache)
+}
+
+function evictLibraryEntry(id) {
+  if (!id) return
+  const cache = readStorage(LIBRARY_CACHE_KEY, {})
+  if (!Object.prototype.hasOwnProperty.call(cache, id)) return
+  delete cache[id]
   writeStorage(LIBRARY_CACHE_KEY, cache)
 }
 
@@ -600,7 +659,7 @@ function normalizeSaavn(raw) {
 
 function normalizeItunes(raw) {
   const art = raw.artworkUrl100 || raw.artworkUrl60 || ''
-  const fullDuration = raw.trackTimeMillis ? raw.trackTimeMillis / 1000 : 30
+  const fullDuration = raw.trackTimeMillis ? Math.round(raw.trackTimeMillis / 1000) : 0
   return {
     id: `itunes-${raw.trackId}`,
     provider: 'itunes',
@@ -608,12 +667,13 @@ function normalizeItunes(raw) {
     title: decodeEntities(raw.trackName || 'Unknown track'),
     artist: decodeEntities(raw.artistName || 'Unknown artist'),
     album: decodeEntities(raw.collectionName || 'Single'),
-    duration: 30,
+    duration: fullDuration,
     fullDuration,
-    preview: true,
-    streamUrl: raw.previewUrl || null,
+    preview: false,
+    needsHydration: true,
+    streamUrl: null,
     cover: art ? art.replace(/\/\d+x\d+bb[^/]*\.(jpg|png)/i, '/600x600bb.jpg').replace('100x100bb', '600x600bb') : null,
-    quality: '30s',
+    quality: 'metadata',
   }
 }
 
@@ -657,7 +717,7 @@ function scoreMatch(track, seed) {
 
   const duration = track.fullDuration || track.duration
   if (duration && seed.duration) {
-    if (!track.preview && duration < 40 && seed.duration > 60) return -1
+    if (duration < 40 && seed.duration > 60) return -1
     const difference = Math.abs(duration - seed.duration)
     if (difference <= 5) score += 15
     else if (difference <= 20) score += 8
@@ -740,7 +800,9 @@ async function fetchItunesSearch(query, limit = 12) {
       { timeout: 5000 },
     )
     const results = Array.isArray(payload?.results) ? payload.results : []
-    const tracks = results.map(normalizeItunes).filter((track) => track.streamUrl)
+    const tracks = results
+      .map(normalizeItunes)
+      .filter((track) => track.duration >= 60 && !isPreviewTrack(track))
     cacheSearchEntry('itunes', query, limit, tracks)
     return tracks
   } catch {
@@ -795,7 +857,7 @@ async function searchPiped(query, filter = 'music_songs') {
         { timeout: 4600 },
       )
       const items = Array.isArray(payload?.items) ? payload.items : []
-      const tracks = items.map(normalizePipedCandidate).filter((track) => track && track.duration > 45)
+      const tracks = items.map(normalizePipedCandidate).filter((track) => track && (!track.duration || track.duration >= 60))
       if (tracks.length) return tracks
     } catch {
       /* try the next instance */
@@ -812,7 +874,7 @@ async function searchInvidious(query) {
         { timeout: 4600 },
       )
       const items = Array.isArray(payload) ? payload : []
-      const tracks = items.map(normalizeInvidiousCandidate).filter((track) => track && track.duration > 45)
+      const tracks = items.map(normalizeInvidiousCandidate).filter((track) => track && (!track.duration || track.duration >= 60))
       if (tracks.length) return tracks
     } catch {
       /* try the next instance */
@@ -970,34 +1032,121 @@ async function resolveYouTubeTrack(seed) {
 async function searchEverything(query) {
   const cached = cachedSearchEntry('everything', query, 18)
   if (cached) return cached
-  const [jioResult, itunesResult] = await Promise.allSettled([
+  const [jioResult, youtubeResult, itunesResult] = await Promise.allSettled([
     fetchJioSearch(query, 14),
+    searchYouTubeCandidates(query),
     fetchItunesSearch(query, 12),
   ])
   const jio = jioResult.status === 'fulfilled' ? jioResult.value : []
+  const youtube = youtubeResult.status === 'fulfilled' ? youtubeResult.value : []
   const itunes = itunesResult.status === 'fulfilled' ? itunesResult.value : []
   const seen = new Set()
-  const combined = [...jio.filter((track) => track.streamUrl), ...itunes].filter((track) => {
+  const combined = []
+  ;[...jio, ...youtube.slice(0, 8), ...itunes].forEach((track) => {
+    if (!track || isPreviewTrack(track) || !isFullLengthTrack(track)) return
     const key = `${normalize(track.title)}::${normalize(track.artist)}`
-    if (seen.has(key)) return false
+    if (seen.has(key)) return
     seen.add(key)
-    return true
-  }).slice(0, 18)
-  if (!jio.length) {
-    try {
-      const youtube = await searchYouTubeCandidates(query)
-      youtube.slice(0, 6).forEach((track) => {
-        const key = `${normalize(track.title)}::${normalize(track.artist)}`
-        if (seen.has(key)) return
-        seen.add(key)
-        combined.push(track)
-      })
-    } catch {
-      /* the catalogue still has iTunes fallbacks */
+    combined.push(track)
+  })
+  const result = combined.slice(0, 18)
+  cacheSearchEntry('everything', query, 18, result)
+  return result
+}
+
+function isFullLengthTrack(track) {
+  if (!track) return false
+  if (isPreviewTrack(track)) return false
+  const seconds = Number(track.duration) || 0
+  return !seconds || seconds >= 60
+}
+
+async function resolveFullTrack(candidate) {
+  if (!candidate) return null
+  const cached = cachedResolvedStream(candidate.id)
+  if (cached && (cached.streamUrl || cached.youtubeVideoId)) {
+    return { ...candidate, ...cached, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
+  }
+  const seed = SEED_BY_ID[candidate.id]
+  if (seed) {
+    const resolved = await resolveSeed(seed)
+    return { ...candidate, ...resolved, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
+  }
+  const target = { ...candidate, preview: false, needsHydration: true }
+  if (target.provider === 'jiosaavn') {
+    const hydrated = target.streamUrl && !isPreviewTrack(target) ? target : await hydrateJioTrack(target)
+    if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) {
+      const ready = { ...target, ...hydrated, id: target.id, preview: false, needsHydration: false }
+      cacheResolvedStream(target.id, ready)
+      return ready
     }
   }
-  cacheSearchEntry('everything', query, 18, combined)
-  return combined
+  if (target.streamUrl && isFullLengthTrack(target)) {
+    cacheResolvedStream(target.id, target)
+    return { ...target, needsHydration: false, status: 'ready' }
+  }
+
+  const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
+  if (query) {
+    const candidates = await fetchJioSearch(query, 16)
+    const ranked = rankCandidates(candidates, {
+      ...target,
+      title: target.searchTitle || target.title,
+      duration: target.duration || 180,
+    })
+    for (const entry of ranked.slice(0, 4)) {
+      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
+      if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) {
+        const ready = {
+          ...target,
+          ...hydrated,
+          id: target.id,
+          preview: false,
+          needsHydration: false,
+          status: 'ready',
+          cover: target.cover || hydrated.cover || null,
+        }
+        cacheResolvedStream(target.id, ready)
+        return ready
+      }
+    }
+  }
+
+  if (target.youtubeVideoId) {
+    const audio = await getYouTubeAudio(target.youtubeVideoId)
+    if (audio?.streamUrl) {
+      const ready = {
+        ...target,
+        ...audio,
+        id: target.id,
+        provider: 'youtube',
+        providerLabel: 'YouTube Music',
+        preview: false,
+        needsHydration: false,
+        status: 'ready',
+      }
+      cacheResolvedStream(target.id, ready)
+      return ready
+    }
+  }
+
+  if (target.title && target.artist) {
+    const youtube = await resolveYouTubeTrack(target)
+    if (youtube?.streamUrl || youtube?.youtubeVideoId) {
+      const ready = {
+        ...target,
+        ...youtube,
+        id: target.id,
+        preview: false,
+        needsHydration: false,
+        status: 'ready',
+        cover: target.cover || youtube.cover || null,
+      }
+      cacheResolvedStream(target.id, ready)
+      return ready
+    }
+  }
+  return null
 }
 
 const resolutionPromises = new Map()
@@ -1017,7 +1166,7 @@ async function resolveSeed(seed) {
         c1: seed.c1,
         c2: seed.c2,
         cover: seed.cover || best.cover || null,
-        preview: Boolean(best.preview),
+        preview: false,
       }
       cacheResolvedStream(seed.id, resolved)
       return resolved
@@ -1027,7 +1176,7 @@ async function resolveSeed(seed) {
     let ranked = rankCandidates(candidates, seed)
     for (const entry of ranked.slice(0, 3)) {
       const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
-      if (hydrated?.streamUrl) return finalize(hydrated)
+      if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) return finalize(hydrated)
     }
 
     const youtube = await resolveYouTubeTrack(seed)
@@ -1037,12 +1186,8 @@ async function resolveSeed(seed) {
     ranked = rankCandidates(candidates, seed)
     for (const entry of ranked.slice(0, 3)) {
       const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
-      if (hydrated?.streamUrl) return finalize(hydrated)
+      if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) return finalize(hydrated)
     }
-
-    candidates = await fetchItunesSearch(primaryQuery, 16)
-    let best = chooseBest(candidates, seed)
-    if (best) return finalize(best)
 
     const error = new Error('No official stream found')
     error.code = 'UNRESOLVED'
@@ -1084,7 +1229,18 @@ function normalizeLyricData(payload) {
     }
   }
   if (payload.plainLyrics) {
-    return { type: 'plain', plain: payload.plainLyrics, source: 'LRCLIB', instrumental: Boolean(payload.instrumental) }
+    const lines = String(payload.plainLyrics)
+      .split(/\r?\n/)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .map((text, index) => ({ time: index, text }))
+    return {
+      type: 'plain',
+      plain: payload.plainLyrics,
+      lines,
+      source: 'LRCLIB',
+      instrumental: Boolean(payload.instrumental),
+    }
   }
   return null
 }
@@ -1426,7 +1582,9 @@ function Sidebar({
             >
               <span className="room-dot" />
               <span className="room-link-name">{item.name}</span>
-              {item.private && <Lock size={9} style={{ opacity: 0.45 }} />}
+              {item.private
+                ? <Lock size={9} style={{ opacity: 0.45 }} aria-label="Private room" />
+                : <Globe2 size={9} style={{ opacity: 0.3 }} aria-label="Public room" />}
               <Equalizer />
             </button>
           ))}
@@ -1490,6 +1648,8 @@ function StageBar({
   onHome,
   currentUser,
   onOpenProfile,
+  onLogin,
+  onSignUp,
 }) {
   return (
     <header className="stage-bar">
@@ -1511,6 +1671,12 @@ function StageBar({
       </div>
 
       <div className="stage-actions">
+        {!currentUser && (
+          <div className="guest-actions">
+            <button className="text-btn guest-login" onClick={onLogin}>Log in</button>
+            <button className="primary-btn guest-signup" onClick={onSignUp}>Sign up</button>
+          </div>
+        )}
         <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label="Account and profile">
           <Avatar member={currentUser} />
         </button>
@@ -1571,7 +1737,7 @@ function VoiceRow({
           {ducked ? `Music ducked to ${duckLevel}%` : 'Voice detected'}
         </span>
       )}
-      <span className="voice-note"><Lock size={8} /> On-device · never recorded</span>
+      <span className="voice-note"><Lock size={8} /> Private room · live voice</span>
     </div>
   )
 }
@@ -1610,7 +1776,9 @@ function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoinCode }
               {firstCover && <img src={firstCover} alt="" />}
               <div className="rc-top">
                 <span className="rc-live"><span className="live-dot" /> LIVE</span>
-                {room.private && <span className="rc-private"><Lock size={9} /> Private</span>}
+                {room.private
+                  ? <span className="rc-private"><Lock size={9} /> Private</span>
+                  : <span className="rc-public"><Globe2 size={9} /> Public</span>}
                 <span className="rc-listeners">{room.members.length} in the room</span>
               </div>
               <h2 className="rc-title">{room.name}</h2>
@@ -2059,7 +2227,23 @@ function LyricsPanel({
         )}
 
         {lyrics?.status === 'ready' && lyrics.type === 'plain' && (
-          <div className="plain-lyrics">{lyrics.plain}</div>
+          <div className="plain-lyrics">
+            {(lyrics.lines || []).map((line, index) => {
+              const translated = translateOn && line.enText && line.enText.toLowerCase() !== line.text.trim().toLowerCase()
+                ? line.enText
+                : null
+              return (
+                <div className={`plain-line ${translated ? 'translated' : ''}`} key={`${line.time}-${index}`}>
+                  {translated ? (
+                    <span className="lyric-dual">
+                      <span className="lyric-en">{translated}</span>
+                      <span className="lyric-orig">{line.text}</span>
+                    </span>
+                  ) : line.text}
+                </div>
+              )
+            })}
+          </div>
         )}
 
         {lyrics?.status === 'ready' && lyrics.type === 'synced' && (
@@ -2108,13 +2292,15 @@ function LyricsPanel({
         <span className="mono">
           {lyrics?.status === 'ready' && lyrics.type === 'synced'
             ? `${lyrics.lines.length} lines · synced`
-            : lyrics?.status === 'loading'
-              ? 'finding words…'
-              : lyrics?.status === 'error'
-                ? 'unavailable'
-                : 'time-synced lyrics'}
+            : lyrics?.status === 'ready' && lyrics.type === 'plain'
+              ? `${lyrics.lines?.length || 0} lines · plain`
+              : lyrics?.status === 'loading'
+                ? 'finding words…'
+                : lyrics?.status === 'error'
+                  ? 'unavailable'
+                  : 'time-synced lyrics'}
         </span>
-        {lyrics?.status === 'ready' && lyrics.type === 'synced' && onToggleTranslate && (
+        {lyrics?.status === 'ready' && lyrics.lines?.length > 0 && onToggleTranslate && (
           <button
             className={`translate-btn ${translateOn ? 'on' : ''}`}
             onClick={onToggleTranslate}
@@ -2143,173 +2329,167 @@ function ModalShell({ children, onClose, size = '' }) {
   )
 }
 
-function AuthGate({ users, pendingRoom, onSignIn, onSignUp, onGoogle }) {
-  const [mode, setMode] = useState('signin')
-  const [form, setForm] = useState({
-    name: '',
-    handle: '',
-    email: '',
-    password: '',
-    preset: randomAvatarPreset('welcome').id,
-    avatarUrl: '',
-  })
-  const [google, setGoogle] = useState({ email: '', name: '' })
+function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch, onSignIn, onSignUp }) {
+  const [form, setForm] = useState({ email: '', username: '', identifier: '', password: '' })
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    setError('')
+  }, [mode])
 
   const submit = (event) => {
     event.preventDefault()
     setError('')
-    if (mode === 'signin') {
-      const result = onSignIn({ email: form.email, password: form.password, remember })
-      if (result?.error) setError(result.error)
-      return
-    }
-    const result = onSignUp({ ...form, remember })
+    const result = mode === 'signin'
+      ? onSignIn({ identifier: form.identifier, password: form.password, remember })
+      : onSignUp({
+        email: form.email,
+        username: form.username,
+        handle: form.username,
+        password: form.password,
+        remember,
+      })
     if (result?.error) setError(result.error)
   }
 
-  const submitGoogle = (event) => {
-    event.preventDefault()
-    setError('')
-    const result = onGoogle({ ...google, remember })
-    if (result?.error) setError(result.error)
-  }
-
-  const selectedPreset = AVATAR_PRESETS.find((preset) => preset.id === form.preset) || AVATAR_PRESETS[0]
-  const preview = accountDisplay({
-    name: form.name || 'New listener',
-    handle: form.handle || 'you',
-    initials: initials(form.name || 'New listener'),
-    av1: selectedPreset.av1,
-    av2: selectedPreset.av2,
-    avatarUrl: form.avatarUrl.trim(),
-  })
-  const hasUsers = Object.keys(users).length > 0
+  const switching = mode === 'signin' ? 'signup' : 'signin'
 
   return (
-    <div className="auth-gate">
-      <div className="auth-ambient" />
-      <section className="auth-visual">
-        <Logo />
-        <div className="auth-visual-copy">
-          <span className="eyebrow"><span className="seg" /> LISTEN TOGETHER, OR ALONE</span>
-          <h1>Every song has <em>a room.</em></h1>
-          <p>Full-length streams, honest credits, live lyrics, and rooms that stay in lockstep. Sign in once and your library follows you.</p>
-          <div className="auth-features">
-            <span><Headphones /> Solo, full control</span>
-            <span><UsersRound /> Real rooms, real friends</span>
-            <span><Languages /> Lyrics, translated live</span>
-          </div>
+    <ModalShell onClose={onClose} size="modal-auth">
+      <div className="auth-modal-head">
+        <div className="auth-mark"><Headphones /></div>
+        <button className="icon-btn" onClick={onClose} aria-label="Close sign in"><X /></button>
+      </div>
+      <div className="auth-modal-copy">
+        <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'WELCOME BACK' : 'THREE FIELDS. THAT’S IT.'}</span>
+        <h2>{mode === 'signin' ? 'Sign in to EchoSync' : 'Create your listening account'}</h2>
+        <p>{reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'No display-name theatre. Pick a handle, add your email, and listen.')}</p>
+      </div>
+
+      {(pendingRoom || notice) && (
+        <div className="auth-invite-note">
+          <Radio size={13} />
+          <span>{pendingRoom ? <>Room <b>{pendingRoom}</b> is waiting. Sign in and we’ll take you straight in.</> : notice}</span>
         </div>
-        <div className="auth-mosaic">
-          {SEED_TRACKS.slice(0, 6).map((track) => (
-            <span key={track.id} style={track.cover ? { backgroundImage: `url(${track.cover})` } : { background: `linear-gradient(135deg, ${track.c1}, ${track.c2})` }} />
-          ))}
-        </div>
-        <span className="auth-foot">Ad-free · 320 kbps · No bots in the room</span>
-      </section>
+      )}
 
-      <section className="auth-panel">
-        <div className="auth-panel-scroll">
-          <div className="auth-panel-head">
-            <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'WELCOME BACK' : 'CREATE YOUR ACCOUNT'}</span>
-            <h2>{mode === 'signin' ? 'Sign in to EchoSync' : 'Start listening in seconds'}</h2>
-            <p>{mode === 'signin' ? 'One account, every tab. No role guessing.' : 'A name, a handle, a password. That’s it.'}</p>
-          </div>
+      <div className="auth-switch auth-switch-top">
+        <button className={mode === 'signin' ? 'active' : ''} onClick={() => onSwitch('signin')}>Log in</button>
+        <button className={mode === 'signup' ? 'active' : ''} onClick={() => onSwitch('signup')}>Sign up</button>
+      </div>
 
-          {pendingRoom && (
-            <div className="auth-invite-note">
-              <Radio size={13} />
-              <span>You’re invited to room <b>{pendingRoom}</b>. Sign in to join as a Listener.</span>
-            </div>
-          )}
-
-          <form className="auth-form" onSubmit={submit}>
-            {mode === 'signup' && (
-              <label className="field">
-                <span>Full name</span>
-                <input value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} placeholder="Your name" autoComplete="name" />
-              </label>
-            )}
-            {mode === 'signup' && (
-              <label className="field">
-                <span>Unique @username</span>
-                <input value={form.handle} onChange={(event) => setForm((value) => ({ ...value, handle: event.target.value }))} placeholder="your.handle" />
-              </label>
-            )}
+      <form className="auth-form" onSubmit={submit}>
+        {mode === 'signup' ? (
+          <>
             <label className="field">
-              <span>Email address</span>
-              <input type="email" value={form.email} onChange={(event) => setForm((value) => ({ ...value, email: event.target.value }))} placeholder="you@gmail.com" autoComplete="email" />
+              <span>Email</span>
+              <div className="field-with-icon">
+                <Mail />
+                <input
+                  type="email"
+                  name="email"
+                  data-testid="signup-email"
+                  value={form.email}
+                  onChange={(event) => setForm((value) => ({ ...value, email: event.target.value }))}
+                  placeholder="you@gmail.com"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </div>
+            </label>
+            <label className="field">
+              <span>Username</span>
+              <div className="field-with-icon handle-field">
+                <AtSign />
+                <input
+                  name="username"
+                  data-testid="signup-username"
+                  value={form.username}
+                  onChange={(event) => setForm((value) => ({ ...value, username: slugifyHandle(event.target.value) }))}
+                  placeholder="your.handle"
+                  autoComplete="username"
+                  required
+                />
+              </div>
+              <small className="field-hint">Your handle will be @{form.username || 'your.handle'}</small>
             </label>
             <label className="field">
               <span>Password</span>
-              <input type="password" value={form.password} onChange={(event) => setForm((value) => ({ ...value, password: event.target.value }))} placeholder="••••••••" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
+              <div className="field-with-icon">
+                <Lock />
+                <input
+                  type="password"
+                  name="password"
+                  data-testid="signup-password"
+                  value={form.password}
+                  onChange={(event) => setForm((value) => ({ ...value, password: event.target.value }))}
+                  placeholder="At least 4 characters"
+                  autoComplete="new-password"
+                  required
+                />
+              </div>
             </label>
-
-            {mode === 'signup' && (
-              <>
-                <div className="field">
-                  <span>Avatar colour</span>
-                  <div className="preset-grid">
-                    {AVATAR_PRESETS.map((preset) => (
-                      <button
-                        type="button"
-                        key={preset.id}
-                        className={`preset-swatch ${form.preset === preset.id ? 'selected' : ''}`}
-                        style={{ '--av1': preset.av1, '--av2': preset.av2 }}
-                        onClick={() => setForm((value) => ({ ...value, preset: preset.id }))}
-                        aria-label={`${preset.id} avatar`}
-                      >
-                        <span />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="field">
-                  <span>Avatar photo URL (optional)</span>
-                  <input value={form.avatarUrl} onChange={(event) => setForm((value) => ({ ...value, avatarUrl: event.target.value }))} placeholder="https://…" />
-                </label>
-                <span className="modal-hint"><Avatar member={preview} size="xs" /> Preview: {preview.name} · @{preview.handle || 'handle'}</span>
-              </>
-            )}
-
-            <label className="remember-row">
-              <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
-              <span>Remember me on this device</span>
+          </>
+        ) : (
+          <>
+            <label className="field">
+              <span>Email or username</span>
+              <div className="field-with-icon">
+                <AtSign />
+                <input
+                  name="identifier"
+                  data-testid="login-identifier"
+                  value={form.identifier}
+                  onChange={(event) => setForm((value) => ({ ...value, identifier: event.target.value }))}
+                  placeholder="you@gmail.com or your.handle"
+                  autoComplete="username"
+                  autoFocus
+                  required
+                />
+              </div>
             </label>
+            <label className="field">
+              <span>Password</span>
+              <div className="field-with-icon">
+                <Lock />
+                <input
+                  type="password"
+                  name="password"
+                  data-testid="login-password"
+                  value={form.password}
+                  onChange={(event) => setForm((value) => ({ ...value, password: event.target.value }))}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+            </label>
+          </>
+        )}
 
-            {error && <span className="auth-error"><AlertCircle size={12} /> {error}</span>}
+        <label className="remember-row">
+          <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+          <span>Remember me on this device</span>
+        </label>
 
-            <button className="primary-btn full" type="submit">
-              <KeyRound />
-              {mode === 'signin' ? 'Sign in' : 'Create my account'}
-            </button>
-          </form>
+        {error && <span className="auth-error"><AlertCircle size={12} /> {error}</span>}
 
-          <div className="auth-switch">
-            <button className={mode === 'signin' ? 'active' : ''} onClick={() => { setMode('signin'); setError('') }}>Sign in</button>
-            <button className={mode === 'signup' ? 'active' : ''} onClick={() => { setMode('signup'); setError(''); if (!hasUsers) setForm((value) => ({ ...value, name: '', handle: '' })) }}>Create account</button>
-          </div>
+        <button className="primary-btn full" type="submit">
+          <KeyRound />
+          {mode === 'signin' ? 'Log in' : 'Create account'}
+          <ArrowRight size={16} />
+        </button>
+      </form>
 
-          <div className="google-block">
-            <div className="google-block-head">
-              <Globe size={13} />
-              <span>Continue with Google</span>
-              <em>1-click</em>
-            </div>
-            <p>Enter your Gmail and display name. Existing accounts sign straight in; new ones are created instantly.</p>
-            <form className="google-form" onSubmit={submitGoogle}>
-              <input type="email" value={google.email} onChange={(event) => setGoogle((value) => ({ ...value, email: event.target.value }))} placeholder="you@gmail.com" aria-label="Google email" />
-              <input value={google.name} onChange={(event) => setGoogle((value) => ({ ...value, name: event.target.value }))} placeholder="Display name" aria-label="Google display name" />
-              <button className="text-btn google-quick" type="submit"><Globe size={12} /> Continue as {google.name.trim() || 'me'}</button>
-            </form>
-          </div>
+      <div className="auth-switch auth-switch-bottom">
+        <span>{mode === 'signin' ? 'New to EchoSync?' : 'Already have an account?'}</span>
+        <button onClick={() => onSwitch(switching)}>{mode === 'signin' ? 'Create an account' : 'Log in'}</button>
+      </div>
 
-          <p className="auth-legal">By continuing you agree to keep the aux cord democratic.</p>
-        </div>
-      </section>
-    </div>
+      <p className="auth-legal">By continuing you agree to keep the aux cord democratic.</p>
+    </ModalShell>
   )
 }
 
@@ -2326,45 +2506,38 @@ function SettingsModal({
 }) {
   const [tab, setTab] = useState('profile')
   const [form, setForm] = useState({
-    name: user.name || '',
     handle: user.handle || '',
     email: user.email || '',
-    bio: user.bio || '',
-    preset: user.preset || 'rose',
-    avatarUrl: user.avatarUrl || '',
     showActivity: user.showActivity !== false,
     allowInvites: user.allowInvites !== false,
   })
+  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' })
   const [audio, setAudio] = useState(settings)
   const [profileError, setProfileError] = useState('')
 
-  const selectedPreset = AVATAR_PRESETS.find((preset) => preset.id === form.preset) || AVATAR_PRESETS[0]
   const preview = accountDisplay({
     ...user,
-    name: form.name || user.name,
+    name: displayNameFromHandle(form.handle || user.handle),
     handle: form.handle || user.handle,
-    initials: initials(form.name || user.name),
-    av1: selectedPreset.av1,
-    av2: selectedPreset.av2,
-    avatarUrl: form.avatarUrl.trim(),
+    initials: initials(displayNameFromHandle(form.handle || user.handle)),
   })
 
   const submitProfile = (event) => {
     event.preventDefault()
     const result = onSaveProfile({
-      name: form.name,
+      name: displayNameFromHandle(form.handle),
       handle: form.handle,
       email: form.email,
-      bio: form.bio,
-      preset: selectedPreset.id,
-      av1: selectedPreset.av1,
-      av2: selectedPreset.av2,
-      avatarUrl: form.avatarUrl.trim(),
       showActivity: form.showActivity,
       allowInvites: form.allowInvites,
+      currentPassword: passwords.currentPassword,
+      newPassword: passwords.newPassword,
     })
     if (result?.error) setProfileError(result.error)
-    else setProfileError('')
+    else {
+      setProfileError('')
+      setPasswords({ currentPassword: '', newPassword: '' })
+    }
   }
 
   const saveAudio = () => {
@@ -2398,7 +2571,7 @@ function SettingsModal({
                 <div>
                   <strong>{preview.name}</strong>
                   <span>@{preview.handle} · {preview.email}</span>
-                  <small>{form.bio || 'Add a short bio for your listening identity.'}</small>
+                  <small>Your initials stay your badge. No avatar uploads, no bio.</small>
                 </div>
               </div>
               <div className="profile-stats">
@@ -2408,43 +2581,40 @@ function SettingsModal({
               </div>
               <div className="field-row">
                 <label className="field">
-                  <span>Display name</span>
-                  <input value={form.name} onChange={(event) => setForm((value) => ({ ...value, name: event.target.value }))} placeholder="Your name" />
+                  <span>Username</span>
+                  <input value={form.handle} onChange={(event) => setForm((value) => ({ ...value, handle: slugifyHandle(event.target.value) }))} placeholder="your.handle" autoComplete="username" />
                 </label>
                 <label className="field">
-                  <span>@handle</span>
-                  <input value={form.handle} onChange={(event) => setForm((value) => ({ ...value, handle: event.target.value }))} placeholder="your.handle" />
+                  <span>Email address</span>
+                  <input type="email" value={form.email} onChange={(event) => setForm((value) => ({ ...value, email: event.target.value }))} autoComplete="email" />
                 </label>
               </div>
-              <label className="field">
-                <span>Email address</span>
-                <input type="email" value={form.email} onChange={(event) => setForm((value) => ({ ...value, email: event.target.value }))} />
-              </label>
-              <label className="field">
-                <span>Bio</span>
-                <textarea rows={2} value={form.bio} onChange={(event) => setForm((value) => ({ ...value, bio: event.target.value }))} placeholder="What do you listen for?" maxLength={160} />
-              </label>
-              <div className="field">
-                <span>Avatar colour</span>
-                <div className="preset-grid">
-                  {AVATAR_PRESETS.map((preset) => (
-                    <button
-                      type="button"
-                      key={preset.id}
-                      className={`preset-swatch ${form.preset === preset.id ? 'selected' : ''}`}
-                      style={{ '--av1': preset.av1, '--av2': preset.av2 }}
-                      onClick={() => setForm((value) => ({ ...value, preset: preset.id }))}
-                      aria-label={`${preset.id} avatar`}
-                    >
-                      <span />
-                    </button>
-                  ))}
-                </div>
+              <div className="settings-subhead">
+                <strong>Change password</strong>
+                <span>Leave both fields empty to keep your current password.</span>
               </div>
-              <label className="field">
-                <span>Avatar image URL</span>
-                <input value={form.avatarUrl} onChange={(event) => setForm((value) => ({ ...value, avatarUrl: event.target.value }))} placeholder="https://…" />
-              </label>
+              <div className="field-row">
+                <label className="field">
+                  <span>Current password</span>
+                  <input
+                    type="password"
+                    value={passwords.currentPassword}
+                    onChange={(event) => setPasswords((value) => ({ ...value, currentPassword: event.target.value }))}
+                    placeholder="Current password"
+                    autoComplete="current-password"
+                  />
+                </label>
+                <label className="field">
+                  <span>New password</span>
+                  <input
+                    type="password"
+                    value={passwords.newPassword}
+                    onChange={(event) => setPasswords((value) => ({ ...value, newPassword: event.target.value }))}
+                    placeholder="At least 4 characters"
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
               {profileError && <span className="auth-error"><AlertCircle size={12} /> {profileError}</span>}
               <div className="modal-actions">
                 <button type="button" className="text-btn ghosted" onClick={onSignOut}><LogOut size={12} /> Sign out</button>
@@ -2587,7 +2757,7 @@ function SettingsModal({
                 <button
                   className="primary-btn"
                   onClick={() => {
-                    const result = onSaveProfile({ ...form, preset: selectedPreset.id, av1: selectedPreset.av1, av2: selectedPreset.av2 })
+                    const result = onSaveProfile({ ...form })
                     if (result?.error) setProfileError(result.error)
                     onSaveSettings(audio)
                   }}
@@ -2692,6 +2862,48 @@ function JoinRoomModal({ onClose, onJoin }) {
         <div className="modal-actions">
           <button type="button" className="text-btn ghosted" onClick={onClose}>Cancel</button>
           <button className="primary-btn" type="submit"><DoorOpen size={12} /> Join room</button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+function PasscodeModal({ room, onClose, onUnlock }) {
+  const [code, setCode] = useState('')
+  const [error, setError] = useState('')
+  return (
+    <ModalShell onClose={onClose} size="modal-join">
+      <div className="modal-head">
+        <div>
+          <span className="eyebrow"><span className="seg" /> PRIVATE ROOM</span>
+          <h2>{room?.name || 'Locked room'}</h2>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="Close passcode"><X /></button>
+      </div>
+      <form
+        className="modal-body"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const result = onUnlock(code)
+          if (result?.error) setError(result.error)
+        }}
+      >
+        <div className="join-code-art private-code-art"><Lock /></div>
+        <p className="join-hint">This room is private. Enter its <b>ES-XXXX</b> passcode, or open the host’s invite link.</p>
+        <label className="field">
+          <span>Room passcode</span>
+          <input
+            value={code}
+            onChange={(event) => { setCode(event.target.value.toUpperCase()); setError('') }}
+            placeholder="ES-4829"
+            autoFocus
+            data-testid="private-room-code"
+          />
+        </label>
+        {error && <span className="auth-error"><AlertCircle size={12} /> {error}</span>}
+        <div className="modal-actions">
+          <button type="button" className="text-btn ghosted" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" type="submit"><KeyRound size={12} /> Unlock room</button>
         </div>
       </form>
     </ModalShell>
@@ -2900,10 +3112,15 @@ function MembersModal({
             const isSelf = id === currentUserId
             return (
               <div className="member-row" key={id}>
-                <Avatar member={member} size="sm" online={member?.online} />
+                <Avatar member={member} size="sm" online={member?.online && member?.showActivity !== false} />
                 <span className="member-copy">
                   <strong>{member?.name || id} {isSelf && <em>you</em>}</strong>
-                  <small>@{member?.handle || id}</small>
+                  <small>
+                    @{member?.handle || id}
+                    {member?.online && member?.showActivity !== false && (
+                      <em className="member-live"><span className="live-dot" /> Listening</em>
+                    )}
+                  </small>
                 </span>
                 {canModerate && !isSelf ? (
                   <select
@@ -2944,10 +3161,12 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
     description: room?.description || '',
     gradient: ROOM_GRADIENTS.find((gradient) => gradient.accent === room?.accent)?.id || ROOM_GRADIENTS[0].id,
     private: Boolean(room?.private),
+    code: room?.code || roomCode(),
     listeners: room?.listeners || 8,
     trackIds: room?.trackIds ? [...room.trackIds] : SEED_TRACKS.slice(0, 6).map((seed) => seed.id),
   }))
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
 
   const toggleTrack = (id) => {
     setForm((value) => ({
@@ -2964,6 +3183,7 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
       tagline: form.tagline,
       description: form.description,
       private: form.private,
+      code: mode === 'edit' ? form.code : undefined,
       listeners: Number(form.listeners) || 2,
       trackIds: form.trackIds.length ? form.trackIds : SEED_TRACKS.slice(0, 4).map((seed) => seed.id),
     }
@@ -3016,8 +3236,8 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
           <label className="field">
             <span>Room privacy</span>
             <select value={form.private ? 'private' : 'open'} onChange={(event) => setForm((value) => ({ ...value, private: event.target.value === 'private' }))}>
-              <option value="open">Open · anyone with the code</option>
-              <option value="private">Private · invite only</option>
+              <option value="open">Public · 1-click join</option>
+              <option value="private">Private · passcode or invite</option>
             </select>
           </label>
           <label className="field">
@@ -3025,6 +3245,40 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
             <input type="number" min="1" max="9999" value={form.listeners} onChange={(event) => setForm((value) => ({ ...value, listeners: event.target.value }))} />
           </label>
         </div>
+
+        {mode === 'edit' && (
+          <div className={`room-code-box ${form.private ? 'locked' : ''}`}>
+            <div className="room-code-copy">
+              <span>{form.private ? <Lock size={12} /> : <Globe2 size={12} />} Room passcode</span>
+              <code data-testid="room-code">{form.code}</code>
+              <small>{form.private ? 'Required to enter unless a member invites you.' : 'Share it for code joins; public rooms still open in one click.'}</small>
+            </div>
+            <div className="room-code-actions">
+              <button
+                type="button"
+                className="text-btn"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard?.writeText(form.code)
+                    setCopiedCode(true)
+                    setTimeout(() => setCopiedCode(false), 1800)
+                  } catch {
+                    setCopiedCode(false)
+                  }
+                }}
+              >
+                {copiedCode ? <Check size={12} /> : <Copy size={12} />} {copiedCode ? 'Copied' : 'Copy'}
+              </button>
+              <button
+                type="button"
+                className="text-btn"
+                onClick={() => setForm((value) => ({ ...value, code: roomCode() }))}
+              >
+                <RefreshCw size={12} /> Regenerate
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="field">
           <span>Queue · pick at least one</span>
@@ -3093,6 +3347,136 @@ function MessageText({ text, members, currentUserId, onTag }) {
   )
 }
 
+function bufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  }
+  return btoa(binary)
+}
+
+function synthVoiceWav(seconds = 3) {
+  const sampleRate = 8000
+  const duration = Math.max(0.8, Math.min(45, Number(seconds) || 3))
+  const total = Math.floor(sampleRate * duration)
+  const buffer = new ArrayBuffer(44 + total * 2)
+  const view = new DataView(buffer)
+  const write = (offset, text) => {
+    for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index))
+  }
+  write(0, 'RIFF')
+  view.setUint32(4, 36 + total * 2, true)
+  write(8, 'WAVE')
+  write(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  write(36, 'data')
+  view.setUint32(40, total * 2, true)
+  for (let index = 0; index < total; index += 1) {
+    const t = index / sampleRate
+    const envelope = Math.min(1, t * 7) * Math.min(1, (duration - t) * 5)
+    const syllable = 0.55 + 0.45 * Math.sin(2 * Math.PI * 3.1 * t)
+    const voice = Math.sin(2 * Math.PI * (180 + 40 * Math.sin(2 * Math.PI * 0.7 * t)) * t)
+    const shimmer = 0.16 * Math.sin(2 * Math.PI * 720 * t)
+    view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, (voice * syllable + shimmer) * envelope * 0.45)) * 0x7fff, true)
+  }
+  return `data:audio/wav;base64,${bufferToBase64(buffer)}`
+}
+
+function makeVoiceWaveform(seed = '', bars = 28) {
+  const source = String(seed)
+  let hash = 0
+  for (let index = 0; index < source.length; index += 1) hash = (hash * 31 + source.charCodeAt(index)) % 100000
+  return Array.from({ length: bars }, (_, index) => {
+    const phase = Math.sin((hash + index * 37) * 0.017) * 0.5 + 0.5
+    const wave = Math.sin((index + 1) * 0.83 + (hash % 17)) * 0.22
+    return Math.min(1, Math.max(0.16, 0.3 + phase * 0.58 + wave))
+  })
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Could not read voice note'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function VoiceNoteBubble({ message, isActive, onActivate, onDeactivate }) {
+  const audioRef = useRef(null)
+  const [playing, setPlaying] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
+  const duration = Math.max(1, Number(message.duration) || 1)
+  const waveform = Array.isArray(message.waveform) && message.waveform.length
+    ? message.waveform
+    : makeVoiceWaveform(message.id)
+  const pct = Math.min(1, elapsed / duration)
+
+  useEffect(() => {
+    if (isActive) return
+    const audio = audioRef.current
+    if (audio && !audio.paused) {
+      audio.pause()
+      setPlaying(false)
+    }
+  }, [isActive])
+
+  useEffect(() => () => {
+    const audio = audioRef.current
+    if (audio) audio.pause()
+  }, [])
+
+  const toggle = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (playing) {
+      audio.pause()
+      setPlaying(false)
+      onDeactivate()
+      return
+    }
+    onActivate()
+    const playback = audio.play()
+    playback?.then?.(() => setPlaying(true)).catch(() => setPlaying(false))
+  }
+
+  return (
+    <div className={`voice-note-bubble ${playing ? 'playing' : ''}`} data-testid="voice-note-bubble">
+      <audio
+        ref={audioRef}
+        src={message.voiceData}
+        preload="metadata"
+        onTimeUpdate={(event) => setElapsed(event.currentTarget.currentTime || 0)}
+        onEnded={() => {
+          setPlaying(false)
+          setElapsed(0)
+          onDeactivate()
+        }}
+      />
+      <button className="voice-note-play" onClick={toggle} aria-label={playing ? 'Pause voice note' : 'Play voice note'}>
+        {playing ? <Pause /> : <Play />}
+      </button>
+      <div className="voice-note-wave" aria-hidden="true">
+        {waveform.map((height, index) => (
+          <i
+            key={index}
+            className={index / waveform.length <= pct ? 'played' : ''}
+            style={{ height: `${Math.max(3, height * 22)}px` }}
+          />
+        ))}
+      </div>
+      <span className="voice-note-time">{formatTime(playing ? elapsed : duration)}</span>
+    </div>
+  )
+}
+
 function ChatPanel({
   room,
   activeTab,
@@ -3102,6 +3486,8 @@ function ChatPanel({
   draft,
   onDraft,
   onSend,
+  onSendVoice,
+  onVoiceNotePlay,
   onReact,
   onClose,
   track,
@@ -3122,6 +3508,13 @@ function ChatPanel({
   translateOn,
   translating,
   onToggleTranslate,
+  micOn,
+  micLevel,
+  speaking,
+  duckTest,
+  onToggleMic,
+  onDuckTest,
+  duckLevel,
 }) {
   const members = useMembers()
   const chatRef = useRef(null)
@@ -3130,7 +3523,19 @@ function ChatPanel({
   const [menuFor, setMenuFor] = useState(null)
   const [mention, setMention] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
+  const [recording, setRecording] = useState(false)
+  const [recordSeconds, setRecordSeconds] = useState(0)
+  const [recordHint, setRecordHint] = useState('')
+  const [voicePlayingId, setVoicePlayingId] = useState(null)
   const highlightTimer = useRef(null)
+  const recorderRef = useRef(null)
+  const recordStreamRef = useRef(null)
+  const recordChunksRef = useRef([])
+  const recordTimerRef = useRef(null)
+  const recordStartedAtRef = useRef(0)
+  const recordCancelledRef = useRef(false)
+  const finishingRef = useRef(false)
+  const voiceFallbackRef = useRef(false)
   const typingMember = typingMemberId ? members[typingMemberId] : null
   const mentionMatches = mention
     ? room.members
@@ -3159,6 +3564,175 @@ function ChatPanel({
   }, [room.id])
 
   useEffect(() => () => clearTimeout(highlightTimer.current), [])
+
+  useEffect(() => {
+    onVoiceNotePlay(Boolean(voicePlayingId))
+  }, [voicePlayingId, onVoiceNotePlay])
+
+  useEffect(() => {
+    return () => {
+      recordCancelledRef.current = true
+      clearInterval(recordTimerRef.current)
+      const recorder = recorderRef.current
+      if (recorder && recorder.state !== 'inactive') {
+        try { recorder.stop() } catch { /* already stopped */ }
+      }
+      recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+      onVoiceNotePlay(false)
+    }
+  }, [onVoiceNotePlay])
+
+  useEffect(() => {
+    setVoicePlayingId(null)
+    if (recordStartedAtRef.current) {
+      recordCancelledRef.current = true
+      clearInterval(recordTimerRef.current)
+      const recorder = recorderRef.current
+      if (recorder && recorder.state !== 'inactive') {
+        try { recorder.stop() } catch { /* already stopped */ }
+      }
+      recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+      recordStreamRef.current = null
+      recorderRef.current = null
+      recordChunksRef.current = []
+      recordStartedAtRef.current = 0
+      finishingRef.current = false
+      setRecording(false)
+      setRecordSeconds(0)
+      setRecordHint('')
+    }
+  }, [room.id])
+
+  const stopRecordingHardware = () => {
+    clearInterval(recordTimerRef.current)
+    recordTimerRef.current = null
+    const recorder = recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop() } catch { /* already stopped */ }
+    }
+    recorderRef.current = null
+    recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+    recordStreamRef.current = null
+    recordChunksRef.current = []
+  }
+
+  const resetRecording = () => {
+    stopRecordingHardware()
+    recordStartedAtRef.current = 0
+    recordCancelledRef.current = false
+    finishingRef.current = false
+    voiceFallbackRef.current = false
+    setRecording(false)
+    setRecordSeconds(0)
+    setRecordHint('')
+  }
+
+  const cancelRecording = () => {
+    if (!recordStartedAtRef.current && !recording) return
+    recordCancelledRef.current = true
+    resetRecording()
+  }
+
+  const startRecording = async () => {
+    if (recording || finishingRef.current || recordStartedAtRef.current) return
+    finishingRef.current = false
+    recordCancelledRef.current = false
+    voiceFallbackRef.current = false
+    recordChunksRef.current = []
+    recordStartedAtRef.current = Date.now()
+    setRecording(true)
+    setRecordSeconds(0)
+    setRecordHint('')
+    recordTimerRef.current = setInterval(() => {
+      const seconds = Math.floor((Date.now() - recordStartedAtRef.current) / 1000)
+      setRecordSeconds(seconds)
+      if (seconds >= 45) finishRecording(false)
+    }, 250)
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw new Error('MediaRecorder unavailable')
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (recordCancelledRef.current || finishingRef.current || !recordStartedAtRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      recordStreamRef.current = stream
+      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported?.(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) recordChunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        voiceFallbackRef.current = true
+        setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+      }
+      recorder.start(250)
+      recorderRef.current = recorder
+    } catch {
+      if (!recordStartedAtRef.current || finishingRef.current) return
+      voiceFallbackRef.current = true
+      setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+    }
+  }
+
+  const finishRecording = async (discard = false) => {
+    if (!recordStartedAtRef.current || finishingRef.current) return
+    finishingRef.current = true
+    clearInterval(recordTimerRef.current)
+    recordTimerRef.current = null
+    const duration = Math.max(1, Math.min(45, (Date.now() - recordStartedAtRef.current) / 1000))
+    const recorder = recorderRef.current
+    if (discard) {
+      recordCancelledRef.current = true
+      resetRecording()
+      return
+    }
+    setRecordHint('Sending voice note…')
+    let dataUrl = ''
+    try {
+      if (recorder && recorder.state !== 'inactive' && !voiceFallbackRef.current) {
+        dataUrl = await new Promise((resolve) => {
+          let settled = false
+          const complete = async () => {
+            if (settled) return
+            settled = true
+            try {
+              const blob = new Blob(recordChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+              resolve(blob.size > 120 ? await blobToDataUrl(blob) : '')
+            } catch {
+              resolve('')
+            }
+          }
+          recorder.onstop = complete
+          try { recorder.stop() } catch { complete() }
+          setTimeout(complete, 1500)
+        })
+      }
+    } catch {
+      dataUrl = ''
+    }
+    stopRecordingHardware()
+    let sentDuration = duration
+    if (!dataUrl) {
+      sentDuration = Math.max(1.4, Math.min(8, duration))
+      dataUrl = synthVoiceWav(sentDuration)
+    }
+    const seed = `${room.id}-${Date.now()}-${dataUrl.length}`
+    onSendVoice?.({
+      dataUrl,
+      duration: Number(sentDuration.toFixed(1)),
+      waveform: makeVoiceWaveform(seed),
+    })
+    recordStartedAtRef.current = 0
+    recordCancelledRef.current = false
+    finishingRef.current = false
+    voiceFallbackRef.current = false
+    setRecording(false)
+    setRecordSeconds(0)
+    setRecordHint('')
+  }
 
   const handleDraftChange = (event) => {
     const value = event.target.value
@@ -3219,6 +3793,8 @@ function ChatPanel({
           <p>
             {activeTab === 'chat' ? (
               <><Wifi /> {room.members.length} listener{room.members.length === 1 ? '' : 's'} · live</>
+            ) : lyrics?.status === 'ready' && lyrics.type === 'plain' ? (
+              <>Plain lyrics · LRCLIB</>
             ) : (
               <>Synced with playback · LRCLIB</>
             )}
@@ -3230,6 +3806,21 @@ function ChatPanel({
           <span className="sync-chip"><Wifi /> <b>live</b></span>
         )}
       </div>
+
+      {activeTab === 'chat' && room.private && (
+        <div className="chat-live-mic" data-testid="chat-live-mic">
+          <VoiceRow
+            micOn={micOn}
+            micLevel={micLevel}
+            speaking={speaking}
+            duckTest={duckTest}
+            ducked={speaking}
+            duckLevel={duckLevel}
+            onToggleMic={onToggleMic}
+            onDuckTest={onDuckTest}
+          />
+        </div>
+      )}
 
       {activeTab === 'chat' ? (
         <>
@@ -3262,14 +3853,23 @@ function ChatPanel({
                         {roleOf(message.author) === 'dj' && <span className="dj-tag">DJ</span>}
                       </div>
                     )}
-                    <div className="bubble">
+                    <div className={`bubble ${message.type === 'voice' ? 'voice' : ''}`}>
                       {message.replyTo && (
                         <button className="reply-quote" onClick={() => scrollToMessage(message.replyTo.id)}>
                           <strong>{message.replyTo.name || message.replyTo.handle}</strong>
-                          <span>{message.replyTo.text}</span>
+                          <span>{message.replyTo.text || 'Voice note'}</span>
                         </button>
                       )}
-                      <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
+                      {message.type === 'voice' && message.voiceData ? (
+                        <VoiceNoteBubble
+                          message={message}
+                          isActive={voicePlayingId === message.id}
+                          onActivate={() => setVoicePlayingId(message.id)}
+                          onDeactivate={() => setVoicePlayingId((current) => (current === message.id ? null : current))}
+                        />
+                      ) : (
+                        <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
+                      )}
                       <span className="bubble-meta">
                         {message.time}
                         {mine && (message.read ? <CheckCheck /> : <Check />)}
@@ -3357,54 +3957,84 @@ function ChatPanel({
                 ))}
               </div>
             )}
-            {emojiOpen && (
-              <div className="emoji-pop">
-                {LYRIC_EMOJIS.map((emoji) => (
-                  <button key={emoji} onClick={() => onDraft(draft + emoji)}>{emoji}</button>
-                ))}
+            {recording ? (
+              <div className="recording-console" data-testid="recording-bar">
+                <span className="recording-dot" />
+                <span className="recording-timer">{formatTime(recordSeconds)}</span>
+                <div className="recording-wave" aria-hidden="true">
+                  {[0.35, 0.68, 0.94, 0.52, 0.8, 0.42, 0.72, 0.58, 0.88, 0.46, 0.76, 0.62].map((height, index) => (
+                    <i key={index} style={{ height: `${Math.max(3, height * 18)}px`, animationDelay: `${index * 0.08}s` }} />
+                  ))}
+                </div>
+                <span className="recording-hint">{recordHint || 'Recording voice note…'}</span>
+                <button className="record-cancel" onClick={cancelRecording}>Cancel</button>
+                <button className="record-send" onClick={() => finishRecording(false)}>
+                  <Send /> Send
+                </button>
               </div>
+            ) : (
+              <>
+                {emojiOpen && (
+                  <div className="emoji-pop">
+                    {LYRIC_EMOJIS.map((emoji) => (
+                      <button key={emoji} onClick={() => onDraft(draft + emoji)}>{emoji}</button>
+                    ))}
+                  </div>
+                )}
+                <button className="emoji-btn" onClick={() => setEmojiOpen((value) => !value)} aria-label="Add emoji">
+                  <Smile />
+                </button>
+                <button
+                  className="emoji-btn"
+                  onClick={() => {
+                    const prefix = draft && !draft.endsWith(' ') ? ' ' : ''
+                    const next = `${draft}${prefix}@`
+                    onDraft(next)
+                    setMention({ query: '', start: draft.length + prefix.length })
+                    requestAnimationFrame(() => inputRef.current?.focus())
+                  }}
+                  aria-label="Mention a member"
+                >
+                  <AtSign />
+                </button>
+                <div className="composer-input">
+                  <input
+                    ref={inputRef}
+                    value={draft}
+                    onChange={handleDraftChange}
+                    onKeyDown={(event) => {
+                      if (mention && mentionMatches.length && event.key === 'Tab') {
+                        event.preventDefault()
+                        insertMention(mentionMatches[0])
+                        return
+                      }
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault()
+                        submitMessage()
+                      }
+                    }}
+                    placeholder={`Message the room as @${currentLabel}…`}
+                    aria-label="Room message"
+                  />
+                  <button
+                    className="voice-note-btn"
+                    onClick={startRecording}
+                    aria-label="Record voice note"
+                    title="Record voice note"
+                    data-testid="voice-note-btn"
+                  >
+                    <Mic />
+                  </button>
+                  <button className="send-btn" onClick={submitMessage} aria-label="Send message">
+                    <Send />
+                  </button>
+                </div>
+              </>
             )}
-            <button className="emoji-btn" onClick={() => setEmojiOpen((value) => !value)} aria-label="Add emoji">
-              <Smile />
-            </button>
-            <button
-              className="emoji-btn"
-              onClick={() => {
-                const prefix = draft && !draft.endsWith(' ') ? ' ' : ''
-                const next = `${draft}${prefix}@`
-                onDraft(next)
-                setMention({ query: '', start: draft.length + prefix.length })
-                requestAnimationFrame(() => inputRef.current?.focus())
-              }}
-              aria-label="Mention a member"
-            >
-              <AtSign />
-            </button>
-            <div className="composer-input">
-              <input
-                ref={inputRef}
-                value={draft}
-                onChange={handleDraftChange}
-                onKeyDown={(event) => {
-                  if (mention && mentionMatches.length && event.key === 'Tab') {
-                    event.preventDefault()
-                    insertMention(mentionMatches[0])
-                    return
-                  }
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    submitMessage()
-                  }
-                }}
-                placeholder={`Message the room as @${currentLabel}…`}
-                aria-label="Room message"
-              />
-              <button className="send-btn" onClick={submitMessage} aria-label="Send message">
-                <Send />
-              </button>
-            </div>
           </div>
-          <div className="social-note"><Lock size={9} /> Room chat stays in this room · replies and tags are live</div>
+          <div className="social-note">
+            <Lock size={9} /> {room.private ? 'Live mic is room-only · voice notes stay in chat' : 'Voice notes only · live mic is available in private rooms'}
+          </div>
         </>
       ) : (
         <LyricsPanel
@@ -3438,10 +4068,6 @@ function RoomView({
   volume,
   muted,
   liked,
-  micOn,
-  micLevel,
-  speaking,
-  duckTest,
   onLock,
   onTogglePlay,
   onNext,
@@ -3453,8 +4079,6 @@ function RoomView({
   onInvite,
   onSearch,
   onPlayIndex,
-  onToggleMic,
-  onDuckTest,
   onOpenFull,
   currentUser,
   pendingRequest,
@@ -3466,12 +4090,13 @@ function RoomView({
   onFindFull,
   onRetryFull,
   onLeaveRoom,
-  duckLevel,
 }) {
   const members = useMembers()
   const words = room.name.split(' ')
   const lastWord = words.pop()
-  const linePeople = room.members.filter((id) => id !== currentUser?.id).slice(0, 4)
+  const linePeople = room.members
+    .filter((id) => id !== currentUser?.id && members[id]?.showActivity !== false)
+    .slice(0, 4)
   const linePositions = [15, 33, 54, 74]
   const total = duration || track?.duration || 0
   const pct = total ? Math.min(100, Math.max(0, (progress / total) * 100)) : 0
@@ -3675,37 +4300,21 @@ function RoomView({
           </div>
 
           <div className="now-foot">
-            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.preview ? 'Official preview · 30 seconds' : track?.youtubeVideoId && !track?.streamUrl ? 'YouTube Music · full-length engine' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
+            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'YouTube Music · full-length engine' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
             <span className="dot" />
             <span>{room.members.length} in the room</span>
             <span className={`dot`} />
             <span>{canControl ? 'You have control' : 'Listen-only mode'}</span>
             <span className="grow" />
-            {track?.preview && (
-              <>
-                <button className="text-btn find-full" onClick={() => onRetryFull(track)}>
-                  <RefreshCw size={11} /> Retry Full Stream
-                </button>
-                <button className="text-btn find-full" onClick={() => onFindFull(track)}>
-                  <Search size={11} /> Find Full Version
-                </button>
-              </>
+            {(failed || track?.needsHydration) && (
+              <button className="text-btn find-full" onClick={() => onRetryFull(track)}>
+                <RefreshCw size={11} /> Retry Full Stream
+              </button>
             )}
             <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track">
               <Heart />
             </button>
           </div>
-
-          <VoiceRow
-            micOn={micOn}
-            micLevel={micLevel}
-            speaking={speaking}
-            duckTest={duckTest}
-            ducked={speaking}
-            duckLevel={duckLevel}
-            onToggleMic={onToggleMic}
-            onDuckTest={onDuckTest}
-          />
         </div>
       </section>
 
@@ -3783,6 +4392,7 @@ function RoomView({
 function PlayerDock({
   track,
   isPlaying,
+  buffering,
   progress,
   duration,
   liked,
@@ -3822,8 +4432,8 @@ function PlayerDock({
       <div className="dock-center">
         <div className="dock-buttons">
           <button className="icon-btn dock-skip" onClick={onPrev} aria-label="Previous track"><SkipBack /></button>
-          <button className="dock-play" onClick={onTogglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
-            {isPlaying ? <Pause /> : <Play />}
+          <button className="dock-play" onClick={onTogglePlay} aria-label={buffering ? 'Buffering' : isPlaying ? 'Pause' : 'Play'}>
+            {buffering ? <RefreshCw className="spin" /> : isPlaying ? <Pause /> : <Play />}
           </button>
           <button className="icon-btn dock-skip" onClick={onNext} aria-label="Next track"><SkipForward /></button>
         </div>
@@ -4032,6 +4642,7 @@ function FullPlayer({
   track,
   queue,
   isPlaying,
+  buffering,
   progress,
   duration,
   syncMs,
@@ -4114,8 +4725,8 @@ function FullPlayer({
 
               <div className="fp-controls">
                 <button className="icon-btn" onClick={onPrev} aria-label="Previous"><SkipBack /></button>
-                <button className="fp-play" onClick={onTogglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
-                  {isPlaying ? <Pause /> : <Play />}
+                <button className="fp-play" onClick={onTogglePlay} aria-label={buffering ? 'Buffering' : isPlaying ? 'Pause' : 'Play'}>
+                  {buffering ? <RefreshCw className="spin" /> : isPlaying ? <Pause /> : <Play />}
                 </button>
                 <button className="icon-btn" onClick={onNext} aria-label="Next"><SkipForward /></button>
               </div>
@@ -4146,7 +4757,7 @@ function FullPlayer({
             <div className="social-head">
               <div className="social-head-copy">
                 <h3>Live lyrics</h3>
-                <p><Sparkles size={10} /> {lyrics?.status === 'ready' && lyrics.type === 'synced' ? 'Following the room, line by line' : 'Time-synced with playback'}</p>
+                <p><Sparkles size={10} /> {lyrics?.status === 'ready' && lyrics.type === 'synced' ? 'Following the room, line by line' : lyrics?.status === 'ready' && lyrics.type === 'plain' ? 'Read along with the room' : 'Time-synced with playback'}</p>
               </div>
               <span className="source-badge">LRCLIB</span>
             </div>
@@ -4210,7 +4821,7 @@ function buildInitialQueues(rooms) {
 function publicAccount(account, online = false) {
   if (!account) return null
   const { password, ...safe } = account
-  return { ...safe, online }
+  return { ...safe, online: online && safe.showActivity !== false }
 }
 
 function formatBytes(bytes) {
@@ -4323,6 +4934,15 @@ export default function App() {
   const [micLevel, setMicLevel] = useState(0)
   const [speaking, setSpeaking] = useState(false)
   const [duckTest, setDuckTest] = useState(false)
+  const [buffering, setBuffering] = useState(false)
+  const [streamRecovering, setStreamRecovering] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
+  const [authMode, setAuthMode] = useState('signin')
+  const [authReason, setAuthReason] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
+  const [passcodeRoomId, setPasscodeRoomId] = useState(null)
+  const [voiceNotePlaying, setVoiceNotePlaying] = useState(false)
+  const [remoteVoice, setRemoteVoice] = useState({})
   const [cacheRevision, setCacheRevision] = useState(0)
   const [pendingRoomCode, setPendingRoomCode] = useState(() => (
     typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('room') || ''
@@ -4349,12 +4969,18 @@ export default function App() {
   const typingTimerRef = useRef(null)
   const typingBroadcastRef = useRef(null)
   const typingClearRef = useRef(null)
-  const micRef = useRef({ stream: null, ctx: null, analyser: null, raf: null, loudAt: 0, quietAt: 0 })
+  const micRef = useRef({ stream: null, ctx: null, analyser: null, raf: null, loudAt: 0, quietAt: 0, recorder: null, mimeType: '' })
   const duckRef = useRef({ interval: null, timer: null })
   const ytPlayerRef = useRef(null)
   const ytContainerRef = useRef(null)
   const handleEndedRef = useRef(null)
   const hasInteractedRef = useRef(false)
+  const pendingAuthActionRef = useRef(null)
+  const stallTimerRef = useRef(null)
+  const recoveryRef = useRef({ id: '', at: 0, active: false })
+  const remoteVoiceTimersRef = useRef({})
+  const remoteAudioQueueRef = useRef({ entries: {} })
+  const acceptedInviteRoomsRef = useRef(new Set())
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
   const currentUser = useMemo(() => (
@@ -4366,6 +4992,8 @@ export default function App() {
   const role = inRoom ? activeRoom.roles?.[currentUserId] || 'listener' : 'listener'
   const canControl = !inRoom || role === 'admin' || role === 'dj'
   const canModerate = inRoom && role === 'admin'
+  const remoteSpeaking = Object.keys(remoteVoice).length > 0
+  const voiceSpeaking = speaking || remoteSpeaking
   const activeKey = activeRoomId || SOLO_ROOM_ID
   const queueIds = inRoom ? activeRoom.trackIds : soloQueue
   const queue = queueIds.map((id) => {
@@ -4599,18 +5227,35 @@ export default function App() {
   }, [rooms, activeRoomId])
 
   useEffect(() => {
+    if (!currentUser) return
+    const action = pendingAuthActionRef.current
+    if (!action) return
+    pendingAuthActionRef.current = null
+    executeAuthIntent(action)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser])
+
+  useEffect(() => {
+    if (currentUser || !pendingRoomCode) return
+    setAuthMode('signin')
+    setAuthReason(`Log in or sign up to join room ${normalizeRoomCode(pendingRoomCode)}.`)
+    setAuthOpen(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     if (!currentUser || !pendingRoomCode) return
-    const compact = normalizeRoomCode(pendingRoomCode)
-    const room = roomsRef.current.find((candidate) => (
-      candidate.id === pendingRoomCode || normalizeRoomCode(candidate.code) === compact
-    ))
-    setPendingRoomCode('')
+    const code = normalizeRoomCode(pendingRoomCode)
+    const room = rooms.find((candidate) => normalizeRoomCode(candidate.code) === code)
     if (!room) {
-      showToast('That room link is no longer active.', 'lock')
+      setJoinRoomOpen(true)
       return
     }
-    joinRoom(room, currentUserId)
-  }, [currentUser, pendingRoomCode, currentUserId])
+    if (room.private) acceptedInviteRoomsRef.current.add(room.id)
+    setPendingRoomCode('')
+    joinRoom(room)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, pendingRoomCode, rooms])
 
   useEffect(() => {
     if (!activeRoomId) return
@@ -4628,8 +5273,12 @@ export default function App() {
     clearInterval(duckRef.current.interval)
     clearTimeout(duckRef.current.timer)
     if (micRef.current.raf) cancelAnimationFrame(micRef.current.raf)
+    if (micRef.current.recorder && micRef.current.recorder.state !== 'inactive') {
+      try { micRef.current.recorder.stop() } catch { /* already stopped */ }
+    }
     micRef.current.stream?.getTracks().forEach((streamTrack) => streamTrack.stop())
     if (micRef.current.ctx) micRef.current.ctx.close()
+    cleanupAllRemoteVoice()
     audioRef.current?.pause()
   }, [])
 
@@ -4670,13 +5319,19 @@ export default function App() {
     writeActiveSession(id, remember)
     hydrateUser(id)
     setCurrentUserId(id)
+    setAuthOpen(false)
+    setAuthReason('')
+    setAuthNotice('')
   }
 
-  function signIn({ email, password, remember }) {
-    const typed = String(email || '').trim().toLowerCase()
-    if (!typed || !password) return { error: 'Enter your email and password.' }
-    const account = Object.values(accounts).find((candidate) => candidate.email?.toLowerCase() === typed)
-    if (!account) return { error: 'No account with that email. Create one instead.' }
+  function signIn({ identifier, email, password, remember }) {
+    const typed = String(identifier ?? email ?? '').trim().toLowerCase().replace(/^@/, '')
+    const cleanHandle = slugifyHandle(typed)
+    if (!typed || !password) return { error: 'Enter your email or username and password.' }
+    const account = Object.values(accounts).find((candidate) => (
+      candidate.email?.toLowerCase() === typed || candidate.handle?.toLowerCase() === cleanHandle
+    ))
+    if (!account) return { error: 'No account found. Check your email or username, or create one.' }
     if (account.password !== password) return { error: 'That password does not match.' }
     finishAuth(account.id, remember)
     setActivePlaylistId(null)
@@ -4684,22 +5339,25 @@ export default function App() {
     return {}
   }
 
-  function signUp({ name, email, password, handle, preset, avatarUrl, remember }) {
-    const cleanName = String(name || '').trim()
+  function signUp({ email, username, handle, password, remember }) {
     const typed = String(email || '').trim().toLowerCase()
-    const cleanHandle = slugifyHandle(handle || handleFromEmail(typed))
-    if (!cleanName) return { error: 'Tell us your name.' }
+    const cleanHandle = slugifyHandle(username || handle || handleFromEmail(typed))
     if (!typed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return { error: 'Enter a valid email address.' }
+    if (cleanHandle.length < 3) return { error: 'Choose a username with at least 3 characters.' }
     if (!password || password.length < 4) return { error: 'Use at least 4 characters for your password.' }
-    if (!cleanHandle) return { error: 'Choose a valid @handle.' }
+    const taken = Object.values(accounts).some((candidate) => candidate.handle === cleanHandle)
+    if (taken) return { error: 'That username is taken. Try another.' }
     if (Object.values(accounts).some((candidate) => candidate.email?.toLowerCase() === typed)) {
-      return { error: 'That email is already registered. Sign in instead.' }
+      return { error: 'That email is already registered. Log in instead.' }
     }
-    if (Object.values(accounts).some((candidate) => candidate.handle === cleanHandle)) {
-      return { error: 'That handle is taken. Try another.' }
+    let id = cleanHandle
+    let suffix = 1
+    while (accounts[id]) {
+      suffix += 1
+      id = `${cleanHandle}${suffix}`
     }
-    const id = cleanHandle
-    const chosen = AVATAR_PRESETS.find((option) => option.id === preset) || randomAvatarPreset(id)
+    const cleanName = displayNameFromHandle(cleanHandle)
+    const chosen = randomAvatarPreset(id)
     const account = {
       id,
       name: cleanName,
@@ -4710,8 +5368,6 @@ export default function App() {
       av1: chosen.av1,
       av2: chosen.av2,
       preset: chosen.id,
-      avatarUrl: String(avatarUrl || '').trim(),
-      bio: '',
       showActivity: true,
       allowInvites: true,
       createdAt: Date.now(),
@@ -4719,47 +5375,6 @@ export default function App() {
     setAccounts((previous) => ({ ...previous, [id]: account }))
     finishAuth(id, remember)
     showToast(`Account created — welcome, ${cleanName.split(' ')[0]}`)
-    return {}
-  }
-
-  function signInWithGoogle({ email, name, remember }) {
-    const typed = String(email || '').trim().toLowerCase()
-    if (!typed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return { error: 'Enter a valid Gmail address.' }
-    const existing = Object.values(accounts).find((candidate) => candidate.email?.toLowerCase() === typed)
-    if (existing) {
-      finishAuth(existing.id, remember)
-      showToast(`Welcome back, ${existing.name.split(' ')[0]}`)
-      return {}
-    }
-    const displayName = String(name || '').trim() || nameFromEmail(typed)
-    let base = slugifyHandle(handleFromEmail(typed)) || 'listener'
-    let id = base
-    let suffix = 1
-    while (accounts[id]) {
-      suffix += 1
-      id = `${base}${suffix}`
-    }
-    base = id
-    const chosen = randomAvatarPreset(id)
-    const account = {
-      id,
-      name: displayName,
-      handle: base,
-      email: typed,
-      password: uid('google'),
-      initials: initials(displayName),
-      av1: chosen.av1,
-      av2: chosen.av2,
-      preset: chosen.id,
-      avatarUrl: '',
-      bio: '',
-      showActivity: true,
-      allowInvites: true,
-      createdAt: Date.now(),
-    }
-    setAccounts((previous) => ({ ...previous, [id]: account }))
-    finishAuth(id, remember)
-    showToast(`Welcome to EchoSync, ${displayName.split(' ')[0]}`)
     return {}
   }
 
@@ -4786,6 +5401,10 @@ export default function App() {
     setPlaylistDialog(null)
     setAddTrack(null)
     setPendingRoomCode('')
+    setPasscodeRoomId(null)
+    setAuthOpen(false)
+    setAuthReason('')
+    setAuthNotice('')
     setDraft('')
     setReplyTo(null)
     showToast('Signed out — your account is waiting when you return.')
@@ -4793,30 +5412,41 @@ export default function App() {
 
   function saveProfile(patch) {
     if (!currentUserId || !accounts[currentUserId]) return { error: 'Sign in to edit your profile.' }
-    const cleanName = String(patch.name || '').trim()
-    const cleanHandle = slugifyHandle(patch.handle || '')
-    const typed = String(patch.email || '').trim().toLowerCase()
-    if (!cleanName) return { error: 'Display name cannot be empty.' }
-    if (!cleanHandle) return { error: 'Choose a valid @handle.' }
+    const account = accounts[currentUserId]
+    const cleanHandle = slugifyHandle(patch.handle || account.handle)
+    const typed = String(patch.email ?? account.email ?? '').trim().toLowerCase()
+    const cleanName = displayNameFromHandle(cleanHandle)
+    if (cleanHandle.length < 3) return { error: 'Choose a username with at least 3 characters.' }
     if (!typed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return { error: 'Enter a valid email address.' }
     if (Object.values(accounts).some((candidate) => candidate.id !== currentUserId && candidate.handle === cleanHandle)) {
-      return { error: 'That handle is already in use.' }
+      return { error: 'That username is already in use.' }
     }
     if (Object.values(accounts).some((candidate) => candidate.id !== currentUserId && candidate.email?.toLowerCase() === typed)) {
       return { error: 'That email belongs to another account.' }
+    }
+    const newPassword = String(patch.newPassword || '')
+    let password = account.password
+    if (newPassword) {
+      if (String(patch.currentPassword || '') !== account.password) {
+        return { error: 'Your current password does not match.' }
+      }
+      if (newPassword.length < 4) return { error: 'Use at least 4 characters for the new password.' }
+      password = newPassword
     }
     setAccounts((previous) => ({
       ...previous,
       [currentUserId]: {
         ...previous[currentUserId],
-        ...patch,
         name: cleanName,
         handle: cleanHandle,
         email: typed,
+        password,
         initials: initials(cleanName),
+        showActivity: patch.showActivity !== undefined ? Boolean(patch.showActivity) : account.showActivity !== false,
+        allowInvites: patch.allowInvites !== undefined ? Boolean(patch.allowInvites) : account.allowInvites !== false,
       },
     }))
-    showToast('Profile saved')
+    showToast(newPassword ? 'Profile and password updated' : 'Profile saved')
     return {}
   }
 
@@ -4869,7 +5499,23 @@ export default function App() {
   }
 
   function joinRoom(candidate, userId = currentUserId) {
-    if (!candidate?.id || !userId) return
+    if (!candidate?.id) return
+    if (!userId) {
+      requireAuth(
+        { type: 'joinRoom', roomId: candidate.id, roomCode: candidate.code },
+        `Log in to join ${candidate.name}.`,
+      )
+      return
+    }
+    const isMember = candidate.members?.includes(userId)
+    const isAdmin = candidate.roles?.[userId] === 'admin' || candidate.dj === userId || candidate.createdBy === userId
+    const invited = invitesRef.current.some((invite) => invite.roomId === candidate.id && invite.toUserId === userId)
+    const accessGranted = !candidate.private || isMember || isAdmin || invited || acceptedInviteRoomsRef.current.has(candidate.id)
+    if (!accessGranted) {
+      setPasscodeRoomId(candidate.id)
+      return
+    }
+    acceptedInviteRoomsRef.current.delete(candidate.id)
     const wasMember = candidate.members.includes(userId)
     const roles = { ...(candidate.roles || {}) }
     if (!roles[userId]) roles[userId] = candidate.dj === userId ? 'admin' : 'listener'
@@ -4908,8 +5554,22 @@ export default function App() {
       normalizeRoomCode(candidate.code) === compact || candidate.id === value.trim()
     ))
     if (!room) return { error: 'No room matches that code. Check it with the host.' }
+    if (room.private) acceptedInviteRoomsRef.current.add(room.id)
     joinRoom(room)
     setJoinRoomOpen(false)
+    setPendingRoomCode('')
+    return {}
+  }
+
+  function unlockPrivateRoom(value) {
+    const room = rooms.find((candidate) => candidate.id === passcodeRoomId)
+    if (!room) return { error: 'That room is no longer available.' }
+    if (normalizeRoomCode(value) !== normalizeRoomCode(room.code)) {
+      return { error: 'That passcode does not match. Ask the host for the ES-XXXX code.' }
+    }
+    acceptedInviteRoomsRef.current.add(room.id)
+    setPasscodeRoomId(null)
+    joinRoom(room)
     return {}
   }
 
@@ -4956,9 +5616,17 @@ export default function App() {
       lockToast()
       return
     }
+    let nextCode = activeRoom.code
+    if (patch.code) {
+      nextCode = normalizeRoomCode(patch.code)
+      while (rooms.some((room) => room.id !== activeRoom.id && normalizeRoomCode(room.code) === nextCode)) {
+        nextCode = roomCode()
+      }
+    }
     const nextRoom = {
       ...activeRoom,
       ...patch,
+      code: nextCode,
       trackIds: Array.isArray(patch.trackIds) && patch.trackIds.length
         ? patch.trackIds
         : activeRoom.trackIds,
@@ -5076,6 +5744,7 @@ export default function App() {
       showToast('That room is no longer available.', 'lock')
       return
     }
+    acceptedInviteRoomsRef.current.add(room.id)
     joinRoom(room)
   }
 
@@ -5260,6 +5929,36 @@ export default function App() {
     broadcastTyping(false)
   }
 
+  function sendVoiceNote({ dataUrl, duration, waveform }) {
+    if (!activeRoom || !currentUserId || !dataUrl) return
+    const replySnapshot = replyTo
+      ? { id: replyTo.id, name: replyTo.name, handle: replyTo.handle, text: replyTo.text || 'Voice note' }
+      : null
+    const message = {
+      id: uid('msg'),
+      author: currentUserId,
+      type: 'voice',
+      text: '',
+      voiceData: dataUrl,
+      duration: Math.max(1, Number(duration) || 1),
+      waveform: Array.isArray(waveform) ? waveform : [],
+      time: clockNow(),
+      reactions: [],
+      read: false,
+      ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+    }
+    setMessages((previous) => ({ ...previous, [activeRoomId]: [...(previous[activeRoomId] || []), message] }))
+    channelRef.current?.postMessage({
+      type: 'chat',
+      roomId: activeRoomId,
+      sender: tabIdRef.current,
+      message,
+    })
+    setReplyTo(null)
+    clearTimeout(typingTimerRef.current)
+    broadcastTyping(false)
+  }
+
   function deleteMessage(messageId) {
     if (!activeRoomId) return
     setMessages((previous) => ({
@@ -5312,11 +6011,13 @@ export default function App() {
   }
 
   function openCreatePlaylist(candidate = null) {
+    if (requireAuth({ type: 'createPlaylist', track: candidate }, 'Log in to create playlists.')) return
     setPendingPlaylistTrack(candidate)
     setPlaylistDialog({ mode: 'create', playlist: null })
   }
 
   function openEditPlaylist(playlist) {
+    if (requireAuth({ type: 'library' }, 'Log in to edit playlists.')) return
     setPendingPlaylistTrack(null)
     setPlaylistDialog({ mode: 'edit', playlist })
   }
@@ -5377,11 +6078,16 @@ export default function App() {
   }
 
   function openPlaylist(playlist) {
+    if (requireAuth({ type: 'library' }, 'Log in to open your playlists.')) return
     setActivePlaylistId(playlist.id)
     setView('library')
   }
 
   function playPlaylist(playlist) {
+    if (requireAuth(
+      { type: 'playPlaylist', playlist },
+      'Log in to play your saved playlists.',
+    )) return
     if (!playlist?.trackIds?.length) {
       showToast('This playlist is still empty.', 'lock')
       return
@@ -5393,6 +6099,7 @@ export default function App() {
   }
 
   function shufflePlaylist(playlist) {
+    if (requireAuth({ type: 'shufflePlaylist', playlist }, 'Log in to play your saved playlists.')) return
     if (!playlist?.trackIds?.length) {
       showToast('This playlist is still empty.', 'lock')
       return
@@ -5408,6 +6115,7 @@ export default function App() {
 
   function toggleLike(trackId) {
     if (!trackId || trackId === 'empty') return
+    if (requireAuth({ type: 'like', trackId }, 'Log in to save tracks to your library.')) return
     setLiked((previous) => (
       previous.includes(trackId)
         ? previous.filter((id) => id !== trackId)
@@ -5503,33 +6211,25 @@ export default function App() {
 
   async function ensurePlayable(candidate) {
     if (!candidate) return null
-    if (candidate.streamUrl || candidate.youtubeVideoId) {
-      if (candidate.status !== 'ready') {
-        const ready = { ...candidate, status: 'ready' }
-        setLibrary((previous) => ({ ...previous, [candidate.id]: ready }))
-        saveLibraryEntry(candidate.id, ready)
-        return ready
-      }
+    if (
+      (candidate.streamUrl || candidate.youtubeVideoId) &&
+      !isPreviewTrack(candidate) &&
+      isFullLengthTrack(candidate) &&
+      candidate.status === 'ready'
+    ) {
       return candidate
     }
-    const seed = SEED_BY_ID[candidate.id]
-    if (!seed && candidate.provider !== 'jiosaavn') {
-      showToast('This stream is not available right now.', 'lock')
-      return null
+    if (candidate.streamUrl && isPreviewTrack(candidate)) {
+      clearResolvedStream(candidate.id)
     }
     setLibrary((previous) => ({
       ...previous,
       [candidate.id]: { ...(previous[candidate.id] || candidate), status: 'resolving' },
     }))
     try {
-      let resolved = null
-      if (seed) {
-        resolved = await resolveSeed(seed)
-      } else {
-        resolved = await hydrateJioTrack(candidate)
-      }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
-        throw new Error('No playable source')
+      const resolved = await resolveFullTrack(candidate)
+      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
+        throw new Error('No playable full-length source')
       }
       const ready = {
         ...candidate,
@@ -5538,6 +6238,8 @@ export default function App() {
         c1: candidate.c1 || resolved.c1,
         c2: candidate.c2 || resolved.c2,
         cover: candidate.cover || resolved.cover || null,
+        preview: false,
+        needsHydration: false,
         status: 'ready',
       }
       setLibrary((previous) => ({ ...previous, [candidate.id]: ready }))
@@ -5546,9 +6248,14 @@ export default function App() {
     } catch {
       setLibrary((previous) => ({
         ...previous,
-        [candidate.id]: { ...(previous[candidate.id] || candidate), status: 'error', streamUrl: null },
+        [candidate.id]: {
+          ...(previous[candidate.id] || candidate),
+          status: 'error',
+          streamUrl: null,
+          preview: false,
+        },
       }))
-      showToast(`Could not find a stream for “${candidate.title || 'this track'}”.`, 'lock')
+      showToast(`Could not find a full stream for “${candidate.title || 'this track'}”.`, 'lock')
       return null
     }
   }
@@ -5573,6 +6280,7 @@ export default function App() {
   }
 
   async function togglePlay() {
+    if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
     if (!canControl) {
       lockToast()
       return
@@ -5598,6 +6306,7 @@ export default function App() {
   }
 
   async function nextTrack() {
+    if (requireAuth({ type: 'next' }, 'Log in to play full tracks.')) return
     if (!canControl) {
       lockToast()
       return
@@ -5607,6 +6316,7 @@ export default function App() {
   }
 
   async function previousTrack() {
+    if (requireAuth({ type: 'previous' }, 'Log in to play full tracks.')) return
     if (!canControl) {
       lockToast()
       return
@@ -5670,20 +6380,91 @@ export default function App() {
     })
   }
 
-  function handleAudioError() {
-    if (!loadedUrlRef.current) return
-    const current = library[track.id] || track
-    if (current?.youtubeVideoId) {
-      setLibrary((previous) => ({
-        ...previous,
-        [current.id]: { ...(previous[current.id] || current), streamUrl: null, status: 'ready' },
-      }))
-      loadedUrlRef.current = ''
-      showToast('Direct audio failed — switching to the video engine.')
-      return
+  function clearStallTimer() {
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current)
+      stallTimerRef.current = null
     }
-    setIsPlaying(false)
-    showToast('That stream did not load. Try the next track.', 'lock')
+  }
+
+  function handleAudioBuffering() {
+    if (!track?.streamUrl || !isPlayingRef.current) return
+    setBuffering(true)
+    if (stallTimerRef.current) return
+    stallTimerRef.current = setTimeout(() => {
+      stallTimerRef.current = null
+      recoverCurrentStream('stalled')
+    }, 4000)
+  }
+
+  function handleAudioReady() {
+    clearStallTimer()
+    setBuffering(false)
+    setStreamRecovering(false)
+    recoveryRef.current.active = false
+  }
+
+  async function recoverCurrentStream(reason = 'error') {
+    const current = library[track?.id] || track
+    if (!current?.id || current.id === 'empty') return
+    if (!current.streamUrl && !current.youtubeVideoId) return
+    if (recoveryRef.current.active) return
+    if (recoveryRef.current.id === current.id && Date.now() - recoveryRef.current.at < 10000) return
+    const resumeTime = Math.max(0, getPlaybackTime() || 0)
+    const wasPlaying = isPlayingRef.current
+    recoveryRef.current = { id: current.id, at: Date.now(), active: true }
+    clearStallTimer()
+    setBuffering(true)
+    setStreamRecovering(true)
+    evictLibraryEntry(current.id)
+    clearResolvedStream(current.id)
+    if (current.youtubeVideoId) clearResolvedStream(`yt:${current.youtubeVideoId}`)
+    if (current.providerId) clearResolvedStream(`jio:${current.providerId}`)
+    setLibrary((previous) => ({
+      ...previous,
+      [current.id]: {
+        ...(previous[current.id] || current),
+        streamUrl: null,
+        status: 'resolving',
+        preview: false,
+      },
+    }))
+    if (reason === 'stalled') showToast('Stream stalled — finding a working source…')
+    try {
+      const resolved = await ensurePlayable({
+        ...current,
+        streamUrl: null,
+        preview: false,
+        needsHydration: true,
+        status: 'pending',
+      })
+      if (!resolved?.streamUrl && !resolved?.youtubeVideoId) {
+        setIsPlaying(false)
+        setBuffering(false)
+        setStreamRecovering(false)
+        showToast('Playback stopped — no alternate source answered.', 'lock')
+        return
+      }
+      pendingSeekRef.current = resumeTime
+      setSeekSignal((value) => value + 1)
+      setDuration(resolved.duration || current.duration || 0)
+      if (wasPlaying) setIsPlaying(true)
+      showToast('Recovered playback with a fresh stream')
+    } catch {
+      setIsPlaying(false)
+      setBuffering(false)
+      setStreamRecovering(false)
+      showToast('That stream did not load. Try the next track.', 'lock')
+    } finally {
+      recoveryRef.current.active = false
+      recoveryRef.current.at = Date.now()
+    }
+  }
+
+  function handleAudioError() {
+    setBuffering(false)
+    if (!loadedUrlRef.current) return
+    recoverCurrentStream('error')
   }
 
   function acceptJoin() {
@@ -5720,6 +6501,11 @@ export default function App() {
 
   async function playSearchTrack(candidate) {
     if (!candidate) return
+    if (!inRoom && requireAuth(
+      { type: 'playSolo', track: candidate },
+      'Sign up to play full-length tracks. Your first listen starts right after.',
+      'signup',
+    )) return
     if (inRoom && !canControl) {
       lockToast()
       return
@@ -5743,6 +6529,10 @@ export default function App() {
 
   function queueSearchTrack(candidate) {
     if (!candidate) return
+    if (!inRoom && requireAuth(
+      { type: 'queueSolo', track: candidate },
+      'Log in to build your queue.',
+    )) return
     if (inRoom && !canControl) {
       lockToast()
       return
@@ -5769,6 +6559,7 @@ export default function App() {
   }
 
   async function playSoloQueue(ids, startIndex = 0) {
+    if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
     const clean = ids.filter(Boolean)
     if (!clean.length) return
     const index = Math.max(0, Math.min(startIndex, clean.length - 1))
@@ -5788,6 +6579,11 @@ export default function App() {
 
   async function playSoloTrack(candidate) {
     if (!candidate?.id) return
+    if (requireAuth(
+      { type: 'playSolo', track: candidate },
+      'Sign up to play full-length tracks. Your first listen starts right after.',
+      'signup',
+    )) return
     const playable = await ensurePlayable(candidate)
     if (!playable) return
     const ids = soloQueue.includes(playable.id) ? soloQueue : [...soloQueue, playable.id]
@@ -5801,6 +6597,7 @@ export default function App() {
 
   function queueSoloTrack(candidate) {
     if (!candidate?.id) return
+    if (requireAuth({ type: 'queueSolo', track: candidate }, 'Log in to build your queue.')) return
     rememberTrack(candidate)
     if (!soloQueue.includes(candidate.id)) {
       setSoloQueue((previous) => [...previous, candidate.id])
@@ -5808,40 +6605,49 @@ export default function App() {
     }
   }
 
-  async function findFullVersion(previewTrack) {
-    if (!previewTrack || !canControl) {
+  async function findFullVersion(targetTrack) {
+    if (!targetTrack || !canControl) {
       if (!canControl) lockToast()
       return
     }
-    showToast('Searching for the full-length version…')
+    const current = library[targetTrack.id] || targetTrack
+    const resumeTime = isPlaying ? getPlaybackTime() : 0
+    showToast('Retrying every full-stream source…')
+    clearResolvedStream(current.id)
+    if (current.youtubeVideoId) clearResolvedStream(`yt:${current.youtubeVideoId}`)
+    if (current.providerId) clearResolvedStream(`jio:${current.providerId}`)
     try {
-      const candidates = await fetchJioSearch(`${previewTrack.title} ${previewTrack.artist}`, 16)
-      const ranked = rankCandidates(candidates, { ...previewTrack, preview: false })
-      for (const entry of ranked.slice(0, 4)) {
-        const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
-        if (hydrated?.streamUrl && (hydrated.duration || 0) > 45) {
-          const replacement = {
-            ...hydrated,
-            id: previewTrack.id,
-            status: 'ready',
-            preview: false,
-            c1: previewTrack.c1,
-            c2: previewTrack.c2,
-            cover: previewTrack.cover || hydrated.cover,
-          }
-          clearResolvedStream(previewTrack.id)
-          setLibrary((previous) => ({ ...previous, [previewTrack.id]: replacement }))
-          saveLibraryEntry(previewTrack.id, replacement)
-          pendingSeekRef.current = isPlaying ? getPlaybackTime() : 0
-          setSeekSignal((value) => value + 1)
-          setDuration(replacement.duration || 0)
-          showToast(`Full version found — “${replacement.title}”`)
-          return
-        }
+      const resolved = await ensurePlayable({
+        ...current,
+        streamUrl: null,
+        youtubeVideoId: null,
+        preview: false,
+        needsHydration: true,
+        status: 'pending',
+      })
+      if (!resolved?.streamUrl && !resolved?.youtubeVideoId) {
+        showToast('No full-length source is available for this track right now.', 'lock')
+        return
       }
-      showToast('No full-length stream found for this one — keeping the preview.', 'lock')
+      const replacement = {
+        ...current,
+        ...resolved,
+        id: current.id,
+        status: 'ready',
+        preview: false,
+        needsHydration: false,
+        c1: current.c1 || resolved.c1,
+        c2: current.c2 || resolved.c2,
+        cover: current.cover || resolved.cover,
+      }
+      setLibrary((previous) => ({ ...previous, [current.id]: replacement }))
+      saveLibraryEntry(current.id, replacement)
+      pendingSeekRef.current = resumeTime
+      setSeekSignal((value) => value + 1)
+      setDuration(replacement.duration || 0)
+      showToast(`Full version ready — “${replacement.title}”`)
     } catch {
-      showToast('Could not reach the music source just now.', 'lock')
+      showToast('Could not reach the music sources just now.', 'lock')
     }
   }
 
@@ -5873,7 +6679,7 @@ export default function App() {
       setTranslating(false)
       return undefined
     }
-    if (lyrics.status !== 'ready' || lyrics.type !== 'synced' || !lyrics.lines?.length) return undefined
+    if (lyrics.status !== 'ready' || !['synced', 'plain'].includes(lyrics.type) || !lyrics.lines?.length) return undefined
     if (lyrics.lines.every((line) => line.enText || !line.text?.trim())) return undefined
     const curated = CURATED_TRANSLATIONS[track?.id] || []
     if (curated.length) {
@@ -5889,7 +6695,7 @@ export default function App() {
     const publish = (next) => {
       if (cancelled) return
       setLyrics((previous) => (
-        previous.status === 'ready' && previous.type === 'synced'
+        previous.status === 'ready' && ['synced', 'plain'].includes(previous.type)
           ? { ...previous, lines: next }
           : previous
       ))
@@ -5904,12 +6710,14 @@ export default function App() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [translateOn, lyricsKey, lyrics.status, lyricsRefresh])
+  }, [translateOn, lyricsKey, lyrics.status, lyrics.type, lyricsRefresh])
 
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
     const sourceUrl = track?.streamUrl || ''
+    clearStallTimer()
+    setBuffering(false)
     if (!sourceUrl) {
       audio.pause()
       if (loadedUrlRef.current) {
@@ -5981,7 +6789,9 @@ export default function App() {
               }
             },
             onError: () => {
-              if (!cancelled) showToast('The video engine could not play this track.', 'lock')
+              if (cancelled) return
+              showToast('The video engine failed — finding another source.', 'lock')
+              if (isPlayingRef.current) recoverCurrentStream('video')
             },
           },
         })
@@ -6071,7 +6881,8 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current
     const duckRatio = Math.max(0.05, Math.min(1, (settings.duckLevel || 20) / 100))
-    const target = muted ? 0 : speaking ? volume * duckRatio : volume
+    const shouldDuck = speaking || remoteSpeaking || voiceNotePlaying
+    const target = muted ? 0 : shouldDuck ? volume * duckRatio : volume
     const player = ytPlayerRef.current
     if (player?.setVolume) {
       player.setVolume(Math.round(target * 100))
@@ -6089,7 +6900,7 @@ export default function App() {
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [speaking, volume, muted, settings.duckLevel])
+  }, [speaking, remoteSpeaking, voiceNotePlaying, volume, muted, settings.duckLevel])
 
   useEffect(() => {
     if (!youtubeActive) return undefined
@@ -6100,8 +6911,25 @@ export default function App() {
       setProgress(time)
       const total = player.getDuration?.() || 0
       if (total > 0) setDuration(total)
+      if (isPlayingRef.current && player.getPlayerState) {
+        const state = player.getPlayerState()
+        if (state === 1) {
+          handleAudioReady()
+        } else if (state === 3 || state === 5) {
+          setBuffering(true)
+          if (!stallTimerRef.current) {
+            stallTimerRef.current = setTimeout(() => {
+              stallTimerRef.current = null
+              recoverCurrentStream('video')
+            }, 4000)
+          }
+        }
+      }
     }, 500)
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      clearStallTimer()
+    }
   }, [youtubeActive])
 
   useEffect(() => {
@@ -6109,6 +6937,127 @@ export default function App() {
     addRecent(track.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, isPlaying, track?.id])
+
+  function cleanupRemoteAudio(key) {
+    const entry = remoteAudioQueueRef.current.entries[key]
+    if (!entry) return
+    delete remoteAudioQueueRef.current.entries[key]
+    try {
+      entry.audio.pause()
+      entry.audio.removeAttribute('src')
+      entry.audio.load()
+    } catch {
+      /* already detached */
+    }
+    if (entry.url) URL.revokeObjectURL(entry.url)
+  }
+
+  function cleanupAllRemoteVoice() {
+    Object.keys(remoteAudioQueueRef.current.entries).forEach((key) => cleanupRemoteAudio(key))
+    Object.values(remoteVoiceTimersRef.current).forEach((timer) => clearTimeout(timer))
+    remoteVoiceTimersRef.current = {}
+    setRemoteVoice({})
+  }
+
+  function drainRemoteAudio(key) {
+    const entry = remoteAudioQueueRef.current.entries[key]
+    if (!entry || entry.failed) return
+    const sourceBuffer = entry.sourceBuffer
+    if (!sourceBuffer || sourceBuffer.updating) return
+    if (entry.queue.length) {
+      const chunk = entry.queue.shift()
+      try {
+        sourceBuffer.appendBuffer(chunk)
+      } catch {
+        entry.failed = true
+      }
+      return
+    }
+    if (entry.ended && entry.mediaSource?.readyState === 'open') {
+      try { entry.mediaSource.endOfStream() } catch { /* already ending */ }
+    }
+  }
+
+  function pushRemoteAudioChunk(data) {
+    if (data.roomId !== activeRoomRef.current || data.sender === tabIdRef.current) return
+    const key = `${data.roomId}:${data.userId}`
+    let entry = remoteAudioQueueRef.current.entries[key]
+    if (!entry) {
+      const audio = new Audio()
+      audio.autoplay = true
+      audio.preload = 'auto'
+      entry = {
+        key,
+        audio,
+        mediaSource: null,
+        sourceBuffer: null,
+        url: '',
+        queue: [],
+        ended: false,
+        failed: false,
+        mimeType: data.mimeType || 'audio/webm;codecs=opus',
+      }
+      remoteAudioQueueRef.current.entries[key] = entry
+      audio.addEventListener('ended', () => cleanupRemoteAudio(key))
+      const canStream = typeof MediaSource !== 'undefined'
+        && MediaSource.isTypeSupported?.(entry.mimeType)
+      if (canStream) {
+        entry.mediaSource = new MediaSource()
+        entry.url = URL.createObjectURL(entry.mediaSource)
+        audio.src = entry.url
+        entry.mediaSource.addEventListener('sourceopen', () => {
+          if (!entry.mediaSource || remoteAudioQueueRef.current.entries[key] !== entry) return
+          try {
+            entry.sourceBuffer = entry.mediaSource.addSourceBuffer(entry.mimeType)
+            entry.sourceBuffer.addEventListener('updateend', () => drainRemoteAudio(key))
+          } catch {
+            entry.failed = true
+          }
+          drainRemoteAudio(key)
+        }, { once: true })
+        audio.play().catch(() => {})
+      } else {
+        entry.failed = true
+      }
+    }
+    if (data.chunk) {
+      try {
+        entry.queue.push(new Uint8Array(data.chunk))
+        drainRemoteAudio(key)
+      } catch {
+        entry.failed = true
+      }
+    }
+  }
+
+  function stopRemoteAudio(roomId, userId) {
+    const key = `${roomId}:${userId}`
+    const entry = remoteAudioQueueRef.current.entries[key]
+    if (!entry) return
+    entry.ended = true
+    drainRemoteAudio(key)
+    setTimeout(() => cleanupRemoteAudio(key), 1400)
+  }
+
+  function markRemoteVoice(roomId, userId) {
+    if (roomId !== activeRoomRef.current || userId === currentUserRef.current?.id) return
+    setRemoteVoice((previous) => (previous[userId] ? previous : { ...previous, [userId]: true }))
+    clearTimeout(remoteVoiceTimersRef.current[userId])
+    remoteVoiceTimersRef.current[userId] = setTimeout(() => {
+      setRemoteVoice((previous) => {
+        const next = { ...previous }
+        delete next[userId]
+        return next
+      })
+      delete remoteVoiceTimersRef.current[userId]
+      stopRemoteAudio(roomId, userId)
+    }, 1500)
+  }
+
+  useEffect(() => {
+    cleanupAllRemoteVoice()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoomId])
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return undefined
@@ -6246,6 +7195,29 @@ export default function App() {
           ...previous,
           [data.roomId]: (previous[data.roomId] || []).filter((message) => message.id !== data.messageId),
         }))
+        return
+      }
+
+      if (data.type === 'voice-live-start' && data.roomId && data.userId) {
+        markRemoteVoice(data.roomId, data.userId, data.mimeType)
+        return
+      }
+
+      if (data.type === 'voice-chunk' && data.roomId && data.userId) {
+        markRemoteVoice(data.roomId, data.userId, data.mimeType)
+        pushRemoteAudioChunk(data)
+        return
+      }
+
+      if (data.type === 'voice-live-stop' && data.roomId && data.userId) {
+        clearTimeout(remoteVoiceTimersRef.current[data.userId])
+        delete remoteVoiceTimersRef.current[data.userId]
+        setRemoteVoice((previous) => {
+          const next = { ...previous }
+          delete next[data.userId]
+          return next
+        })
+        stopRemoteAudio(data.roomId, data.userId)
         return
       }
 
@@ -6410,8 +7382,43 @@ export default function App() {
         micRef.current.raf = requestAnimationFrame(loop)
       }
       micRef.current.raf = requestAnimationFrame(loop)
+      if (activeRoom?.private && activeRoomId && currentUserId && typeof MediaRecorder !== 'undefined') {
+        try {
+          const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+          const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported?.(type))
+          const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 24000 } : undefined)
+          micRef.current.recorder = recorder
+          micRef.current.mimeType = recorder.mimeType || mimeType || 'audio/webm'
+          channelRef.current?.postMessage({
+            type: 'voice-live-start',
+            roomId: activeRoomId,
+            userId: currentUserId,
+            mimeType: micRef.current.mimeType,
+            sender: tabIdRef.current,
+          })
+          recorder.ondataavailable = async (event) => {
+            if (!event.data?.size) return
+            try {
+              const chunk = await event.data.arrayBuffer()
+              channelRef.current?.postMessage({
+                type: 'voice-chunk',
+                roomId: activeRoomId,
+                userId: currentUserId,
+                mimeType: micRef.current.mimeType,
+                chunk,
+                sender: tabIdRef.current,
+              })
+            } catch {
+              /* skip a dropped chunk */
+            }
+          }
+          recorder.start(250)
+        } catch {
+          showToast('Mic is live locally, but live broadcast is unavailable in this browser.')
+        }
+      }
       setMicOn(true)
-      showToast('Mic is live — music ducks when you speak')
+      showToast(activeRoom?.private ? 'Mic is live in the room — music ducks when you speak' : 'Mic is live — music ducks when you speak')
     } catch {
       showToast('Microphone unavailable. Try the duck test to preview voice ducking.')
     }
@@ -6419,9 +7426,20 @@ export default function App() {
 
   function stopMic() {
     if (micRef.current.raf) cancelAnimationFrame(micRef.current.raf)
+    if (micRef.current.recorder && micRef.current.recorder.state !== 'inactive') {
+      try { micRef.current.recorder.stop() } catch { /* already stopped */ }
+    }
+    if (activeRoomId && currentUserId) {
+      channelRef.current?.postMessage({
+        type: 'voice-live-stop',
+        roomId: activeRoomId,
+        userId: currentUserId,
+        sender: tabIdRef.current,
+      })
+    }
     micRef.current.stream?.getTracks().forEach((streamTrack) => streamTrack.stop())
     micRef.current.ctx?.close()
-    micRef.current = { stream: null, ctx: null, analyser: null, raf: null, loudAt: 0, quietAt: 0 }
+    micRef.current = { stream: null, ctx: null, analyser: null, raf: null, loudAt: 0, quietAt: 0, recorder: null, mimeType: '' }
     setMicOn(false)
     setMicLevel(0)
     if (!duckTest) setSpeaking(false)
@@ -6447,7 +7465,100 @@ export default function App() {
     showToast(`Duck test: a friend is talking — music dips to ${settings.duckLevel || 20}%`)
   }
 
+  function openAuth(mode = 'signin', reason = '', notice = '') {
+    pendingAuthActionRef.current = null
+    setAuthMode(mode === 'signup' ? 'signup' : 'signin')
+    setAuthReason(reason)
+    setAuthNotice(notice)
+    setAuthOpen(true)
+  }
+
+  function requireAuth(action, reason = 'Log in to continue.', mode = 'signin', notice = '') {
+    if (currentUser) return false
+    pendingAuthActionRef.current = action || null
+    setAuthMode(mode === 'signup' ? 'signup' : 'signin')
+    setAuthReason(reason)
+    setAuthNotice(notice)
+    setAuthOpen(true)
+    return true
+  }
+
+  function executeAuthIntent(action) {
+    if (!action || !currentUser) return
+    if (action.type === 'playSolo') {
+      if (action.track) playSoloTrack(action.track)
+      return
+    }
+    if (action.type === 'queueSolo') {
+      if (action.track) queueSoloTrack(action.track)
+      return
+    }
+    if (action.type === 'playPlaylist') {
+      if (action.playlist) playPlaylist(action.playlist)
+      return
+    }
+    if (action.type === 'shufflePlaylist') {
+      if (action.playlist) shufflePlaylist(action.playlist)
+      return
+    }
+    if (action.type === 'togglePlay') {
+      togglePlay()
+      return
+    }
+    if (action.type === 'next') {
+      nextTrack()
+      return
+    }
+    if (action.type === 'previous') {
+      previousTrack()
+      return
+    }
+    if (action.type === 'like') {
+      toggleLike(action.trackId)
+      return
+    }
+    if (action.type === 'createRoom') {
+      setRoomEditor('create')
+      return
+    }
+    if (action.type === 'joinRoom') {
+      const target = rooms.find((room) => room.id === action.roomId)
+      if (target) joinRoom(target)
+      else if (action.roomCode) {
+        setPendingRoomCode(action.roomCode)
+        setJoinRoomOpen(true)
+      }
+      return
+    }
+    if (action.type === 'joinCode') {
+      setJoinRoomOpen(true)
+      return
+    }
+    if (action.type === 'library') {
+      setView('library')
+      return
+    }
+    if (action.type === 'settings') {
+      setSettingsOpen(true)
+      return
+    }
+    if (action.type === 'createPlaylist') {
+      openCreatePlaylist(action.track || null)
+      return
+    }
+    if (action.type === 'addToPlaylist') {
+      if (action.track) {
+        rememberTrack(action.track)
+        setAddTrack(action.track)
+      }
+    }
+  }
+
   function navigateView(nextView) {
+    if (nextView === 'library' && requireAuth(
+      { type: 'library' },
+      'Log in to open your library and saved playlists.',
+    )) return
     if (nextView === 'home') {
       setActiveRoomId(null)
       setIsPlaying(false)
@@ -6462,27 +7573,36 @@ export default function App() {
   }
 
   function openProfile() {
+    if (requireAuth({ type: 'settings' }, 'Log in to manage your profile and listening settings.')) return
     setSettingsOpen(true)
+  }
+
+  function requestCreateRoom() {
+    if (requireAuth({ type: 'createRoom' }, 'Sign up to host a room and invite friends.', 'signup')) return
+    setRoomEditor('create')
+  }
+
+  function requestJoinCode() {
+    if (requireAuth({ type: 'joinCode' }, 'Log in to join a room with a code.')) return
+    setJoinRoomOpen(true)
+  }
+
+  function requestAddToPlaylist(candidate) {
+    if (!candidate) return
+    if (requireAuth({ type: 'addToPlaylist', track: candidate }, 'Log in to save tracks to playlists.')) return
+    rememberTrack(candidate)
+    setAddTrack(candidate)
+    setSearchOpen(false)
+  }
+
+  function requestEditRoom() {
+    if (requireAuth({ type: 'settings' }, 'Log in to manage room settings.')) return
+    setRoomEditor('edit')
   }
 
   const rootStyle = {
     '--accent': displayRoom.accent || '#f16b73',
     '--accent-2': displayRoom.accent2 || '#f2b38e',
-  }
-
-  if (!currentUser) {
-    return (
-      <>
-        <AuthGate
-          users={publicUsers}
-          pendingRoom={pendingRoomCode ? normalizeRoomCode(pendingRoomCode) : ''}
-          onSignIn={signIn}
-          onSignUp={signUp}
-          onGoogle={signInWithGoogle}
-        />
-        <Toast toast={toast} />
-      </>
-    )
   }
 
   return (
@@ -6504,6 +7624,10 @@ export default function App() {
               pendingSeekRef.current = null
             }
           }}
+          onCanPlay={handleAudioReady}
+          onPlaying={handleAudioReady}
+          onWaiting={handleAudioBuffering}
+          onStalled={handleAudioBuffering}
           onEnded={handleEnded}
           onError={handleAudioError}
         />
@@ -6522,9 +7646,9 @@ export default function App() {
             onNavigate={navigateView}
             onSearch={() => setSearchOpen(true)}
             onJoinRoom={joinRoom}
-            onJoinCode={() => setJoinRoomOpen(true)}
+            onJoinCode={requestJoinCode}
             onInvite={copyInvite}
-            onCreateRoom={() => setRoomEditor('create')}
+            onCreateRoom={requestCreateRoom}
             onOpenProfile={openProfile}
             onCreatePlaylist={() => openCreatePlaylist()}
             onOpenPlaylist={openPlaylist}
@@ -6554,6 +7678,8 @@ export default function App() {
               onSearch={() => setSearchOpen(true)}
               onToggleChat={() => setChatOpen((value) => !value)}
               onHome={() => navigateView('home')}
+              onLogin={() => openAuth('signin')}
+              onSignUp={() => openAuth('signup')}
             />
 
             <div className="stage-scroll">
@@ -6571,8 +7697,8 @@ export default function App() {
                   onSearch={() => setSearchOpen(true)}
                   onCreatePlaylist={() => openCreatePlaylist()}
                   onOpenPlaylist={openPlaylist}
-                  onCreateRoom={() => setRoomEditor('create')}
-                  onJoinCode={() => setJoinRoomOpen(true)}
+                  onCreateRoom={requestCreateRoom}
+                  onJoinCode={requestJoinCode}
                 />
               )}
 
@@ -6582,8 +7708,8 @@ export default function App() {
                   library={library}
                   currentRoom={activeRoom}
                   onJoin={joinRoom}
-                  onCreate={() => setRoomEditor('create')}
-                  onJoinCode={() => setJoinRoomOpen(true)}
+                  onCreate={requestCreateRoom}
+                  onJoinCode={requestJoinCode}
                 />
               )}
 
@@ -6624,18 +7750,13 @@ export default function App() {
                   volume={volume}
                   muted={muted}
                   liked={likedSet}
-                  micOn={micOn}
-                  micLevel={micLevel}
-                  speaking={speaking}
-                  duckTest={duckTest}
-                  duckLevel={settings.duckLevel}
                   currentUser={currentUser}
                   pendingRequest={pendingRequest}
                   roleRequests={activeRoom.requests || []}
                   onRequestRole={requestRole}
                   onResolveRequest={resolveRoleRequest}
                   onOpenMembers={() => setMembersOpen(true)}
-                  onOpenSettings={() => setRoomEditor('edit')}
+                  onOpenSettings={requestEditRoom}
                   onFindFull={findFullVersion}
                   onRetryFull={findFullVersion}
                   onLeaveRoom={leaveRoom}
@@ -6650,8 +7771,6 @@ export default function App() {
                   onInvite={() => setMembersOpen(true)}
                   onSearch={() => setSearchOpen(true)}
                   onPlayIndex={playIndex}
-                  onToggleMic={toggleMic}
-                  onDuckTest={runDuckTest}
                   onOpenFull={() => setFullPlayer(true)}
                 />
               )}
@@ -6661,6 +7780,7 @@ export default function App() {
               track={track}
               inRoom={inRoom}
               isPlaying={isPlaying}
+              buffering={buffering || streamRecovering}
               progress={progress}
               duration={duration}
               liked={likedSet}
@@ -6699,6 +7819,8 @@ export default function App() {
               draft={draft}
               onDraft={handleDraft}
               onSend={sendMessage}
+              onSendVoice={sendVoiceNote}
+              onVoiceNotePlay={setVoiceNotePlaying}
               onReact={reactToMessage}
               onClose={() => setChatOpen(false)}
               track={track}
@@ -6715,7 +7837,7 @@ export default function App() {
                   id: message.id,
                   name: author.name || 'Listener',
                   handle: author.handle || 'listener',
-                  text: message.text,
+                  text: message.type === 'voice' ? 'Voice note' : message.text,
                 })
               }}
               replyTo={replyTo}
@@ -6726,6 +7848,13 @@ export default function App() {
               translateOn={translateOn}
               translating={translating}
               onToggleTranslate={toggleTranslation}
+              micOn={micOn}
+              micLevel={micOn ? micLevel : remoteSpeaking ? 0.62 : 0}
+              speaking={voiceSpeaking}
+              duckTest={duckTest}
+              onToggleMic={toggleMic}
+              onDuckTest={runDuckTest}
+              duckLevel={settings.duckLevel}
               open={chatOpen}
             />
           )}
@@ -6755,11 +7884,7 @@ export default function App() {
             onClose={() => setSearchOpen(false)}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
-            onAddToPlaylist={(candidate) => {
-              rememberTrack(candidate)
-              setAddTrack(candidate)
-              setSearchOpen(false)
-            }}
+            onAddToPlaylist={requestAddToPlaylist}
           />
         )}
 
@@ -6770,6 +7895,7 @@ export default function App() {
             track={track}
             queue={queue}
             isPlaying={isPlaying}
+            buffering={buffering || streamRecovering}
             progress={progress}
             duration={duration}
             syncMs={syncMs}
@@ -6794,7 +7920,7 @@ export default function App() {
           />
         )}
 
-        {settingsOpen && (
+        {settingsOpen && currentUser && (
           <SettingsModal
             user={currentUser}
             settings={settings}
@@ -6848,10 +7974,40 @@ export default function App() {
           />
         )}
 
-        {joinRoomOpen && (
+        {joinRoomOpen && currentUser && (
           <JoinRoomModal
             onClose={() => setJoinRoomOpen(false)}
             onJoin={joinRoomByCode}
+          />
+        )}
+
+        {passcodeRoomId && (
+          <PasscodeModal
+            room={rooms.find((room) => room.id === passcodeRoomId)}
+            onClose={() => setPasscodeRoomId(null)}
+            onUnlock={unlockPrivateRoom}
+          />
+        )}
+
+        {authOpen && (
+          <AuthModal
+            mode={authMode}
+            reason={authReason}
+            notice={authNotice}
+            pendingRoom={pendingRoomCode ? normalizeRoomCode(pendingRoomCode) : ''}
+            onClose={() => {
+              setAuthOpen(false)
+              pendingAuthActionRef.current = null
+              setAuthReason('')
+              setAuthNotice('')
+            }}
+            onSwitch={(mode) => {
+              setAuthMode(mode)
+              setAuthReason('')
+              setAuthNotice('')
+            }}
+            onSignIn={signIn}
+            onSignUp={signUp}
           />
         )}
 
