@@ -601,13 +601,42 @@ function saveLyricCache(key, data) {
   writeStorage(LYRIC_CACHE_KEY, cache)
 }
 
+const deadMirrors = new Set()
+const LOCAL_MIRROR_PREFIXES = [
+  '/api/saavn',
+  '/api/piped/kavin',
+  '/api/piped/coffee',
+  '/api/piped/adminforge',
+  '/api/invidious/tux',
+  '/api/invidious/nerd',
+]
+
+function mirrorKeyFromUrl(url) {
+  const value = String(url || '')
+  const localPrefix = LOCAL_MIRROR_PREFIXES.find((prefix) => value.startsWith(prefix))
+  if (localPrefix) return localPrefix
+  try {
+    return new URL(value, globalThis.location?.href).origin
+  } catch {
+    return value.split(/[?#]/)[0]
+  }
+}
+
 async function fetchJson(url, options = {}) {
   const { timeout = 4500, ...rest } = options
+  const mirrorKey = mirrorKeyFromUrl(url)
+  if (deadMirrors.has(mirrorKey)) {
+    const error = new Error('Mirror unavailable')
+    error.deadMirror = true
+    error.status = 503
+    throw error
+  }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
-    const response = await fetch(url, { ...rest, signal: controller.signal })
+    const response = await fetch(url, { ...rest, credentials: 'omit', signal: controller.signal })
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) deadMirrors.add(mirrorKey)
       const error = new Error(`Request failed (${response.status})`)
       error.status = response.status
       throw error

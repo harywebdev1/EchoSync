@@ -7,6 +7,13 @@ const proxy = (target, rewrite) => ({
   changeOrigin: true,
   secure: true,
   rewrite,
+  configure: (proxy) => {
+    proxy.on('proxyRes', (proxyRes) => {
+      delete proxyRes.headers['www-authenticate']
+      delete proxyRes.headers['WWW-Authenticate']
+      delete proxyRes.headers['proxy-authenticate']
+    })
+  },
 })
 
 export default defineConfig({
