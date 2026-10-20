@@ -19,6 +19,9 @@ const proxy = (target, rewrite) => ({
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
+    host: true,
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api/saavn': proxy('https://saavn.sumit.co', (path) => path.replace(/^\/api\/saavn/, '')),
       '/api/piped/kavin': proxy('https://pipedapi.kavin.rocks', (path) => path.replace(/^\/api\/piped\/kavin/, '')),
