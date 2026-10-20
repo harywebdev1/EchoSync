@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Home,
   Radio,
@@ -70,10 +70,13 @@ import {
   Mail,
   Image,
   Save,
+  Menu,
 } from 'lucide-react'
 
 const DEV_API = import.meta.env.DEV
-const SAAVN_BASES = [DEV_API ? '/api/saavn' : 'https://saavn.sumit.co']
+const SAAVN_BASES = DEV_API
+  ? ['/api/saavn', 'https://saavn.sumit.co']
+  : ['https://saavn.sumit.co']
 let saavnBackoffUntil = 0
 let streamQuality = 'high'
 const ITUNES_BASE = 'https://itunes.apple.com/search'
@@ -95,8 +98,38 @@ const TRANSLATE_KEY = 'echosync_translate.v1'
 const STREAM_CACHE_KEY = 'echosync_stream_cache_v3'
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
 const INVITES_KEY = 'echosync_invites_v1'
-const LOCK_MESSAGE = '🔒 Listener Mode: Only Room Admin or DJ can control playback'
+const DAILY_FEED_PREFIX = 'echosync_daily_feed_'
+const LOCK_MESSAGE = 'Listener Mode: Only Room Admin or DJ can control playback'
 const SOLO_ROOM_ID = 'solo'
+const DAILY_QUERIES = [
+  'Atif Aslam songs',
+  'Arijit Singh songs',
+  'Coke Studio Pakistan songs',
+  'The Weeknd songs',
+  'Diljit Dosanjh songs',
+  'AP Dhillon songs',
+  'Talha Anjum songs',
+  'Pritam songs',
+  'AR Rahman songs',
+  'Coldplay songs',
+]
+const ARTIST_LANGUAGE = {
+  'atif aslam': 'Urdu',
+  'arijit singh': 'Hindi',
+  'coke studio': 'Urdu',
+  'the weeknd': 'English',
+  'diljit dosanjh': 'Punjabi',
+  'ap dhillon': 'Punjabi',
+  'talha anjum': 'Urdu',
+  pritam: 'Hindi',
+  'ar rahman': 'Hindi',
+  'a.r. rahman': 'Hindi',
+  coldplay: 'English',
+  'ali sethi': 'Urdu',
+  'kaifi khalil': 'Urdu',
+  'rahat fateh ali khan': 'Urdu',
+  'jubin nautiyal': 'Hindi',
+}
 
 const DEFAULT_SETTINGS = {
   quality: 'high',
@@ -274,16 +307,20 @@ function normalizeRoom(room) {
     if (!roles[id]) roles[id] = id === room.dj ? 'admin' : 'listener'
   })
   if (!Object.values(roles).includes('admin') && members[0]) roles[members[0]] = 'admin'
-  const trackIds = Array.isArray(room.trackIds) ? room.trackIds.filter(Boolean) : []
-  return {
+  const trackIds = Array.isArray(room.trackIds) ? room.trackIds.map((id) => safeText(id)).filter(Boolean) : []
+  const next = {
     ...room,
+    name: safeText(room.name, 'Listening room'),
+    tagline: safeText(room.tagline, 'A room built for the moment.'),
     members,
     roles,
-    requests: Array.isArray(room.requests) ? room.requests : [],
-    trackIds,
-    code: room.code || roomCode(),
+    requests: Array.isArray(room.requests) ? room.requests.filter((request) => request?.id && request?.userId) : [],
+    trackIds: [...new Set(trackIds)],
+    code: normalizeRoomCode(room.code) || roomCode(),
     leader: members.find((id) => roles[id] === 'admin') || members[0] || null,
+    listeners: undefined,
   }
+  return next
 }
 
 function loadRoomStateSnapshot() {
@@ -358,12 +395,16 @@ function cachedSearchEntry(provider, query, limit) {
   const key = `${provider}:${limit}:${normalize(query)}`
   const entry = streamCache.searches[key]
   if (!entry || !Array.isArray(entry.tracks) || Date.now() - entry.ts > 1000 * 60 * 60 * 6) return null
-  const tracks = entry.tracks.filter((track) => !isPreviewTrack(track))
+  const tracks = entry.tracks
+    .filter((track) => !isPreviewTrack(track))
+    .map(sanitizeTrack)
   return tracks.length ? tracks : null
 }
 
 function cacheSearchEntry(provider, query, limit, tracks) {
-  const clean = (tracks || []).filter((track) => !isPreviewTrack(track))
+  const clean = (tracks || [])
+    .filter((track) => !isPreviewTrack(track))
+    .map(sanitizeTrack)
   if (!clean.length) return
   streamCache.searches[`${provider}:${limit}:${normalize(query)}`] = { ts: Date.now(), tracks: clean }
   persistStreamCache()
@@ -372,12 +413,12 @@ function cacheSearchEntry(provider, query, limit, tracks) {
 function cachedResolvedStream(seedId) {
   const entry = streamCache.streams[seedId]
   if (!entry?.track || isPreviewTrack(entry.track) || Date.now() - entry.ts > 1000 * 60 * 60 * 12) return null
-  return entry.track
+  return sanitizeTrack(entry.track)
 }
 
 function cacheResolvedStream(seedId, track) {
   if (!seedId || !track || isPreviewTrack(track)) return
-  streamCache.streams[seedId] = { ts: Date.now(), track }
+  streamCache.streams[seedId] = { ts: Date.now(), track: sanitizeTrack(track) }
   persistStreamCache()
 }
 
@@ -488,6 +529,7 @@ function initials(value = '') {
 }
 
 function decodeEntities(value = '') {
+  if (typeof value !== 'string' && typeof value !== 'number') return ''
   return String(value)
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
@@ -508,6 +550,144 @@ function normalize(value = '') {
     .replace(/[^a-z0-9\s'&]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function safeText(value, fallback = '') {
+  if (typeof value === 'string') return value.trim() || fallback
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return fallback
+}
+
+function safeMediaUrl(value) {
+  const text = safeText(value)
+  return /^(https?:\/\/|data:image\/|blob:)/i.test(text) ? text : null
+}
+
+function sanitizeTrack(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const title = safeText(source.title || source.name, 'Unknown track')
+  const artist = safeText(source.artist || source.primaryArtists, 'Unknown artist')
+  const id = safeText(source.id || source.providerId) || `track-${normalize(`${title}-${artist}`).replace(/\s+/g, '-').slice(0, 48) || uid('track')}`
+  const duration = Number(source.duration ?? source.fullDuration)
+  const fullDuration = Number(source.fullDuration)
+  return {
+    ...source,
+    id,
+    providerId: safeText(source.providerId) || undefined,
+    provider: safeText(source.provider, 'library'),
+    providerLabel: safeText(source.providerLabel, 'EchoSync'),
+    title,
+    artist,
+    album: safeText(source.album, 'Single'),
+    duration: Number.isFinite(duration) ? Math.max(0, duration) : 0,
+    fullDuration: Number.isFinite(fullDuration) ? Math.max(0, fullDuration) : undefined,
+    streamUrl: safeMediaUrl(source.streamUrl),
+    cover: safeMediaUrl(source.cover),
+    youtubeVideoId: safeText(source.youtubeVideoId) || undefined,
+    quality: safeText(source.quality),
+    c1: safeText(source.c1, '#26303a'),
+    c2: safeText(source.c2, '#a65845'),
+    preview: source.preview === true,
+    needsHydration: Boolean(source.needsHydration),
+    searchTitle: safeText(source.searchTitle) || undefined,
+    status: safeText(source.status, source.streamUrl ? 'ready' : 'pending'),
+  }
+}
+
+function sanitizePlaylist(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const trackIds = Array.isArray(raw.trackIds) ? raw.trackIds.map((id) => safeText(id)).filter(Boolean) : []
+  return {
+    ...raw,
+    id: safeText(raw.id) || uid('playlist'),
+    name: safeText(raw.name, 'Untitled playlist'),
+    description: safeText(raw.description),
+    trackIds: [...new Set(trackIds)],
+    createdAt: Number(raw.createdAt) || Date.now(),
+  }
+}
+
+const DEVANAGARI_VOWELS = {
+  'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 'ऋ': 'ri',
+  'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'ऑ': 'o', 'ॐ': 'om',
+}
+const DEVANAGARI_MATRAS = {
+  'ा': 'a', 'ि': 'i', 'ी': 'i', 'ु': 'u', 'ू': 'u', 'ृ': 'ri', 'े': 'e',
+  'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ॉ': 'o', 'ॅ': 'e',
+}
+const DEVANAGARI_CONSONANTS = {
+  'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
+  'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'n',
+  'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+  'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+  'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+  'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
+  'ष': 'sh', 'स': 's', 'ह': 'h', 'ळ': 'l',
+}
+const DEVANAGARI_NUKTA = { 'क': 'q', 'ख': 'kh', 'ग': 'g', 'ज': 'z', 'ड': 'r', 'ढ': 'rh', 'फ': 'f' }
+const DEVANAGARI_MARKS = { 'ं': 'n', 'ँ': 'n', 'ः': 'h', 'ऽ': '', '्': '' }
+
+function hasDevanagari(value = '') {
+  return /[\u0900-\u097F]/.test(String(value))
+}
+
+function transliterateDevanagari(value = '') {
+  const text = String(value)
+  let output = ''
+  let pendingConsonant = false
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '्') {
+      pendingConsonant = false
+      continue
+    }
+    if (DEVANAGARI_CONSONANTS[char]) {
+      if (pendingConsonant && !output.endsWith(' ')) output += 'a'
+      if (text[index + 1] === '़' && DEVANAGARI_NUKTA[char]) {
+        output += DEVANAGARI_NUKTA[char]
+        index += 1
+      } else {
+        output += DEVANAGARI_CONSONANTS[char]
+      }
+      pendingConsonant = true
+      continue
+    }
+    if (DEVANAGARI_MATRAS[char]) {
+      output += DEVANAGARI_MATRAS[char]
+      pendingConsonant = false
+      continue
+    }
+    if (DEVANAGARI_VOWELS[char]) {
+      output += DEVANAGARI_VOWELS[char]
+      pendingConsonant = false
+      continue
+    }
+    if (DEVANAGARI_MARKS[char] !== undefined) {
+      output += DEVANAGARI_MARKS[char]
+      pendingConsonant = false
+      continue
+    }
+    if (char === '।') {
+      output += '.'
+      pendingConsonant = false
+      continue
+    }
+    if (pendingConsonant && !/[\u0900-\u097F]/.test(char)) pendingConsonant = false
+    output += char
+  }
+  return output
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .trim()
+}
+
+function detectLyricsLanguage(value = '') {
+  const text = String(value)
+  if (hasDevanagari(text)) return 'hi'
+  if (/[\u0600-\u06FF]/.test(text)) return 'ur'
+  if (/[\u0400-\u04FF]/.test(text)) return 'other'
+  if (/[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(text)) return 'other'
+  return 'en'
 }
 
 function isPreviewTrack(track) {
@@ -547,7 +727,7 @@ function loadLibraryCache() {
       entry.track?.streamUrl &&
       !isPreviewTrack(entry.track)
     ) {
-      valid[id] = entry.track
+      valid[id] = sanitizeTrack(entry.track)
     }
   })
   return valid
@@ -558,13 +738,14 @@ function buildInitialLibrary() {
   const library = {}
   SEED_TRACKS.forEach((seed) => {
     const cached = cache[seed.id]
+    const safeSeed = sanitizeTrack(seed)
     library[seed.id] = cached
-      ? { ...seed, ...cached, id: seed.id, preview: false, status: 'ready' }
-      : { ...seed, status: 'pending', streamUrl: null }
+      ? sanitizeTrack({ ...safeSeed, ...cached, id: seed.id, preview: false, status: 'ready' })
+      : { ...safeSeed, status: 'pending', streamUrl: null }
   })
   Object.values(cache).forEach((track) => {
     if (!track?.id || SEED_BY_ID[track.id] || isPreviewTrack(track)) return
-    library[track.id] = { ...track, preview: false, status: 'ready' }
+    library[track.id] = sanitizeTrack({ ...track, preview: false, status: 'ready' })
   })
   return library
 }
@@ -572,8 +753,152 @@ function buildInitialLibrary() {
 function saveLibraryEntry(id, track) {
   if (!id || !track || isPreviewTrack(track)) return
   const cache = readStorage(LIBRARY_CACHE_KEY, {})
-  cache[id] = { savedAt: Date.now(), track }
+  cache[id] = { savedAt: Date.now(), track: sanitizeTrack(track) }
   writeStorage(LIBRARY_CACHE_KEY, cache)
+}
+
+function dailyFeedKey(dayKey) {
+  return `${DAILY_FEED_PREFIX}${dayKey}`
+}
+
+function loadDailyFeedCache(dayKey) {
+  const cached = readStorage(dailyFeedKey(dayKey), null)
+  if (!cached || cached.dayKey !== dayKey) return null
+  try {
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith(DAILY_FEED_PREFIX) && key !== dailyFeedKey(dayKey)) localStorage.removeItem(key)
+    })
+  } catch {
+    /* storage can be unavailable */
+  }
+  return {
+    dayKey,
+    builtAt: Number(cached.builtAt) || 0,
+    trending: Array.isArray(cached.trending) ? cached.trending.map(sanitizeTrack) : [],
+    users: cached.users && typeof cached.users === 'object' ? cached.users : {},
+  }
+}
+
+function saveDailyFeedCache(dayKey, feed) {
+  const users = Object.fromEntries(Object.entries(feed.users || {}).slice(-8))
+  writeStorage(dailyFeedKey(dayKey), {
+    dayKey,
+    builtAt: Date.now(),
+    trending: (feed.trending || []).map(sanitizeTrack),
+    users,
+  })
+}
+
+function uniqueTracks(tracks = [], excluded = new Set()) {
+  const seen = new Set()
+  const remember = (track) => {
+    if (!track) return
+    if (typeof track === 'string') {
+      seen.add(track)
+      return
+    }
+    if (track.id) seen.add(track.id)
+    seen.add(`${normalize(track.title)}::${normalize(track.artist)}`)
+  }
+  excluded.forEach(remember)
+  return tracks.filter((track) => {
+    if (!track?.id) return false
+    const key = `${normalize(track.title)}::${normalize(track.artist)}`
+    if (seen.has(track.id) || seen.has(key)) return false
+    seen.add(track.id)
+    seen.add(key)
+    return true
+  })
+}
+
+function tasteSummary(library, liked, recentIds, playlists) {
+  const sessionIds = [
+    ...(Array.isArray(liked) ? liked : []),
+    ...(Array.isArray(recentIds) ? recentIds : []),
+    ...(Array.isArray(playlists) ? playlists.flatMap((playlist) => (Array.isArray(playlist?.trackIds) ? playlist.trackIds : [])) : []),
+  ]
+  const seen = new Set()
+  const tracks = sessionIds
+    .filter((id) => {
+      if (!id || seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+    .map((id) => library[id])
+    .filter(Boolean)
+  const artistCounts = new Map()
+  const languageCounts = new Map()
+  tracks.forEach((track) => {
+    const artists = String(track.artist || '')
+      .split(/\s*(?:&|,| and | feat\.? | ft\.? )\s*/i)
+      .map((artist) => artist.trim())
+      .filter((artist) => artist && !/unknown/i.test(artist))
+    artists.forEach((artist) => {
+      const key = artist.toLowerCase()
+      artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1)
+      const language = ARTIST_LANGUAGE[key]
+      if (language) languageCounts.set(language, (languageCounts.get(language) || 0) + 1)
+    })
+  })
+  const recentArtists = (Array.isArray(recentIds) ? recentIds : [])
+    .map((id) => library[id]?.artist)
+    .flatMap((artist) => String(artist || '').split(/\s*(?:&|,| and )\s*/i))
+    .map((artist) => artist.trim())
+    .filter((artist) => artist && !/unknown/i.test(artist))
+  return {
+    topArtists: [...artistCounts.entries()].sort((a, b) => b[1] - a[1]).map(([artist]) => artist).slice(0, 4),
+    recentArtists: [...new Set(recentArtists)].slice(0, 4),
+    topLanguages: [...languageCounts.entries()].sort((a, b) => b[1] - a[1]).map(([language]) => language).slice(0, 2),
+    trackCount: tracks.length,
+  }
+}
+
+function rotateDaily(items, dayKey, offset = 0) {
+  if (!items.length) return []
+  let hash = 0
+  for (let index = 0; index < dayKey.length; index += 1) hash = (hash * 31 + dayKey.charCodeAt(index)) % 100003
+  const shift = (hash + offset) % items.length
+  return [...items.slice(shift), ...items.slice(0, shift)]
+}
+
+async function fetchPlayableDaily(query, limit = 10) {
+  const found = (await fetchJioSearch(query, Math.max(14, limit + 4)))
+    .filter((track) => track && !isPreviewTrack(track) && isFullLengthTrack(track))
+  const ready = []
+  for (const candidate of found) {
+    const track = candidate.streamUrl ? candidate : await hydrateJioTrack(candidate)
+    if (track?.streamUrl && !isPreviewTrack(track) && isFullLengthTrack(track)) ready.push(sanitizeTrack(track))
+    if (ready.length >= limit) break
+  }
+  return ready
+}
+
+async function loadDailySection(queries, limit) {
+  const settled = await Promise.allSettled(queries.map((query) => fetchPlayableDaily(query, limit)))
+  return uniqueTracks(settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))).slice(0, limit)
+}
+
+async function buildDailyFeed({ dayKey, userKey, taste, rotation = 0, existing = null }) {
+  const trendingQueries = rotateDaily(DAILY_QUERIES, dayKey, rotation).slice(0, 4)
+  const trending = existing?.trending?.length && !rotation
+    ? existing.trending
+    : await loadDailySection(trendingQueries, 20)
+  const user = { madeForYou: [], basedOnRecent: [], topArtists: taste.topArtists, topLanguages: taste.topLanguages }
+  if (userKey !== 'guest' && taste.trackCount > 0) {
+    const language = taste.topLanguages[0] || 'Hindi'
+    const madeQueries = [
+      ...taste.topArtists.slice(0, 3).map((artist) => `${artist} songs`),
+      `${language} songs`,
+    ]
+    const recentQueries = taste.recentArtists.slice(0, 3).map((artist) => `${artist} songs`)
+    const [made, based] = await Promise.all([
+      loadDailySection(madeQueries, 12),
+      recentQueries.length ? loadDailySection(recentQueries, 10) : Promise.resolve([]),
+    ])
+    user.madeForYou = uniqueTracks([...made, ...trending], new Set(made.map((track) => track.id))).slice(0, 12)
+    user.basedOnRecent = uniqueTracks([...based, ...trending], new Set([...made, ...based].map((track) => track.id))).slice(0, 10)
+  }
+  return { dayKey, builtAt: Date.now(), trending, users: { [userKey]: user } }
 }
 
 function evictLibraryEntry(id) {
@@ -661,41 +986,50 @@ function pickSaavnDownload(downloads = []) {
 }
 
 function normalizeSaavn(raw) {
-  const downloads = Array.isArray(raw.downloadUrl) ? raw.downloadUrl : []
-  const images = Array.isArray(raw.image) ? raw.image : []
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const providerId = safeText(source.id)
+  if (!providerId) return null
+  const downloads = Array.isArray(source.downloadUrl) ? source.downloadUrl.filter((item) => item?.url) : []
+  const images = Array.isArray(source.image) ? source.image.filter((item) => item?.url) : []
   const stream = pickSaavnDownload(downloads)
   const cover =
     images.find((item) => item.quality === '500x500') ||
     images[images.length - 1]
-  const artists = raw.artists?.primary?.map((artist) => artist.name).filter(Boolean)
+  const artists = Array.isArray(source.artists?.primary)
+    ? source.artists.primary.map((artist) => artist?.name).filter(Boolean)
+    : []
   const artist =
-    (artists && artists.length ? artists.join(', ') : null) ||
-    decodeEntities(raw.primaryArtists || raw.artist || 'Unknown artist')
-  return {
-    id: `jio-${raw.id}`,
-    providerId: raw.id,
+    (artists.length ? artists.join(', ') : null) ||
+    decodeEntities(source.primaryArtists || source.artist || 'Unknown artist')
+  return sanitizeTrack({
+    id: `jio-${providerId}`,
+    providerId,
     provider: 'jiosaavn',
     providerLabel: 'JioSaavn',
-    title: decodeEntities(raw.name || 'Unknown track'),
+    title: decodeEntities(source.name || 'Unknown track'),
     artist: decodeEntities(artist),
-    album: decodeEntities(raw.album?.name || 'Single'),
-    duration: Number(raw.duration) || 0,
+    album: decodeEntities(source.album?.name || 'Single'),
+    duration: Number(source.duration) || 0,
     streamUrl: stream?.url || null,
     cover: cover?.url || null,
     quality: stream?.quality || '',
-  }
+  })
 }
 
 function normalizeItunes(raw) {
-  const art = raw.artworkUrl100 || raw.artworkUrl60 || ''
-  const fullDuration = raw.trackTimeMillis ? Math.round(raw.trackTimeMillis / 1000) : 0
-  return {
-    id: `itunes-${raw.trackId}`,
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const providerId = safeText(source.trackId)
+  if (!providerId) return null
+  const art = safeText(source.artworkUrl100 || source.artworkUrl60)
+  const fullDuration = source.trackTimeMillis ? Math.round(Number(source.trackTimeMillis) / 1000) : 0
+  return sanitizeTrack({
+    id: `itunes-${providerId}`,
+    providerId,
     provider: 'itunes',
     providerLabel: 'iTunes',
-    title: decodeEntities(raw.trackName || 'Unknown track'),
-    artist: decodeEntities(raw.artistName || 'Unknown artist'),
-    album: decodeEntities(raw.collectionName || 'Single'),
+    title: decodeEntities(source.trackName || 'Unknown track'),
+    artist: decodeEntities(source.artistName || 'Unknown artist'),
+    album: decodeEntities(source.collectionName || 'Single'),
     duration: fullDuration,
     fullDuration,
     preview: false,
@@ -703,7 +1037,7 @@ function normalizeItunes(raw) {
     streamUrl: null,
     cover: art ? art.replace(/\/\d+x\d+bb[^/]*\.(jpg|png)/i, '/600x600bb.jpg').replace('100x100bb', '600x600bb') : null,
     quality: 'metadata',
-  }
+  })
 }
 
 function titleOverlap(a, b) {
@@ -779,7 +1113,7 @@ async function hydrateJioTrack(track) {
       const raw = Array.isArray(payload?.data) ? payload.data[0] : payload?.data?.songs?.[0] || payload?.data
       if (raw?.downloadUrl) {
         const normalized = normalizeSaavn(raw)
-        if (normalized.streamUrl) {
+        if (normalized?.streamUrl) {
           cacheResolvedStream(`jio:${track.providerId}`, normalized)
           return { ...track, ...normalized, cover: track.cover || normalized.cover }
         }
@@ -806,9 +1140,11 @@ async function fetchJioSearch(query, limit = 12) {
       )
       const results = payload?.data?.results || payload?.data?.songs?.results || []
       if (Array.isArray(results) && results.length) {
-        const tracks = results.map(normalizeSaavn)
-        cacheSearchEntry('jio', query, limit, tracks)
-        return tracks
+        const tracks = results.map(normalizeSaavn).filter(Boolean)
+        if (tracks.length) {
+          cacheSearchEntry('jio', query, limit, tracks)
+          return tracks
+        }
       }
     } catch (error) {
       if (error?.status === 429) {
@@ -831,7 +1167,7 @@ async function fetchItunesSearch(query, limit = 12) {
     const results = Array.isArray(payload?.results) ? payload.results : []
     const tracks = results
       .map(normalizeItunes)
-      .filter((track) => track.duration >= 60 && !isPreviewTrack(track))
+      .filter((track) => track && track.duration >= 45 && !isPreviewTrack(track))
     cacheSearchEntry('itunes', query, limit, tracks)
     return tracks
   } catch {
@@ -840,42 +1176,44 @@ async function fetchItunesSearch(query, limit = 12) {
 }
 
 function normalizePipedCandidate(item) {
-  const videoId = String(item?.url || '').split('v=')[1]?.split('&')[0] || item?.id || ''
+  const source = item && typeof item === 'object' ? item : {}
+  const videoId = String(source.url || '').split('v=')[1]?.split('&')[0] || safeText(source.id)
   if (!videoId) return null
-  return {
+  return sanitizeTrack({
     id: `yt-${videoId}`,
     videoId,
     provider: 'youtube',
     providerLabel: 'YouTube Music',
-    title: decodeEntities(item.title || 'Unknown video'),
-    artist: decodeEntities(item.uploaderName || item.uploader || 'YouTube'),
+    title: decodeEntities(source.title || 'Unknown video'),
+    artist: decodeEntities(source.uploaderName || source.uploader || 'YouTube'),
     album: 'YouTube Music',
-    duration: Number(item.duration) || 0,
+    duration: Number(source.duration) || 0,
     streamUrl: null,
-    cover: item.thumbnail || null,
+    cover: safeMediaUrl(source.thumbnail),
     quality: '',
-  }
+  })
 }
 
 function normalizeInvidiousCandidate(item) {
-  const videoId = item?.videoId
+  const source = item && typeof item === 'object' ? item : {}
+  const videoId = safeText(source.videoId)
   if (!videoId) return null
-  const thumb = Array.isArray(item.videoThumbnails)
-    ? item.videoThumbnails.find((entry) => entry.quality === 'maxresdefault') || item.videoThumbnails[item.videoThumbnails.length - 1]
+  const thumb = Array.isArray(source.videoThumbnails)
+    ? source.videoThumbnails.find((entry) => entry?.quality === 'maxresdefault') || source.videoThumbnails[source.videoThumbnails.length - 1]
     : null
-  return {
+  return sanitizeTrack({
     id: `yt-${videoId}`,
     videoId,
     provider: 'youtube',
     providerLabel: 'YouTube Music',
-    title: decodeEntities(item.title || 'Unknown video'),
-    artist: decodeEntities(item.author || 'YouTube'),
+    title: decodeEntities(source.title || 'Unknown video'),
+    artist: decodeEntities(source.author || 'YouTube'),
     album: 'YouTube Music',
-    duration: Number(item.lengthSeconds) || 0,
+    duration: Number(source.lengthSeconds) || 0,
     streamUrl: null,
-    cover: thumb?.url || null,
+    cover: safeMediaUrl(thumb?.url),
     quality: '',
-  }
+  })
 }
 
 async function searchPiped(query, filter = 'music_songs') {
@@ -886,7 +1224,7 @@ async function searchPiped(query, filter = 'music_songs') {
         { timeout: 4600 },
       )
       const items = Array.isArray(payload?.items) ? payload.items : []
-      const tracks = items.map(normalizePipedCandidate).filter((track) => track && (!track.duration || track.duration >= 60))
+      const tracks = items.map(normalizePipedCandidate).filter((track) => track && (!track.duration || track.duration >= 45))
       if (tracks.length) return tracks
     } catch {
       /* try the next instance */
@@ -903,7 +1241,7 @@ async function searchInvidious(query) {
         { timeout: 4600 },
       )
       const items = Array.isArray(payload) ? payload : []
-      const tracks = items.map(normalizeInvidiousCandidate).filter((track) => track && (!track.duration || track.duration >= 60))
+      const tracks = items.map(normalizeInvidiousCandidate).filter((track) => track && (!track.duration || track.duration >= 45))
       if (tracks.length) return tracks
     } catch {
       /* try the next instance */
@@ -1059,27 +1397,28 @@ async function resolveYouTubeTrack(seed) {
 }
 
 async function searchEverything(query) {
-  const cached = cachedSearchEntry('everything', query, 18)
+  const cached = cachedSearchEntry('everything', query, 30)
   if (cached) return cached
   const [jioResult, youtubeResult, itunesResult] = await Promise.allSettled([
-    fetchJioSearch(query, 14),
+    fetchJioSearch(query, 30),
     searchYouTubeCandidates(query),
-    fetchItunesSearch(query, 12),
+    fetchItunesSearch(query, 24),
   ])
   const jio = jioResult.status === 'fulfilled' ? jioResult.value : []
   const youtube = youtubeResult.status === 'fulfilled' ? youtubeResult.value : []
   const itunes = itunesResult.status === 'fulfilled' ? itunesResult.value : []
   const seen = new Set()
   const combined = []
-  ;[...jio, ...youtube.slice(0, 8), ...itunes].forEach((track) => {
-    if (!track || isPreviewTrack(track) || !isFullLengthTrack(track)) return
-    const key = `${normalize(track.title)}::${normalize(track.artist)}`
+  ;[...jio, ...youtube.slice(0, 14), ...itunes].forEach((track) => {
+    const safeTrack = sanitizeTrack(track)
+    if (!safeTrack || isPreviewTrack(safeTrack) || !isFullLengthTrack(safeTrack)) return
+    const key = `${normalize(safeTrack.title)}::${normalize(safeTrack.artist)}`
     if (seen.has(key)) return
     seen.add(key)
-    combined.push(track)
+    combined.push(safeTrack)
   })
-  const result = combined.slice(0, 18)
-  cacheSearchEntry('everything', query, 18, result)
+  const result = combined.slice(0, 30)
+  cacheSearchEntry('everything', query, 30, result)
   return result
 }
 
@@ -1087,7 +1426,7 @@ function isFullLengthTrack(track) {
   if (!track) return false
   if (isPreviewTrack(track)) return false
   const seconds = Number(track.duration) || 0
-  return !seconds || seconds >= 60
+  return !seconds || seconds >= 45
 }
 
 async function resolveFullTrack(candidate) {
@@ -1249,12 +1588,33 @@ function parseLrc(text) {
   return lines.sort((a, b) => a.time - b.time)
 }
 
+function prepareLyricsData(data) {
+  if (!data || !Array.isArray(data.lines) || !data.lines.length) return data
+  const language = detectLyricsLanguage(data.lines.map((line) => line?.text || '').join(' '))
+  const translatable = language === 'ur' || language === 'other'
+  const lines = data.lines.map((line) => {
+    const sourceText = String(line?.text || '')
+    return {
+      ...line,
+      sourceText,
+      text: hasDevanagari(sourceText) ? transliterateDevanagari(sourceText) : sourceText,
+    }
+  })
+  return {
+    ...data,
+    lines,
+    language,
+    translatable,
+    plain: lines.map((line) => line.text).join('\n'),
+  }
+}
+
 function normalizeLyricData(payload) {
   if (!payload) return null
   if (payload.syncedLyrics) {
     const lines = parseLrc(payload.syncedLyrics)
     if (lines.length) {
-      return { type: 'synced', lines, source: 'LRCLIB', instrumental: Boolean(payload.instrumental) }
+      return prepareLyricsData({ type: 'synced', lines, source: 'LRCLIB', instrumental: Boolean(payload.instrumental) })
     }
   }
   if (payload.plainLyrics) {
@@ -1263,13 +1623,13 @@ function normalizeLyricData(payload) {
       .map((text) => text.trim())
       .filter(Boolean)
       .map((text, index) => ({ time: index, text }))
-    return {
+    return prepareLyricsData({
       type: 'plain',
       plain: payload.plainLyrics,
       lines,
       source: 'LRCLIB',
       instrumental: Boolean(payload.instrumental),
-    }
+    })
   }
   return null
 }
@@ -1283,7 +1643,9 @@ async function fetchLyrics(track) {
   const cache = loadLyricCache()
   const cacheKey = `${normalize(track.title)}::${normalize(track.artist)}`
   const cached = cache[cacheKey]
-  if (cached && Date.now() - cached.savedAt < 1000 * 60 * 60 * 24) return cached.data
+  if (cached && Date.now() - cached.savedAt < 1000 * 60 * 60 * 24) {
+    return cached.data ? prepareLyricsData(cached.data) : null
+  }
 
   let networkFailed = false
   const attempts = [
@@ -1406,7 +1768,7 @@ async function translateLines(lines, track, onProgress) {
   while (cacheLines.length < lines.length) cacheLines.push('')
 
   results.forEach((line, index) => {
-    if (!line?.text?.trim()) return
+    if (!(line?.sourceText || line?.text)?.trim()) return
     if (curated[index]) {
       results[index] = { ...line, enText: curated[index] }
       cacheLines[index] = curated[index]
@@ -1418,7 +1780,7 @@ async function translateLines(lines, track, onProgress) {
 
   const missing = results
     .map((line, index) => ({ line, index }))
-    .filter(({ line, index }) => line?.text?.trim() && !results[index].enText)
+    .filter(({ line, index }) => (line?.sourceText || line?.text)?.trim() && !results[index].enText)
   if (!missing.length) return results
 
   const chunks = []
@@ -1427,7 +1789,7 @@ async function translateLines(lines, track, onProgress) {
   }
 
   for (const chunk of chunks) {
-    const texts = chunk.map(({ line }) => line.text.trim())
+    const texts = chunk.map(({ line }) => String(line.sourceText || line.text).trim())
     let translatedBatch = null
     try {
       translatedBatch = await translateBatchGoogle(texts)
@@ -1503,7 +1865,12 @@ function Cover({ track, size = 'cover-size-sm', className = '', showQuality = fa
       style={{ '--c1': track?.c1 || '#26303a', '--c2': track?.c2 || '#a65845' }}
     >
       {track?.cover ? (
-        <img src={track.cover} alt="" loading={size === 'cover-size-hero' ? 'eager' : 'lazy'} />
+        <img
+          src={track.cover}
+          alt=""
+          loading={size === 'cover-size-hero' ? 'eager' : 'lazy'}
+          onError={(event) => { event.currentTarget.style.display = 'none' }}
+        />
       ) : (
         <div className="cover-fallback">
           <span className="cover-glyph">{initials(track?.title || 'Echo')}</span>
@@ -1558,110 +1925,153 @@ function Sidebar({
   onLeaveRoom,
   currentUser,
   inRoom,
+  mobileOpen,
+  onMobileClose,
 }) {
+  const close = onMobileClose || (() => {})
+  const navigate = (nextView) => {
+    onNavigate(nextView)
+    close()
+  }
+  const openSearch = () => {
+    onSearch()
+    close()
+  }
+  const openPlaylist = (playlist) => {
+    onOpenPlaylist(playlist)
+    close()
+  }
+  const openProfile = () => {
+    onOpenProfile()
+    close()
+  }
+  const joinRoom = (item) => {
+    onJoinRoom(item)
+    close()
+  }
+  const createRoom = () => {
+    onCreateRoom()
+    close()
+  }
+
   return (
-    <aside className="sidebar">
-      <Logo />
-
-      <button className="search-trigger" onClick={onSearch}>
-        <Search size={14} />
-        <span>Search songs, artists…</span>
-        <kbd>⌘K</kbd>
-      </button>
-
-      <nav className="side-nav">
-        <button className={`nav-item ${view === 'home' || (view === 'room' && !inRoom) ? 'active' : ''}`} onClick={() => onNavigate('home')}>
-          <Home />
-          <span>Home</span>
-        </button>
-        <button className={`nav-item ${view === 'rooms' ? 'active' : ''}`} onClick={() => onNavigate('rooms')}>
-          <Radio />
-          <span>Rooms</span>
-          <span className="nav-count">{String(rooms.length).padStart(2, '0')}</span>
-        </button>
-        <button className="nav-item" onClick={onSearch}>
-          <Search />
-          <span>Search</span>
-        </button>
-        <button className={`nav-item ${view === 'library' ? 'active' : ''}`} onClick={() => onNavigate('library')}>
-          <Library />
-          <span>Your library</span>
-          <span className="nav-count">{String(likedCount).padStart(2, '0')}</span>
-        </button>
-      </nav>
-
-      <div className="side-section">
-        <div className="side-label">
-          <span>LISTENING ROOMS</span>
-          <span className="side-label-actions">
-            <button onClick={onJoinCode} aria-label="Join room by code"><KeyRound size={12} /></button>
-            <button onClick={onCreateRoom} aria-label="Create room"><Plus size={13} /></button>
-          </span>
+    <>
+      <button
+        className={`sidebar-scrim ${mobileOpen ? 'visible' : ''}`}
+        onClick={close}
+        aria-label="Close navigation"
+        tabIndex={mobileOpen ? 0 : -1}
+      />
+      <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Main navigation">
+        <div className="sidebar-head">
+          <Logo />
+          <button className="sidebar-close" onClick={close} aria-label="Close navigation">
+            <X />
+          </button>
         </div>
-        <div className="room-list">
-          {rooms.length === 0 && (
-            <p className="side-empty">No rooms yet. Start one and invite a friend.</p>
+
+        <div className="sidebar-scroll">
+          <button className="search-trigger" onClick={openSearch}>
+            <Search size={14} />
+            <span>Search songs, artists...</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+
+          <nav className="side-nav">
+            <button className={`nav-item ${view === 'home' || (view === 'room' && !inRoom) ? 'active' : ''}`} onClick={() => navigate('home')}>
+              <Home />
+              <span>Home</span>
+            </button>
+            <button className={`nav-item ${view === 'rooms' ? 'active' : ''}`} onClick={() => navigate('rooms')}>
+              <Radio />
+              <span>Rooms</span>
+              <span className="nav-count">{String(rooms.length).padStart(2, '0')}</span>
+            </button>
+            <button className="nav-item" onClick={openSearch}>
+              <Search />
+              <span>Search</span>
+            </button>
+            <button className={`nav-item ${view === 'library' ? 'active' : ''}`} onClick={() => navigate('library')}>
+              <Library />
+              <span>Your library</span>
+              <span className="nav-count">{String(likedCount).padStart(2, '0')}</span>
+            </button>
+          </nav>
+
+          <div className="side-section">
+            <div className="side-label">
+              <span>LISTENING ROOMS</span>
+              <span className="side-label-actions">
+                <button onClick={() => { onJoinCode(); close() }} aria-label="Join room by code"><KeyRound size={12} /></button>
+                <button onClick={createRoom} aria-label="Create room"><Plus size={13} /></button>
+              </span>
+            </div>
+            <div className="room-list">
+              {rooms.length === 0 && (
+                <p className="side-empty">No rooms yet. Start one and invite a friend.</p>
+              )}
+              {rooms.map((item) => (
+                <button
+                  key={item.id}
+                  className={`room-link ${inRoom && room.id === item.id && view === 'room' ? 'active' : ''}`}
+                  style={{ '--room-accent': item.accent }}
+                  onClick={() => joinRoom(item)}
+                >
+                  <span className="room-dot" />
+                  <span className="room-link-name">{item.name}</span>
+                  {item.private
+                    ? <Lock size={9} style={{ opacity: 0.45 }} aria-label="Private room" />
+                    : <Globe2 size={9} style={{ opacity: 0.3 }} aria-label="Public room" />}
+                  <Equalizer />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="side-section side-playlists">
+            <div className="side-label">
+              <span>PLAYLISTS</span>
+              <button onClick={() => { onCreatePlaylist(); close() }} aria-label="Create playlist"><Plus size={13} /></button>
+            </div>
+            <div className="room-list">
+              {playlists.length === 0 && <p className="side-empty">Build your first playlist.</p>}
+              {playlists.slice(0, 5).map((playlist) => (
+                <button key={playlist.id} className="room-link playlist-link" onClick={() => openPlaylist(playlist)}>
+                  <ListMusic size={12} />
+                  <span className="room-link-name">{playlist.name}</span>
+                  <span className="nav-count">{playlist.trackIds.length}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="side-bottom">
+          {inRoom ? (
+            <div className="invite-card">
+              <strong>Listening is better together.</strong>
+              <p>Code <b>{room.code}</b> - playback stays in lockstep.</p>
+              <button onClick={onInvite}><UserPlus size={11} /> Copy invite link</button>
+              <button className="leave-room-btn" onClick={() => { onLeaveRoom(); close() }}><DoorOpen size={11} /> Leave room</button>
+            </div>
+          ) : (
+            <div className="invite-card">
+              <strong>Start a listening room.</strong>
+              <p>Bring your queue to a friend. Everyone hears the same beat.</p>
+              <button onClick={createRoom}><Plus size={11} /> Create a room</button>
+            </div>
           )}
-          {rooms.map((item) => (
-            <button
-              key={item.id}
-              className={`room-link ${inRoom && room.id === item.id && view === 'room' ? 'active' : ''}`}
-              style={{ '--room-accent': item.accent }}
-              onClick={() => onJoinRoom(item)}
-            >
-              <span className="room-dot" />
-              <span className="room-link-name">{item.name}</span>
-              {item.private
-                ? <Lock size={9} style={{ opacity: 0.45 }} aria-label="Private room" />
-                : <Globe2 size={9} style={{ opacity: 0.3 }} aria-label="Public room" />}
-              <Equalizer />
-            </button>
-          ))}
+          <button className="profile" onClick={openProfile}>
+            <Avatar member={currentUser} online />
+            <span className="profile-meta">
+              <strong>{currentUser?.name || 'Sign in'}</strong>
+              <span>@{currentUser?.handle || 'guest'} - {inRoom ? <><Crown size={10} /> {role}</> : 'Solo listening'}</span>
+            </span>
+            <MoreHorizontal size={15} />
+          </button>
         </div>
-      </div>
-
-      <div className="side-section side-playlists">
-        <div className="side-label">
-          <span>PLAYLISTS</span>
-          <button onClick={onCreatePlaylist} aria-label="Create playlist"><Plus size={13} /></button>
-        </div>
-        <div className="room-list">
-          {playlists.length === 0 && <p className="side-empty">Build your first playlist.</p>}
-          {playlists.slice(0, 5).map((playlist) => (
-            <button key={playlist.id} className="room-link playlist-link" onClick={() => onOpenPlaylist(playlist)}>
-              <ListMusic size={12} />
-              <span className="room-link-name">{playlist.name}</span>
-              <span className="nav-count">{playlist.trackIds.length}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="side-bottom">
-        {inRoom ? (
-          <div className="invite-card">
-            <strong>Listening is better together.</strong>
-            <p>Code <b>{room.code}</b> · playback stays in lockstep.</p>
-            <button onClick={onInvite}><UserPlus size={11} /> Copy invite link</button>
-            <button className="leave-room-btn" onClick={onLeaveRoom}><DoorOpen size={11} /> Leave room</button>
-          </div>
-        ) : (
-          <div className="invite-card">
-            <strong>Start a listening room.</strong>
-            <p>Bring your queue to a friend. Everyone hears the same beat.</p>
-            <button onClick={onCreateRoom}><Plus size={11} /> Create a room</button>
-          </div>
-        )}
-        <button className="profile" onClick={onOpenProfile}>
-          <Avatar member={currentUser} online />
-          <span className="profile-meta">
-            <strong>{currentUser?.name || 'Sign in'}</strong>
-            <span>@{currentUser?.handle || 'guest'} · {inRoom ? <><Crown size={10} /> {role}</> : 'Solo listening'}</span>
-          </span>
-          <MoreHorizontal size={15} />
-        </button>
-      </div>
-    </aside>
+      </aside>
+    </>
   )
 }
 
@@ -1679,9 +2089,13 @@ function StageBar({
   onOpenProfile,
   onLogin,
   onSignUp,
+  onOpenSidebar,
 }) {
   return (
     <header className="stage-bar">
+      <button className="icon-btn mobile-menu-btn" onClick={onOpenSidebar} aria-label="Open navigation">
+        <Menu />
+      </button>
       <div className="mobile-brand" onClick={onHome} role="button" tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && onHome()}>
         <div className="brand-glyph" style={{ width: 25, height: 25, borderRadius: 8 }}>
           <span className="bars" style={{ transform: 'scale(0.78)' }}><i /><i /><i /><i /></span>
@@ -1831,9 +2245,13 @@ function HomeView({
   liked,
   recentIds,
   playlists,
+  dailyFeed,
+  dailyStatus,
+  onRefreshDaily,
   onPlayTrack,
   onPlayPlaylist,
   onLike,
+  onAddToPlaylist,
   onSearch,
   onCreatePlaylist,
   onOpenPlaylist,
@@ -1841,15 +2259,57 @@ function HomeView({
   onJoinCode,
   roomCount,
 }) {
-  const featured = SEED_TRACKS.map((seed) => library[seed.id] || seed)
   const recent = recentIds.map((id) => library[id]).filter(Boolean).slice(0, 8)
+  const dailyUser = dailyFeed?.users?.[currentUser?.id || 'guest'] || {}
+  const madeForYou = Array.isArray(dailyUser.madeForYou) ? dailyUser.madeForYou : []
+  const basedOnRecent = Array.isArray(dailyUser.basedOnRecent) ? dailyUser.basedOnRecent : []
+  const trending = Array.isArray(dailyFeed?.trending) ? dailyFeed.trending : []
+  const heroTracks = madeForYou.length ? madeForYou : trending.length ? trending : recent
   const greeting = (() => {
     const hour = new Date().getHours()
     if (hour < 12) return 'Good morning'
     if (hour < 18) return 'Good afternoon'
     return 'Good evening'
   })()
-  const heroCovers = featured.slice(0, 4)
+  const heroCovers = heroTracks.slice(0, 4)
+  const isLoading = dailyStatus === 'loading'
+  const todayLabel = new Date(`${dailyFeed?.dayKey || new Date().toISOString().slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+
+  const renderCards = (tracks) => (
+    <div className="home-grid">
+      {tracks.map((track) => (
+        <div key={track.id} className="home-card">
+          <button className="home-card-art" onClick={() => onPlayTrack(track)} aria-label={`Play ${track.title}`}>
+            <Cover track={track} size="" />
+            <span className="home-card-play"><Play /></span>
+          </button>
+          <div className="home-card-copy">
+            <strong>{track.title}</strong>
+            <span>{track.artist}</span>
+          </div>
+          <button
+            className="card-add"
+            onClick={() => onAddToPlaylist(track)}
+            aria-label="Add to playlist"
+            title="Add to playlist"
+          >
+            <ListPlus />
+          </button>
+          <button
+            className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`}
+            onClick={() => onLike(track.id)}
+            aria-label="Like track"
+          >
+            <Heart />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+
   return (
     <div className="home-view">
       <section className="solo-hero">
@@ -1862,8 +2322,8 @@ function HomeView({
           <h1 className="page-title">{greeting}, <em>{currentUser?.name?.split(' ')[0] || 'listener'}.</em></h1>
           <p className="page-sub">Your music, your rules. Press play, build a playlist, or open the door to a live room whenever you want company.</p>
           <div className="solo-actions">
-            <button className="primary-btn" onClick={() => onPlayTrack(featured[0])}><Play /> Play something</button>
-            <button className="text-btn" onClick={() => onPlayTrack(featured[Math.floor(Math.random() * featured.length)])}><Shuffle size={13} /> Shuffle</button>
+            <button className="primary-btn" onClick={() => heroTracks[0] && onPlayTrack(heroTracks[0])} disabled={!heroTracks.length}><Play /> Play something</button>
+            <button className="text-btn" onClick={() => heroTracks.length && onPlayTrack(heroTracks[Math.floor(Math.random() * heroTracks.length)])} disabled={!heroTracks.length}><Shuffle size={13} /> Shuffle</button>
             <button className="text-btn" onClick={onCreateRoom}><Radio size={13} /> Create room</button>
             <button className="text-btn" onClick={onJoinCode}><KeyRound size={13} /> Join with code</button>
           </div>
@@ -1890,42 +2350,75 @@ function HomeView({
           </div>
           <div className="home-rail">
             {recent.map((track) => (
-              <button key={track.id} className="home-tile" onClick={() => onPlayTrack(track)}>
-                <Cover track={track} size="" playing />
-                <strong>{track.title}</strong>
-                <span>{track.artist}</span>
-              </button>
+              <div key={track.id} className="home-tile-wrap">
+                <button className="home-tile" onClick={() => onPlayTrack(track)}>
+                  <Cover track={track} size="" playing />
+                  <strong>{track.title}</strong>
+                  <span>{track.artist}</span>
+                </button>
+                <button className="tile-add" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist">
+                  <ListPlus />
+                </button>
+              </div>
             ))}
           </div>
         </section>
       )}
 
-      <section className="home-section">
-        <div className="section-head">
-          <div><h3>Trending on EchoSync</h3><p>Full-length streams across every language.</p></div>
-          <div className="head-actions"><button className="text-btn" onClick={onSearch}><Search /> Search catalogue</button></div>
-        </div>
-        <div className="home-grid">
-          {featured.slice(0, 10).map((track) => (
-            <div key={track.id} className="home-card">
-              <button className="home-card-art" onClick={() => onPlayTrack(track)} aria-label={`Play ${track.title}`}>
-                <Cover track={track} size="" />
-                <span className="home-card-play"><Play /></span>
-              </button>
-              <div className="home-card-copy">
-                <strong>{track.title}</strong>
-                <span>{track.artist}</span>
-              </div>
-              <button
-                className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`}
-                onClick={() => onLike(track.id)}
-                aria-label="Like track"
-              >
-                <Heart />
-              </button>
+      {madeForYou.length > 0 && (
+        <section className="home-section daily-section">
+          <div className="section-head">
+            <div>
+              <h3>Made For You <span className="daily-dot">-</span> Daily Mix</h3>
+              <p>Built from your artists{dailyUser.topLanguages?.length ? ` and ${dailyUser.topLanguages[0]} listening` : ''}. Refreshes every day.</p>
             </div>
-          ))}
+            <span className="source-badge">{todayLabel}</span>
+          </div>
+          {renderCards(madeForYou)}
+        </section>
+      )}
+
+      {basedOnRecent.length > 0 && (
+        <section className="home-section daily-section">
+          <div className="section-head">
+            <div><h3>Based on Your Recent Listening</h3><p>A few more lanes from the songs you keep returning to.</p></div>
+            <span className="source-badge">{basedOnRecent.length} tracks</span>
+          </div>
+          {renderCards(basedOnRecent)}
+        </section>
+      )}
+
+      <section className="home-section daily-section">
+        <div className="section-head">
+          <div><h3>Trending Today <span className="daily-dot">-</span> {todayLabel}</h3><p>A daily rotation, not a fixed shelf.</p></div>
+          <div className="head-actions">
+            <button className="text-btn" onClick={onRefreshDaily} disabled={isLoading}>
+              <RefreshCw className={isLoading ? 'spin' : ''} size={13} /> Refresh Mix
+            </button>
+            <button className="text-btn" onClick={onSearch}><Search /> Search catalogue</button>
+          </div>
         </div>
+        {isLoading && !trending.length ? (
+          <div className="library-empty discovery-empty">
+            <span className="empty-icon"><RefreshCw className="spin" /></span>
+            <h4>Tuning today's mix</h4>
+            <p>Checking the catalogue so every track is ready to play.</p>
+          </div>
+        ) : dailyStatus === 'error' && !trending.length ? (
+          <div className="library-empty discovery-empty">
+            <span className="empty-icon"><AlertCircle /></span>
+            <h4>Discovery missed a beat</h4>
+            <p>The catalogue did not answer. Try refreshing the mix.</p>
+            <button className="primary-btn" onClick={onRefreshDaily}><RefreshCw size={12} /> Try again</button>
+          </div>
+        ) : trending.length === 0 ? (
+          <div className="library-empty discovery-empty">
+            <span className="empty-icon"><Music2 /></span>
+            <h4>No daily tracks yet</h4>
+            <p>Refresh the mix or search for something new.</p>
+            <button className="text-btn" onClick={onSearch}><Search size={12} /> Search catalogue</button>
+          </div>
+        ) : renderCards(trending)}
       </section>
 
       <section className="home-section">
@@ -1975,6 +2468,8 @@ function LibraryView({
   onSelectPlaylist,
   onPlay,
   onLike,
+  onAddToPlaylist,
+  onAddToActivePlaylist,
   onSearch,
   onCreatePlaylist,
   onPlayPlaylist,
@@ -1985,6 +2480,9 @@ function LibraryView({
   onOpenPlaylist,
 }) {
   const [tab, setTab] = useState('playlists')
+  const [playlistQuery, setPlaylistQuery] = useState('')
+  const [playlistResults, setPlaylistResults] = useState([])
+  const [playlistSearchStatus, setPlaylistSearchStatus] = useState('idle')
   const likedTracks = liked.map((id) => library[id]).filter(Boolean)
   const recent = recentIds.map((id) => library[id]).filter(Boolean)
   const activePlaylist = playlists.find((playlist) => playlist.id === activePlaylistId) || null
@@ -1993,6 +2491,39 @@ function LibraryView({
   useEffect(() => {
     if (activePlaylistId) setTab('playlists')
   }, [activePlaylistId])
+
+  useEffect(() => {
+    setPlaylistQuery('')
+    setPlaylistResults([])
+    setPlaylistSearchStatus('idle')
+  }, [activePlaylistId])
+
+  useEffect(() => {
+    const trimmed = playlistQuery.trim()
+    if (!activePlaylist || trimmed.length < 2) {
+      setPlaylistResults([])
+      setPlaylistSearchStatus('idle')
+      return undefined
+    }
+    let cancelled = false
+    setPlaylistSearchStatus('loading')
+    const timer = setTimeout(() => {
+      searchEverything(trimmed)
+        .then((tracks) => {
+          if (cancelled) return
+          const existing = new Set(activePlaylist.trackIds)
+          setPlaylistResults(tracks.filter((track) => !existing.has(track.id)).slice(0, 8))
+          setPlaylistSearchStatus('ready')
+        })
+        .catch(() => {
+          if (!cancelled) setPlaylistSearchStatus('error')
+        })
+    }, 340)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [playlistQuery, activePlaylist])
 
   return (
     <div className="library-view">
@@ -2026,12 +2557,57 @@ function LibraryView({
               </div>
             </div>
           </div>
+
+          <div className="playlist-quick-add">
+            <form className="playlist-search" onSubmit={(event) => event.preventDefault()}>
+              <Search size={14} />
+              <input
+                value={playlistQuery}
+                onChange={(event) => setPlaylistQuery(event.target.value)}
+                placeholder="Find a song to add to this playlist..."
+                aria-label="Search songs to add to playlist"
+              />
+              {playlistSearchStatus === 'loading' && <span className="spinner" />}
+              <button type="button" className="text-btn playlist-global-search" onClick={onSearch}>
+                <Search size={12} /> Global search
+              </button>
+            </form>
+            {playlistSearchStatus === 'ready' && playlistResults.length > 0 && (
+              <div className="playlist-search-results">
+                {playlistResults.map((track) => (
+                  <div key={track.id} className="playlist-search-row">
+                    <Cover track={track} size="cover-size-sm" />
+                    <div className="queue-copy">
+                      <strong>{track.title}</strong>
+                      <span>{track.artist}{track.providerLabel ? ` - ${track.providerLabel}` : ''}</span>
+                    </div>
+                    <span className="dur">{formatTime(track.duration)}</span>
+                    <button
+                      className="search-save"
+                      onClick={() => onAddToActivePlaylist(track)}
+                      aria-label="Add to this playlist"
+                      title="Add to this playlist"
+                    >
+                      <Plus />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {playlistSearchStatus === 'ready' && playlistResults.length === 0 && (
+              <p className="playlist-search-note">No new songs matched that search. Try another title or artist.</p>
+            )}
+            {playlistSearchStatus === 'error' && (
+              <p className="playlist-search-note">Search is unavailable right now. Try again in a moment.</p>
+            )}
+          </div>
+
           <div className="library-list">
             {playlistTracks.length === 0 ? (
               <div className="library-empty">
-                <ListMusic />
+                <span className="empty-icon"><ListMusic /></span>
                 <h4>This playlist is waiting</h4>
-                <p>Search for a song and use “Add to playlist”.</p>
+                <p>Search above for a song, then tap + to add it here.</p>
                 <button className="text-btn" onClick={onSearch}><Search size={12} /> Find songs</button>
               </div>
             ) : playlistTracks.map((track, index) => (
@@ -2044,6 +2620,14 @@ function LibraryView({
                 </div>
                 <span className="album">{track.album || 'Single'}</span>
                 <span className="dur">{formatTime(track.duration)}</span>
+                <button
+                  className="queue-heart queue-add"
+                  onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }}
+                  aria-label="Add to playlist"
+                  title="Add to playlist"
+                >
+                  <ListPlus />
+                </button>
                 <button
                   className="queue-heart"
                   onClick={(event) => { event.stopPropagation(); onRemoveFromPlaylist(activePlaylist.id, track.id) }}
@@ -2069,7 +2653,7 @@ function LibraryView({
           {tab === 'playlists' && (
             playlists.length === 0 ? (
               <div className="library-empty">
-                <ListMusic />
+                <span className="empty-icon"><ListMusic /></span>
                 <h4>No playlists yet</h4>
                 <p>Create one and start collecting the songs that matter.</p>
                 <button className="primary-btn" onClick={onCreatePlaylist}><Plus /> Create playlist</button>
@@ -2101,7 +2685,7 @@ function LibraryView({
             <div className="library-list">
               {likedTracks.length === 0 ? (
                 <div className="library-empty">
-                  <Music2 />
+                  <span className="empty-icon"><Music2 /></span>
                   <h4>Your liked songs live here</h4>
                   <p>Tap the heart on any song to save it.</p>
                   <button className="text-btn" onClick={onSearch}><Search size={12} /> Find something new</button>
@@ -2116,6 +2700,9 @@ function LibraryView({
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
                   <span className="dur">{formatTime(track.duration)}</span>
+                  <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
+                    <ListPlus />
+                  </button>
                   <button className="queue-heart liked" onClick={(event) => { event.stopPropagation(); onLike(track.id) }} aria-label="Unlike track">
                     <Heart />
                   </button>
@@ -2128,7 +2715,7 @@ function LibraryView({
             <div className="library-list">
               {recent.length === 0 ? (
                 <div className="library-empty">
-                  <Clock3 />
+                  <span className="empty-icon"><Clock3 /></span>
                   <h4>Nothing played yet</h4>
                   <p>Songs you play will show up here.</p>
                   <button className="text-btn" onClick={onSearch}><Search size={12} /> Play something</button>
@@ -2143,6 +2730,9 @@ function LibraryView({
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
                   <span className="dur">{formatTime(track.duration)}</span>
+                  <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
+                    <ListPlus />
+                  </button>
                   <button className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`} onClick={(event) => { event.stopPropagation(); onLike(track.id) }} aria-label="Like track">
                     <Heart />
                   </button>
@@ -2174,6 +2764,22 @@ function LyricsPanel({
   const resumeTimer = useRef(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const [pausedHint, setPausedHint] = useState(false)
+  const translateAvailable = lyrics?.status === 'ready'
+    && lyrics.translatable !== false
+    && lyrics.language !== 'en'
+    && lyrics.language !== 'hi'
+    && Boolean(lyrics.lines?.length)
+  const languageLabel = lyrics?.status === 'ready'
+    ? lyrics.language === 'hi'
+      ? 'HINGLISH'
+      : lyrics.language === 'ur'
+        ? 'URDU'
+        : lyrics.language === 'en'
+          ? 'ENGLISH'
+          : lyrics.language === 'other'
+            ? 'TRANSLATED'
+            : ''
+    : ''
 
   const activeIndex = useMemo(() => {
     if (lyrics?.status !== 'ready' || lyrics.type !== 'synced' || !lyrics.lines?.length) return -1
@@ -2266,7 +2872,7 @@ function LyricsPanel({
                   {translated ? (
                     <span className="lyric-dual">
                       <span className="lyric-en">{translated}</span>
-                      <span className="lyric-orig">{line.text}</span>
+                      <span className="lyric-orig">{line.sourceText || line.text}</span>
                     </span>
                   ) : line.text}
                 </div>
@@ -2287,13 +2893,13 @@ function LyricsPanel({
                   className={`lyric-line ${index === activeIndex ? 'active' : ''} ${translated ? 'translated' : ''}`}
                   data-lyric-index={index}
                   onClick={() => seekLine(line)}
-                  title={translated ? line.text : undefined}
+                  title={translated ? (line.sourceText || line.text) : undefined}
                 >
                   <span className="lyric-time">{formatTime(line.time)}</span>
                   {translated ? (
                     <span className="lyric-dual">
                       <span className="lyric-en">{translated}</span>
-                      <span className="lyric-orig">{line.text}</span>
+                      <span className="lyric-orig">{line.sourceText || line.text}</span>
                     </span>
                   ) : line.text}
                 </button>
@@ -2318,6 +2924,7 @@ function LyricsPanel({
 
       <div className="lyrics-foot">
         <span className="source-badge">LRCLIB</span>
+        {languageLabel && <span className="source-badge lyric-language">{languageLabel}</span>}
         <span className="mono">
           {lyrics?.status === 'ready' && lyrics.type === 'synced'
             ? `${lyrics.lines.length} lines · synced`
@@ -2329,7 +2936,7 @@ function LyricsPanel({
                   ? 'unavailable'
                   : 'time-synced lyrics'}
         </span>
-        {lyrics?.status === 'ready' && lyrics.lines?.length > 0 && onToggleTranslate && (
+        {translateAvailable && onToggleTranslate && (
           <button
             className={`translate-btn ${translateOn ? 'on' : ''}`}
             onClick={onToggleTranslate}
@@ -2346,6 +2953,41 @@ function LyricsPanel({
       </div>
     </div>
   )
+}
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error, info) {
+    console.error(`EchoSync ${this.props.label || 'view'} error`, error, info)
+  }
+
+  componentDidUpdate(previous) {
+    if (previous.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children
+    return (
+      <div className="error-boundary" role="alert">
+        <span className="empty-icon"><AlertCircle /></span>
+        <h4>{this.props.label || 'This view'} hit a wrong note</h4>
+        <p>Playback and the rest of EchoSync are still safe. Try this view again.</p>
+        <button className="primary-btn" onClick={() => this.setState({ hasError: false })}>
+          <RefreshCw size={12} /> Try again
+        </button>
+      </div>
+    )
+  }
 }
 
 function ModalShell({ children, onClose, size = '' }) {
@@ -3183,7 +3825,7 @@ function MembersModal({
   )
 }
 
-function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
+function RoomModal({ mode, room, defaultTrackId, onClose, onCreate, onUpdate, onDelete }) {
   const [form, setForm] = useState(() => ({
     name: room?.name || '',
     tagline: room?.tagline || '',
@@ -3191,18 +3833,12 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
     gradient: ROOM_GRADIENTS.find((gradient) => gradient.accent === room?.accent)?.id || ROOM_GRADIENTS[0].id,
     private: Boolean(room?.private),
     code: room?.code || roomCode(),
-    listeners: room?.listeners || 8,
-    trackIds: room?.trackIds ? [...room.trackIds] : SEED_TRACKS.slice(0, 6).map((seed) => seed.id),
+    trackIds: Array.isArray(room?.trackIds)
+      ? [...room.trackIds]
+      : defaultTrackId ? [defaultTrackId] : [],
   }))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
-
-  const toggleTrack = (id) => {
-    setForm((value) => ({
-      ...value,
-      trackIds: value.trackIds.includes(id) ? value.trackIds.filter((trackId) => trackId !== id) : [...value.trackIds, id],
-    }))
-  }
 
   const submit = (event) => {
     event.preventDefault()
@@ -3213,8 +3849,7 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
       description: form.description,
       private: form.private,
       code: mode === 'edit' ? form.code : undefined,
-      listeners: Number(form.listeners) || 2,
-      trackIds: form.trackIds.length ? form.trackIds : SEED_TRACKS.slice(0, 4).map((seed) => seed.id),
+      trackIds: form.trackIds,
     }
     if (mode === 'create') onCreate({ ...payload, gradient: form.gradient })
     else onUpdate(payload)
@@ -3261,19 +3896,13 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
           </div>
         </div>
 
-        <div className="field-row compact">
-          <label className="field">
-            <span>Room privacy</span>
-            <select value={form.private ? 'private' : 'open'} onChange={(event) => setForm((value) => ({ ...value, private: event.target.value === 'private' }))}>
-              <option value="open">Public · 1-click join</option>
-              <option value="private">Private · passcode or invite</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Listener count</span>
-            <input type="number" min="1" max="9999" value={form.listeners} onChange={(event) => setForm((value) => ({ ...value, listeners: event.target.value }))} />
-          </label>
-        </div>
+        <label className="field">
+          <span>Room privacy</span>
+          <select value={form.private ? 'private' : 'open'} onChange={(event) => setForm((value) => ({ ...value, private: event.target.value === 'private' }))}>
+            <option value="open">Public — 1-click join</option>
+            <option value="private">Private — passcode or invite</option>
+          </select>
+        </label>
 
         {mode === 'edit' && (
           <div className={`room-code-box ${form.private ? 'locked' : ''}`}>
@@ -3309,26 +3938,8 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
           </div>
         )}
 
-        <div className="field">
-          <span>Queue · pick at least one</span>
-          <div className="track-picker">
-            {SEED_TRACKS.map((seed) => (
-              <button
-                type="button"
-                key={seed.id}
-                className={`track-chip ${form.trackIds.includes(seed.id) ? 'selected' : ''}`}
-                onClick={() => toggleTrack(seed.id)}
-              >
-                <span className="track-chip-art" style={{ '--c1': seed.c1, '--c2': seed.c2 }}>
-                  {form.trackIds.includes(seed.id) ? <Check size={10} /> : null}
-                </span>
-                <span>
-                  <strong>{seed.title}</strong>
-                  <small>{seed.artist}</small>
-                </span>
-              </button>
-            ))}
-          </div>
+        <div className="settings-note room-queue-note">
+          {form.trackIds.length ? 'The room queue starts with your current track.' : 'The room starts empty. Add songs together once everyone arrives.'}
         </div>
 
         <div className="modal-actions">
@@ -4105,6 +4716,7 @@ function RoomView({
   onVolume,
   onToggleMute,
   onLike,
+  onAddToPlaylist,
   onInvite,
   onSearch,
   onPlayIndex,
@@ -4359,6 +4971,14 @@ function RoomView({
       </div>
 
       <section className="queue">
+        {queue.length === 0 && (
+          <div className="queue-empty room-queue-empty">
+            <span className="empty-icon"><ListMusic /></span>
+            <strong>The queue is waiting</strong>
+            <p>Add the first song and everyone will hear it in sync.</p>
+            <button className="text-btn" onClick={onSearch}><Plus size={12} /> Add a song</button>
+          </div>
+        )}
         {queue.map((item, index) => {
           const active = index === currentIndex
           const itemReady = item?.status === 'ready' && Boolean(item?.streamUrl || item?.youtubeVideoId)
@@ -4404,7 +5024,17 @@ function RoomView({
               >
                 <Heart />
               </button>
-              <span className="queue-more"><MoreHorizontal /></span>
+              <button
+                className="queue-more queue-add"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onAddToPlaylist(item)
+                }}
+                aria-label="Add to playlist"
+                title="Add to playlist"
+              >
+                <ListPlus />
+              </button>
             </div>
           )
         })}
@@ -4432,6 +5062,7 @@ function PlayerDock({
   onPrev,
   onNext,
   onLike,
+  onAddToPlaylist,
   onVolume,
   onToggleMute,
   onOpenFull,
@@ -4478,6 +5109,7 @@ function PlayerDock({
         ) : (
           <span className="dock-sync solo"><Headphones /> <b>Solo</b></span>
         )}
+        <button className="icon-btn dock-add" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
         <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track"><Heart /></button>
         <div className="volume-box">
           <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
@@ -4687,6 +5319,7 @@ function FullPlayer({
   onSeek,
   onLock,
   onLike,
+  onAddToPlaylist,
   onVolume,
   onToggleMute,
   onRetryLyrics,
@@ -4762,6 +5395,7 @@ function FullPlayer({
 
               <div className="fp-bottom-row">
                 <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track"><Heart /></button>
+                <button className="icon-btn" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
                 <div className="volume-box">
                   <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
                     {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
@@ -4920,15 +5554,15 @@ export default function App() {
   const [library, setLibrary] = useState(buildInitialLibrary)
   const [liked, setLiked] = useState(() => {
     const value = readUserValue(LIKES_KEY, currentUserId, [])
-    return Array.isArray(value) ? value : []
+    return Array.isArray(value) ? value.map((id) => safeText(id)).filter(Boolean) : []
   })
   const [playlists, setPlaylists] = useState(() => {
     const value = readUserValue(PLAYLISTS_KEY, currentUserId, [])
-    return Array.isArray(value) ? value : []
+    return Array.isArray(value) ? value.map(sanitizePlaylist).filter(Boolean) : []
   })
   const [recent, setRecent] = useState(() => {
     const value = readUserValue(RECENT_KEY, currentUserId, [])
-    return Array.isArray(value) ? value : []
+    return Array.isArray(value) ? value.map((id) => safeText(id)).filter(Boolean) : []
   })
   const [settings, setSettings] = useState(() => ({
     ...DEFAULT_SETTINGS,
@@ -4936,6 +5570,11 @@ export default function App() {
   }))
   const [translateOn, setTranslateOn] = useState(() => Boolean(settings.autoTranslate))
   const [translating, setTranslating] = useState(false)
+  const [dailyFeed, setDailyFeed] = useState({ dayKey: '', trending: [], users: {} })
+  const [dailyStatus, setDailyStatus] = useState('loading')
+  const [dailyRefresh, setDailyRefresh] = useState(0)
+  const [crossfadeGain, setCrossfadeGain] = useState(1)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [messages, setMessages] = useState(loadStoredMessages)
   const [invites, setInvites] = useState(loadInvites)
   const [typing, setTyping] = useState({})
@@ -5007,11 +5646,16 @@ export default function App() {
   const pendingAuthActionRef = useRef(null)
   const stallTimerRef = useRef(null)
   const recoveryRef = useRef({ id: '', at: 0, active: false })
+  const crossfadeGainRef = useRef(1)
+  const crossfadeLockRef = useRef(false)
+  const preloadRef = useRef({ id: '', audio: null })
+  const fadeFrameRef = useRef(null)
   const remoteVoiceTimersRef = useRef({})
   const remoteAudioQueueRef = useRef({ entries: {} })
   const acceptedInviteRoomsRef = useRef(new Set())
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
+  const dailyDayKey = new Date().toISOString().slice(0, 10)
   const currentUser = useMemo(() => (
     currentAccount ? accountDisplay({ ...currentAccount, online: true }) : null
   ), [currentAccount])
@@ -5196,6 +5840,69 @@ export default function App() {
     writeUserValue(SETTINGS_KEY, currentUserId, settings)
     streamQuality = settings.quality || 'high'
   }, [currentUserId, settings])
+
+  useEffect(() => {
+    const userKey = currentUserId || 'guest'
+    const existing = loadDailyFeedCache(dailyDayKey)
+    const existingUser = existing?.users?.[userKey]
+    if (existingUser) {
+      existing.users[userKey] = {
+        ...existingUser,
+        madeForYou: Array.isArray(existingUser.madeForYou) ? existingUser.madeForYou.map(sanitizeTrack) : [],
+        basedOnRecent: Array.isArray(existingUser.basedOnRecent) ? existingUser.basedOnRecent.map(sanitizeTrack) : [],
+        topArtists: Array.isArray(existingUser.topArtists) ? existingUser.topArtists : [],
+        topLanguages: Array.isArray(existingUser.topLanguages) ? existingUser.topLanguages : [],
+      }
+    }
+    if (existing?.trending?.length && existingUser && dailyRefresh === 0) {
+      setDailyFeed({ dayKey: dailyDayKey, trending: existing.trending, users: existing.users })
+      setDailyStatus('ready')
+      return undefined
+    }
+    let cancelled = false
+    setDailyStatus('loading')
+    const taste = tasteSummary(library, likedSet, recent, playlists)
+    buildDailyFeed({
+      dayKey: dailyDayKey,
+      userKey,
+      taste,
+      rotation: dailyRefresh,
+      existing,
+    })
+      .then((feed) => {
+        if (cancelled) return
+        const users = { ...(existing?.users || {}), ...feed.users }
+        const next = { dayKey: dailyDayKey, builtAt: feed.builtAt, trending: feed.trending, users }
+        setDailyFeed(next)
+        setDailyStatus('ready')
+        saveDailyFeedCache(dailyDayKey, next)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setDailyStatus('error')
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dailyDayKey, currentUserId, dailyRefresh])
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined
+    const onKey = (event) => {
+      if (event.key === 'Escape') setSidebarOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sidebarOpen])
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth > 880) setSidebarOpen(false)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     writeStorage(TRANSLATE_KEY, translateOn)
@@ -5496,12 +6203,12 @@ export default function App() {
 
   function rememberTrack(candidate) {
     if (!candidate?.id) return
-    const entry = { ...candidate, status: candidate.status || 'ready' }
+    const entry = sanitizeTrack({ ...candidate, status: candidate.status || 'ready' })
     setLibrary((previous) => ({
       ...previous,
-      [candidate.id]: { ...(previous[candidate.id] || {}), ...entry },
+      [entry.id]: sanitizeTrack({ ...(previous[entry.id] || {}), ...entry }),
     }))
-    if (entry.streamUrl || entry.youtubeVideoId) saveLibraryEntry(candidate.id, entry)
+    if (entry.streamUrl || entry.youtubeVideoId) saveLibraryEntry(entry.id, entry)
   }
 
   function pushSystemMessage(roomId, text) {
@@ -5607,7 +6314,7 @@ export default function App() {
     const gradient = ROOM_GRADIENTS.find((option) => option.id === input.gradient) || ROOM_GRADIENTS[0]
     let code = roomCode()
     while (rooms.some((room) => room.code === code)) code = roomCode()
-    const trackIds = input.trackIds?.length ? input.trackIds : SEED_TRACKS.slice(0, 6).map((seed) => seed.id)
+    const trackIds = Array.isArray(input.trackIds) ? input.trackIds.map((id) => safeText(id)).filter(Boolean) : []
     const room = {
       id: uid('room'),
       name: String(input.name || '').trim(),
@@ -5621,7 +6328,6 @@ export default function App() {
       members: [currentUserId],
       roles: { [currentUserId]: 'admin' },
       requests: [],
-      listeners: Math.max(1, Number(input.listeners) || 1),
       private: Boolean(input.private),
       dj: currentUserId,
       code,
@@ -6238,8 +6944,9 @@ export default function App() {
     if (key !== SOLO_ROOM_ID) announce({ index, time: 0, isPlaying: true })
   }
 
-  async function ensurePlayable(candidate) {
-    if (!candidate) return null
+  async function ensurePlayable(rawCandidate) {
+    if (!rawCandidate) return null
+    const candidate = sanitizeTrack(rawCandidate)
     if (
       (candidate.streamUrl || candidate.youtubeVideoId) &&
       !isPreviewTrack(candidate) &&
@@ -6260,7 +6967,7 @@ export default function App() {
       if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
         throw new Error('No playable full-length source')
       }
-      const ready = {
+      const ready = sanitizeTrack({
         ...candidate,
         ...resolved,
         id: candidate.id,
@@ -6270,7 +6977,7 @@ export default function App() {
         preview: false,
         needsHydration: false,
         status: 'ready',
-      }
+      })
       setLibrary((previous) => ({ ...previous, [candidate.id]: ready }))
       saveLibraryEntry(candidate.id, ready)
       return ready
@@ -6407,6 +7114,66 @@ export default function App() {
       if (playable) startPlaybackAt(nextIndex, playable)
       else setIsPlaying(false)
     })
+  }
+
+  function maybePreloadNext(audio) {
+    if (!settings.gapless || !audio || !queueIds.length) return
+    const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration
+    if (!total || total - audio.currentTime > 15) return
+    const nextIndex = (currentIndex + 1) % queueIds.length
+    const candidate = queue[nextIndex] || library[queueIds[nextIndex]]
+    if (!candidate?.streamUrl || candidate.youtubeVideoId || preloadRef.current.id === candidate.id) return
+    const preload = new Audio()
+    preload.preload = 'auto'
+    preload.src = candidate.streamUrl
+    preload.load()
+    preloadRef.current = { id: candidate.id, audio: preload }
+  }
+
+  function maybeCrossfade(audio) {
+    if (!settings.crossfade || inRoom || crossfadeLockRef.current || !audio || !queueIds.length) return
+    const seconds = Math.max(0, Number(settings.crossfadeSeconds) || 0)
+    if (seconds < 1) return
+    const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration
+    if (!total) return
+    const remaining = total - audio.currentTime
+    if (remaining <= 0 || remaining > seconds) return
+
+    crossfadeLockRef.current = true
+    const player = ytPlayerRef.current
+    const startLevel = youtubeActive && player?.getVolume
+      ? player.getVolume() / 100
+      : audio.volume
+    const startedAt = performance.now()
+    const fadeMs = Math.max(250, Math.min(remaining * 1000, seconds * 1000))
+
+    const applyLevel = (level) => {
+      const safe = Math.max(0, Math.min(1, level))
+      audio.volume = safe
+      if (player?.setVolume) player.setVolume(Math.round(safe * 100))
+    }
+
+    const tick = (now) => {
+      const ratio = Math.min(1, (now - startedAt) / fadeMs)
+      applyLevel(startLevel * (1 - ratio))
+      if (ratio < 1) {
+        fadeFrameRef.current = requestAnimationFrame(tick)
+        return
+      }
+      fadeFrameRef.current = null
+      audio.pause()
+      setCrossfadeGain(0)
+      crossfadeGainRef.current = 0
+      Promise.resolve(nextTrack()).finally(() => {
+        setTimeout(() => {
+          setCrossfadeGain(1)
+          crossfadeGainRef.current = 1
+          crossfadeLockRef.current = false
+        }, 120)
+      })
+    }
+    if (fadeFrameRef.current) cancelAnimationFrame(fadeFrameRef.current)
+    fadeFrameRef.current = requestAnimationFrame(tick)
   }
 
   function clearStallTimer() {
@@ -6709,7 +7476,11 @@ export default function App() {
       return undefined
     }
     if (lyrics.status !== 'ready' || !['synced', 'plain'].includes(lyrics.type) || !lyrics.lines?.length) return undefined
-    if (lyrics.lines.every((line) => line.enText || !line.text?.trim())) return undefined
+    if (lyrics.translatable === false || lyrics.language === 'en' || lyrics.language === 'hi') {
+      setTranslating(false)
+      return undefined
+    }
+    if (lyrics.lines.every((line) => line.enText || !(line.sourceText || line.text)?.trim())) return undefined
     const curated = CURATED_TRANSLATIONS[track?.id] || []
     if (curated.length) {
       setLyrics((previous) => ({
@@ -6740,6 +7511,20 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [translateOn, lyricsKey, lyrics.status, lyrics.type, lyricsRefresh])
+
+  useEffect(() => {
+    if (fadeFrameRef.current) cancelAnimationFrame(fadeFrameRef.current)
+    fadeFrameRef.current = null
+    crossfadeLockRef.current = false
+    crossfadeGainRef.current = 1
+    setCrossfadeGain(1)
+    const preload = preloadRef.current.audio
+    if (preload) {
+      preload.src = ''
+      preload.load()
+    }
+    preloadRef.current = { id: '', audio: null }
+  }, [track?.id])
 
   useEffect(() => {
     const audio = audioRef.current
@@ -6801,7 +7586,7 @@ export default function App() {
             onReady: (event) => {
               if (cancelled) return
               const instance = event.target
-              instance.setVolume(Math.round((muted ? 0 : volume) * 100))
+              instance.setVolume(Math.round((muted ? 0 : volume) * (settings.normalization ? 0.9 : 1) * crossfadeGain * 100))
               if (pendingSeekRef.current != null) instance.seekTo(pendingSeekRef.current, true)
               const total = instance.getDuration?.() || 0
               if (total > 0) setDuration(total)
@@ -6911,7 +7696,8 @@ export default function App() {
     const audio = audioRef.current
     const duckRatio = Math.max(0.05, Math.min(1, (settings.duckLevel || 20) / 100))
     const shouldDuck = speaking || remoteSpeaking || voiceNotePlaying
-    const target = muted ? 0 : shouldDuck ? volume * duckRatio : volume
+    const normalizationGain = settings.normalization ? 0.9 : 1
+    const target = muted ? 0 : (shouldDuck ? volume * duckRatio : volume) * normalizationGain * crossfadeGain
     const player = ytPlayerRef.current
     if (player?.setVolume) {
       player.setVolume(Math.round(target * 100))
@@ -6929,7 +7715,7 @@ export default function App() {
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [speaking, remoteSpeaking, voiceNotePlaying, volume, muted, settings.duckLevel])
+  }, [speaking, remoteSpeaking, voiceNotePlaying, volume, muted, settings.duckLevel, settings.normalization, crossfadeGain])
 
   useEffect(() => {
     if (!youtubeActive) return undefined
@@ -7624,6 +8410,10 @@ export default function App() {
     setSearchOpen(false)
   }
 
+  function refreshDailyFeed() {
+    setDailyRefresh((value) => value + 1)
+  }
+
   function requestEditRoom() {
     if (requireAuth({ type: 'settings' }, 'Log in to manage room settings.')) return
     setRoomEditor('edit')
@@ -7640,7 +8430,12 @@ export default function App() {
         <div className="ambient" />
         <audio
           ref={audioRef}
-          onTimeUpdate={(event) => setProgress(event.currentTarget.currentTime || 0)}
+          onTimeUpdate={(event) => {
+            const audio = event.currentTarget
+            setProgress(audio.currentTime || 0)
+            maybePreloadNext(audio)
+            maybeCrossfade(audio)
+          }}
           onLoadedMetadata={(event) => {
             const audio = event.currentTarget
             if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration)
@@ -7682,6 +8477,8 @@ export default function App() {
             onCreatePlaylist={() => openCreatePlaylist()}
             onOpenPlaylist={openPlaylist}
             onLeaveRoom={leaveRoom}
+            mobileOpen={sidebarOpen}
+            onMobileClose={() => setSidebarOpen(false)}
           />
 
           <main className="stage">
@@ -7709,20 +8506,26 @@ export default function App() {
               onHome={() => navigateView('home')}
               onLogin={() => openAuth('signin')}
               onSignUp={() => openAuth('signup')}
+              onOpenSidebar={() => setSidebarOpen(true)}
             />
 
-            <div className="stage-scroll">
-              {view === 'home' && (
+            <ErrorBoundary resetKey={`${view}:${activeRoom?.id || ''}:${activePlaylistId || ''}`}>
+              <div className="stage-scroll">
+                {view === 'home' && (
                 <HomeView
                   currentUser={currentUser}
                   library={library}
                   liked={likedSet}
                   recentIds={recent}
                   playlists={playlists}
+                  dailyFeed={dailyFeed}
+                  dailyStatus={dailyStatus}
+                  onRefreshDaily={refreshDailyFeed}
                   roomCount={rooms.length}
                   onPlayTrack={playSoloTrack}
                   onPlayPlaylist={playPlaylist}
                   onLike={toggleLike}
+                  onAddToPlaylist={requestAddToPlaylist}
                   onSearch={() => setSearchOpen(true)}
                   onCreatePlaylist={() => openCreatePlaylist()}
                   onOpenPlaylist={openPlaylist}
@@ -7753,6 +8556,11 @@ export default function App() {
                   onSelectPlaylist={setActivePlaylistId}
                   onPlay={playSoloTrack}
                   onLike={toggleLike}
+                  onAddToPlaylist={requestAddToPlaylist}
+                  onAddToActivePlaylist={(candidate) => {
+                    if (!activePlaylistId) return
+                    addTrackToPlaylist(activePlaylistId, candidate)
+                  }}
                   onSearch={() => setSearchOpen(true)}
                   onCreatePlaylist={() => openCreatePlaylist()}
                   onPlayPlaylist={playPlaylist}
@@ -7797,33 +8605,38 @@ export default function App() {
                   onVolume={handleVolume}
                   onToggleMute={() => setMuted((value) => !value)}
                   onLike={toggleLike}
+                  onAddToPlaylist={requestAddToPlaylist}
                   onInvite={() => setMembersOpen(true)}
                   onSearch={() => setSearchOpen(true)}
                   onPlayIndex={playIndex}
                   onOpenFull={() => setFullPlayer(true)}
                 />
               )}
-            </div>
+              </div>
+            </ErrorBoundary>
 
-            <PlayerDock
-              track={track}
-              inRoom={inRoom}
-              isPlaying={isPlaying}
-              buffering={buffering || streamRecovering}
-              progress={progress}
-              duration={duration}
-              liked={likedSet}
-              syncMs={syncMs}
-              volume={volume}
-              muted={muted}
-              onTogglePlay={togglePlay}
-              onPrev={previousTrack}
-              onNext={nextTrack}
-              onLike={toggleLike}
-              onVolume={handleVolume}
-              onToggleMute={() => setMuted((value) => !value)}
-              onOpenFull={() => setFullPlayer(true)}
-            />
+            <ErrorBoundary resetKey="player-dock">
+              <PlayerDock
+                track={track}
+                inRoom={inRoom}
+                isPlaying={isPlaying}
+                buffering={buffering || streamRecovering}
+                progress={progress}
+                duration={duration}
+                liked={likedSet}
+                syncMs={syncMs}
+                volume={volume}
+                muted={muted}
+                onTogglePlay={togglePlay}
+                onPrev={previousTrack}
+                onNext={nextTrack}
+                onLike={toggleLike}
+                onAddToPlaylist={requestAddToPlaylist}
+                onVolume={handleVolume}
+                onToggleMute={() => setMuted((value) => !value)}
+                onOpenFull={() => setFullPlayer(true)}
+              />
+            </ErrorBoundary>
 
             <MobileNav
               view={view}
@@ -7890,13 +8703,14 @@ export default function App() {
           {shellChatOpen && <div className="chat-scrim" onClick={() => setChatOpen(false)} />}
         </div>
 
-        {pendingInvite && (
-          <InviteBanner
-            invite={pendingInvite}
-            onAccept={() => resolveInvite(pendingInvite.id, true)}
-            onDecline={() => resolveInvite(pendingInvite.id, false)}
-          />
-        )}
+        <ErrorBoundary resetKey="overlays">
+          {pendingInvite && (
+            <InviteBanner
+              invite={pendingInvite}
+              onAccept={() => resolveInvite(pendingInvite.id, true)}
+              onDecline={() => resolveInvite(pendingInvite.id, false)}
+            />
+          )}
 
         {moderatorRequest && activeRoom && (
           <RoleRequestPopup
@@ -7940,6 +8754,7 @@ export default function App() {
             onSeek={seekTo}
             onLock={lockToast}
             onLike={toggleLike}
+            onAddToPlaylist={requestAddToPlaylist}
             onVolume={handleVolume}
             onToggleMute={() => setMuted((value) => !value)}
             onRetryLyrics={() => setLyricsRefresh((value) => value + 1)}
@@ -7998,6 +8813,7 @@ export default function App() {
         {roomEditor === 'create' && (
           <RoomModal
             mode="create"
+            defaultTrackId={track?.id && track.id !== 'empty' ? track.id : null}
             onClose={() => setRoomEditor(null)}
             onCreate={createRoom}
           />
@@ -8052,18 +8868,19 @@ export default function App() {
           />
         )}
 
-        {addTrack && (
-          <AddToPlaylistModal
-            track={addTrack}
-            playlists={playlists}
-            onClose={() => setAddTrack(null)}
-            onAdd={(playlistId) => addTrackToPlaylist(playlistId, addTrack)}
-            onCreate={(candidate) => {
-              setAddTrack(null)
-              openCreatePlaylist(candidate)
-            }}
-          />
-        )}
+          {addTrack && (
+            <AddToPlaylistModal
+              track={addTrack}
+              playlists={playlists}
+              onClose={() => setAddTrack(null)}
+              onAdd={(playlistId) => addTrackToPlaylist(playlistId, addTrack)}
+              onCreate={(candidate) => {
+                setAddTrack(null)
+                openCreatePlaylist(candidate)
+              }}
+            />
+          )}
+        </ErrorBoundary>
 
         <Toast toast={toast} />
       </div>
