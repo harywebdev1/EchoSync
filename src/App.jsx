@@ -4332,6 +4332,7 @@ export default function App() {
   const loadedUrlRef = useRef('')
   const pendingSeekRef = useRef(null)
   const channelRef = useRef(null)
+  const accountsJsonRef = useRef('')
   const tabIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const activeRoomRef = useRef(activeRoomId)
   const roomsRef = useRef(rooms)
@@ -4473,8 +4474,38 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
+    const raw = JSON.stringify(accounts)
+    if (raw === accountsJsonRef.current) return
+    accountsJsonRef.current = raw
     writeStorage(USERS_KEY, accounts)
   }, [accounts])
+
+  useEffect(() => {
+    function handleStorage(event) {
+      if (event.key !== USERS_KEY || !event.newValue) return
+      let incoming
+      try {
+        incoming = JSON.parse(event.newValue)
+      } catch {
+        return
+      }
+      if (!incoming || typeof incoming !== 'object') return
+      accountsJsonRef.current = event.newValue
+      setAccounts((previous) => {
+        let changed = false
+        const next = { ...previous }
+        Object.entries(incoming).forEach(([id, account]) => {
+          if (JSON.stringify(next[id]) !== JSON.stringify(account)) {
+            next[id] = account
+            changed = true
+          }
+        })
+        return changed ? next : previous
+      })
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
 
   useEffect(() => {
     writeStorage(ROOMS_KEY, rooms)
