@@ -95,7 +95,7 @@ const PLAYLISTS_KEY = 'echosync_playlists_v1'
 const RECENT_KEY = 'echosync_recent_v1'
 const SETTINGS_KEY = 'echosync_settings_v1'
 const TRANSLATE_KEY = 'echosync_translate.v1'
-const STREAM_CACHE_KEY = 'echosync_stream_cache_v3'
+const STREAM_CACHE_KEY = 'echosync_stream_cache_v4'
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
 const INVITES_KEY = 'echosync_invites_v1'
 const DAILY_FEED_PREFIX = 'echosync_daily_feed_'
@@ -144,11 +144,16 @@ const DEFAULT_SETTINGS = {
 }
 
 const PIPED_INSTANCES = DEV_API
-  ? ['/api/piped/kavin', '/api/piped/coffee', '/api/piped/adminforge']
-  : ['https://pipedapi.kavin.rocks', 'https://api.piped.private.coffee', 'https://pipedapi.adminforge.de']
+  ? ['/api/piped/coffee', '/api/piped/ducks']
+  : ['https://api.piped.private.coffee', 'https://pipedapi.ducks.party']
 const INVIDIOUS_INSTANCES = DEV_API
-  ? ['/api/invidious/tux', '/api/invidious/nerd']
-  : ['https://inv.tux.pizza', 'https://invidious.nerdvpn.de']
+  ? ['/api/invidious/f5']
+  : ['https://invidious.f5.si']
+
+function mediaProxyUrl(url) {
+  if (!url || !DEV_API || url.startsWith('/api/')) return url
+  return `/api/media?url=${encodeURIComponent(url)}`
+}
 
 const AVATAR_PRESETS = [
   { id: 'rose', av1: '#eda272', av2: '#a14e58' },
@@ -412,7 +417,9 @@ function cacheSearchEntry(provider, query, limit, tracks) {
 
 function cachedResolvedStream(seedId) {
   const entry = streamCache.streams[seedId]
-  if (!entry?.track || isPreviewTrack(entry.track) || Date.now() - entry.ts > 1000 * 60 * 60 * 12) return null
+  const isYouTube = String(seedId).startsWith('yt:') || entry?.track?.provider === 'youtube'
+  const maxAge = isYouTube ? 1000 * 60 * 20 : 1000 * 60 * 60 * 12
+  if (!entry?.track || isPreviewTrack(entry.track) || Date.now() - entry.ts > maxAge) return null
   return sanitizeTrack(entry.track)
 }
 
@@ -560,7 +567,7 @@ function safeText(value, fallback = '') {
 
 function safeMediaUrl(value) {
   const text = safeText(value)
-  return /^(https?:\/\/|data:image\/|blob:)/i.test(text) ? text : null
+  return /^(https?:\/\/|data:image\/|blob:|\/api\/media\?)/i.test(text) ? text : null
 }
 
 function sanitizeTrack(raw) {
@@ -932,8 +939,10 @@ const LOCAL_MIRROR_PREFIXES = [
   '/api/piped/kavin',
   '/api/piped/coffee',
   '/api/piped/adminforge',
+  '/api/piped/ducks',
   '/api/invidious/tux',
   '/api/invidious/nerd',
+  '/api/invidious/f5',
 ]
 
 function mirrorKeyFromUrl(url) {
@@ -1183,10 +1192,10 @@ function normalizePipedCandidate(item) {
     id: `yt-${videoId}`,
     videoId,
     provider: 'youtube',
-    providerLabel: 'YouTube Music',
+    providerLabel: '',
     title: decodeEntities(source.title || 'Unknown video'),
-    artist: decodeEntities(source.uploaderName || source.uploader || 'YouTube'),
-    album: 'YouTube Music',
+    artist: decodeEntities(source.uploaderName || source.uploader || 'Unknown artist'),
+    album: '',
     duration: Number(source.duration) || 0,
     streamUrl: null,
     cover: safeMediaUrl(source.thumbnail),
@@ -1205,10 +1214,10 @@ function normalizeInvidiousCandidate(item) {
     id: `yt-${videoId}`,
     videoId,
     provider: 'youtube',
-    providerLabel: 'YouTube Music',
+    providerLabel: '',
     title: decodeEntities(source.title || 'Unknown video'),
-    artist: decodeEntities(source.author || 'YouTube'),
-    album: 'YouTube Music',
+    artist: decodeEntities(source.author || 'Unknown artist'),
+    album: '',
     duration: Number(source.lengthSeconds) || 0,
     streamUrl: null,
     cover: safeMediaUrl(thumb?.url),
@@ -1276,47 +1285,90 @@ function chooseAudioFormat(formats = []) {
   return mp4 || audio[0] || null
 }
 
+function pickPipedAudio(payload) {
+  const audio = chooseAudioFormat(payload?.audioStreams || [])
+  if (audio) return audio
+  const muxed = (payload?.videoStreams || [])
+    .filter((format) => format?.url && !format.videoOnly && String(format.mimeType || '').includes('mp4'))
+  return chooseAudioFormat(muxed)
+}
+
+async function firstSuccessful(tasks) {
+  return new Promise((resolve, reject) => {
+    let pending = tasks.length
+    if (!pending) {
+      reject(new Error('No stream sources available'))
+      return
+    }
+    tasks.forEach((task) => {
+      Promise.resolve(task)
+        .then(resolve)
+        .catch(() => {
+          pending -= 1
+          if (!pending) reject(new Error('No stream source answered'))
+        })
+    })
+  })
+}
+
+async function getLocalYouTubeAudio(videoId) {
+  if (!DEV_API) throw new Error('Local resolver unavailable')
+  const data = await fetchJson(`/api/youtube/audio/${encodeURIComponent(videoId)}`, { timeout: 14000 })
+  if (!data?.url) throw new Error('No audio format')
+  return {
+    streamUrl: mediaProxyUrl(data.url),
+    quality: data.bitrate ? `${Math.round(Number(data.bitrate) / 1000)} kbps` : 'Audio',
+    duration: Number(data.duration) || 0,
+    cover: safeMediaUrl(data.thumbnail),
+    provider: 'youtube',
+    providerLabel: '',
+  }
+}
+
+async function getPipedAudio(base, videoId) {
+  const payload = await fetchJson(`${base}/streams/${videoId}`, { timeout: 4600 })
+  const format = pickPipedAudio(payload)
+  if (!format?.url) throw new Error('No audio format')
+  return {
+    streamUrl: mediaProxyUrl(format.url),
+    quality: format.bitrate ? `${Math.round(Number(format.bitrate) / 1000)} kbps` : 'Audio',
+    duration: Number(payload?.duration) || 0,
+    cover: safeMediaUrl(payload?.thumbnailUrl),
+    provider: 'youtube',
+    providerLabel: '',
+  }
+}
+
+async function getInvidiousAudio(base, videoId) {
+  const payload = await fetchJson(`${base}/api/v1/videos/${videoId}`, { timeout: 4600 })
+  const format = chooseAudioFormat(payload?.adaptiveFormats || [])
+  if (!format?.url) throw new Error('No audio format')
+  return {
+    streamUrl: mediaProxyUrl(format.url),
+    quality: format.bitrate ? `${Math.round(Number(format.bitrate) / 1000)} kbps` : 'Audio',
+    duration: Number(payload?.lengthSeconds) || 0,
+    cover: safeMediaUrl(payload?.videoThumbnails?.find((entry) => entry.quality === 'maxresdefault')?.url),
+    provider: 'youtube',
+    providerLabel: '',
+  }
+}
+
 async function getYouTubeAudio(videoId) {
   if (!videoId) return null
   const cached = cachedResolvedStream(`yt:${videoId}`)
   if (cached?.streamUrl) return cached
-  for (const base of PIPED_INSTANCES) {
-    try {
-      const payload = await fetchJson(`${base}/streams/${videoId}`, { timeout: 5600 })
-      const format = chooseAudioFormat(payload?.audioStreams || [])
-      if (format?.url) {
-        const result = {
-          streamUrl: format.url,
-          quality: format.bitrate ? `${Math.round(Number(format.bitrate) / 1000)}k audio` : 'YT audio',
-          duration: Number(payload?.duration) || 0,
-          cover: payload?.thumbnailUrl || null,
-        }
-        cacheResolvedStream(`yt:${videoId}`, result)
-        return result
-      }
-    } catch {
-      /* try the next instance */
-    }
+  const tasks = [
+    getLocalYouTubeAudio(videoId),
+    ...INVIDIOUS_INSTANCES.map((base) => getInvidiousAudio(base, videoId)),
+    ...PIPED_INSTANCES.map((base) => getPipedAudio(base, videoId)),
+  ]
+  try {
+    const result = await firstSuccessful(tasks)
+    cacheResolvedStream(`yt:${videoId}`, result)
+    return result
+  } catch {
+    return null
   }
-  for (const base of INVIDIOUS_INSTANCES) {
-    try {
-      const payload = await fetchJson(`${base}/api/v1/videos/${videoId}`, { timeout: 5600 })
-      const format = chooseAudioFormat(payload?.adaptiveFormats || [])
-      if (format?.url) {
-        const result = {
-          streamUrl: format.url,
-          quality: format.bitrate ? `${Math.round(Number(format.bitrate) / 1000)}k audio` : 'YT audio',
-          duration: Number(payload?.lengthSeconds) || 0,
-          cover: payload?.videoThumbnails?.find((entry) => entry.quality === 'maxresdefault')?.url || null,
-        }
-        cacheResolvedStream(`yt:${videoId}`, result)
-        return result
-      }
-    } catch {
-      /* try the next instance */
-    }
-  }
-  return null
 }
 
 function scoreYouTubeCandidate(track, seed) {
@@ -1364,12 +1416,12 @@ async function resolveYouTubeTrack(seed) {
           ...seed,
           id: seed.id,
           provider: 'youtube',
-          providerLabel: 'YouTube Music',
+          providerLabel: '',
           youtubeVideoId: candidate.videoId,
           streamUrl: audio.streamUrl,
           duration: candidate.duration || audio.duration || seed.duration,
           cover: seed.cover || candidate.cover || audio.cover || null,
-          quality: audio.quality || 'YT audio',
+          quality: audio.quality || 'Audio',
           preview: false,
           c1: seed.c1,
           c2: seed.c2,
@@ -1382,12 +1434,12 @@ async function resolveYouTubeTrack(seed) {
       ...seed,
       id: seed.id,
       provider: 'youtube',
-      providerLabel: 'YouTube Music',
+      providerLabel: '',
       youtubeVideoId: fallback.videoId,
       streamUrl: null,
       duration: fallback.duration || seed.duration,
       cover: seed.cover || fallback.cover || null,
-      quality: 'YT frame',
+      quality: 'Stream',
       preview: false,
       c1: seed.c1,
       c2: seed.c2,
@@ -1409,14 +1461,20 @@ async function searchEverything(query) {
   const itunes = itunesResult.status === 'fulfilled' ? itunesResult.value : []
   const seen = new Set()
   const combined = []
-  ;[...jio, ...youtube.slice(0, 14), ...itunes].forEach((track) => {
-    const safeTrack = sanitizeTrack(track)
-    if (!safeTrack || isPreviewTrack(safeTrack) || !isFullLengthTrack(safeTrack)) return
-    const key = `${normalize(safeTrack.title)}::${normalize(safeTrack.artist)}`
-    if (seen.has(key)) return
-    seen.add(key)
-    combined.push(safeTrack)
-  })
+  const sources = [jio, youtube.slice(0, 16), itunes]
+  const maxLength = Math.max(...sources.map((source) => source.length))
+  for (let index = 0; index < maxLength; index += 1) {
+    sources.forEach((source) => {
+      const track = source[index]
+      if (!track) return
+      const safeTrack = sanitizeTrack(track)
+      if (!safeTrack || isPreviewTrack(safeTrack) || !isFullLengthTrack(safeTrack)) return
+      const key = `${normalize(safeTrack.title)}::${normalize(safeTrack.artist)}`
+      if (seen.has(key)) return
+      seen.add(key)
+      combined.push(safeTrack)
+    })
+  }
   const result = combined.slice(0, 30)
   cacheSearchEntry('everything', query, 30, result)
   return result
@@ -1454,6 +1512,24 @@ async function resolveFullTrack(candidate) {
     return { ...target, needsHydration: false, status: 'ready' }
   }
 
+  if (target.youtubeVideoId) {
+    const audio = await getYouTubeAudio(target.youtubeVideoId)
+    if (audio?.streamUrl) {
+      const ready = {
+        ...target,
+        ...audio,
+        id: target.id,
+        provider: 'youtube',
+        providerLabel: '',
+        preview: false,
+        needsHydration: false,
+        status: 'ready',
+      }
+      cacheResolvedStream(target.id, ready)
+      return ready
+    }
+  }
+
   const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
   if (query) {
     const candidates = await fetchJioSearch(query, 16)
@@ -1477,24 +1553,6 @@ async function resolveFullTrack(candidate) {
         cacheResolvedStream(target.id, ready)
         return ready
       }
-    }
-  }
-
-  if (target.youtubeVideoId) {
-    const audio = await getYouTubeAudio(target.youtubeVideoId)
-    if (audio?.streamUrl) {
-      const ready = {
-        ...target,
-        ...audio,
-        id: target.id,
-        provider: 'youtube',
-        providerLabel: 'YouTube Music',
-        preview: false,
-        needsHydration: false,
-        status: 'ready',
-      }
-      cacheResolvedStream(target.id, ready)
-      return ready
     }
   }
 
@@ -1880,21 +1938,6 @@ function Cover({ track, size = 'cover-size-sm', className = '', showQuality = fa
         <span className="quality-badge"><AudioLines /> {track.quality}</span>
       )}
     </div>
-  )
-}
-
-function ProviderBadge({ provider, preview }) {
-  return (
-    <span className={`source-badge ${provider || ''}`}>
-      {provider === 'jiosaavn'
-        ? 'JioSaavn'
-        : provider === 'itunes'
-          ? 'iTunes'
-          : provider === 'youtube'
-            ? 'YouTube Music'
-            : 'Library'}
-      {preview ? ' · 30s' : ''}
-    </span>
   )
 }
 
@@ -2579,7 +2622,7 @@ function LibraryView({
                     <Cover track={track} size="cover-size-sm" />
                     <div className="queue-copy">
                       <strong>{track.title}</strong>
-                      <span>{track.artist}{track.providerLabel ? ` - ${track.providerLabel}` : ''}</span>
+                      <span>{track.artist}</span>
                     </div>
                     <span className="dur">{formatTime(track.duration)}</span>
                     <button
@@ -2616,7 +2659,7 @@ function LibraryView({
                 <Cover track={track} size="cover-size-sm" />
                 <div className="queue-copy">
                   <strong>{track.title}</strong>
-                  <span>{track.artist}{track.providerLabel ? ` · ${track.providerLabel}` : ''}</span>
+                  <span>{track.artist}</span>
                 </div>
                 <span className="album">{track.album || 'Single'}</span>
                 <span className="dur">{formatTime(track.duration)}</span>
@@ -2696,7 +2739,7 @@ function LibraryView({
                   <Cover track={track} size="cover-size-sm" />
                   <div className="queue-copy">
                     <strong>{track.title}</strong>
-                    <span>{track.artist}{track.providerLabel ? ` · ${track.providerLabel}` : ''}</span>
+                    <span>{track.artist}</span>
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
                   <span className="dur">{formatTime(track.duration)}</span>
@@ -3450,7 +3493,7 @@ function SettingsModal({
                 <div><AudioLines /><strong>{cacheInfo.streams}</strong><span>Cached streams</span></div>
                 <div><Languages /><strong>{cacheInfo.translations}</strong><span>Translated tracks</span></div>
               </div>
-              <p className="settings-note">Clearing the cache also resets the JioSaavn backoff timer, so the next play tries the full-length engine immediately.</p>
+              <p className="settings-note">Clearing the cache also resets the stream backoff timer, so the next play tries the full-length engine immediately.</p>
               <div className="settings-actions-row">
                 <button className="text-btn danger-btn" onClick={onClearCache}><Trash2 size={12} /> Clear stream & lyrics cache</button>
                 <span className="grow" />
@@ -4852,7 +4895,6 @@ function RoomView({
           <div className="now-kicker">
             <span className={isPlaying ? 'live-dot' : ''} style={isPlaying ? { color: room.accent } : undefined} />
             <span>{isPlaying ? 'PLAYING NOW' : 'UP NEXT IN THE ROOM'}</span>
-            <ProviderBadge provider={track?.provider} preview={track?.preview} />
             {pending && <span className="source-badge"><span className="spinner" style={{ width: 8, height: 8 }} /> Tuning</span>}
           </div>
 
@@ -4941,7 +4983,7 @@ function RoomView({
           </div>
 
           <div className="now-foot">
-            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'YouTube Music · full-length engine' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
+            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full-length stream' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
             <span className="dot" />
             <span>{room.members.length} in the room</span>
             <span className={`dot`} />
@@ -5011,7 +5053,6 @@ function RoomView({
                 </span>
               </div>
               <div className="queue-right">
-                <span className="queue-provider">{item?.providerLabel || 'EchoSync'}</span>
                 <span className="queue-dur">{itemReady ? formatTime(item.duration) : '—'}</span>
               </div>
               <button
@@ -5083,10 +5124,7 @@ function PlayerDock({
         <Cover track={track} size="cover-size-sm" playing={isPlaying} />
         <div className="dock-copy">
           <strong>{track?.title || 'Nothing playing'}</strong>
-          <span>
-            {track?.artist || 'EchoSync'}
-            {track?.providerLabel && <><span style={{ opacity: 0.6 }}>·</span> {track.providerLabel}</>}
-          </span>
+          <span>{track?.artist || 'EchoSync'}</span>
         </div>
       </div>
       <div className="dock-center">
@@ -5190,7 +5228,7 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
     return () => clearTimeout(timer)
   }, [query])
 
-  const suggestions = ['Kesariya', 'Pasoori', 'The Weeknd', 'AP Dhillon', 'Coke Studio', 'Atif Aslam']
+  const suggestions = ['Kesariya', 'Pasoori', 'Nusrat Fateh Ali Khan qawwali', 'Naat', 'The Weeknd', 'Atif Aslam']
 
   return (
     <div className="modal-scrim" onMouseDown={onClose}>
@@ -5211,7 +5249,7 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
           {status === 'idle' && (
             <div className="search-idle">
               <h4>What does tonight sound like?</h4>
-              <p>Search across JioSaavn and iTunes. Every result is a real, playable stream.</p>
+              <p>Search every catalogue. Every result resolves to a real, playable stream.</p>
               <div className="suggestion-chips">
                 {suggestions.map((suggestion) => (
                   <button key={suggestion} onClick={() => setQuery(suggestion)}>{suggestion}</button>
@@ -5243,13 +5281,15 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
                   className="search-result"
                   role="button"
                   tabIndex={0}
+                  data-provider={track.provider}
+                  data-track-id={track.id}
                   onClick={() => onPlay(track)}
                   onKeyDown={(event) => event.key === 'Enter' && onPlay(track)}
                 >
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
                     <strong>{track.title}</strong>
-                    <span>{track.artist} · {track.providerLabel}{track.preview ? ' preview' : ''}</span>
+                    <span>{track.artist}{track.preview ? ' · preview' : ''}</span>
                   </div>
                   <button
                     className="search-play"
@@ -5290,8 +5330,8 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
 
         <div className="search-foot">
           <AudioLines />
-          <span>JioSaavn · YouTube Music · iTunes artwork</span>
-          <span className="right">Full-length engine</span>
+          <span>Full-length catalogue · lyrics · artwork</span>
+          <span className="right">Universal stream engine</span>
         </div>
       </div>
     </div>
@@ -5353,7 +5393,6 @@ function FullPlayer({
               <div className="fp-kicker">
                 <span className="live-dot" style={{ color: room.accent }} />
                 <span>{isPlaying ? 'Playing now' : 'Paused in room'}</span>
-                <ProviderBadge provider={track?.provider} preview={track?.preview} />
               </div>
               <h2 className="fp-title">{track?.title}</h2>
               <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
@@ -5469,6 +5508,26 @@ function YouTubeBridge({ containerRef }) {
   return (
     <div className="yt-bridge" aria-hidden="true">
       <div ref={containerRef} />
+    </div>
+  )
+}
+
+function AudioRootContainer({ audioRef, containerRef, trackId, onTimeUpdate, onLoadedMetadata, onCanPlay, onPlaying, onWaiting, onStalled, onEnded, onError }) {
+  return (
+    <div className="audio-root" data-testid="audio-root" data-track-id={trackId || ''}>
+      <audio
+        ref={audioRef}
+        data-testid="root-audio"
+        onTimeUpdate={onTimeUpdate}
+        onLoadedMetadata={onLoadedMetadata}
+        onCanPlay={onCanPlay}
+        onPlaying={onPlaying}
+        onWaiting={onWaiting}
+        onStalled={onStalled}
+        onEnded={onEnded}
+        onError={onError}
+      />
+      <YouTubeBridge containerRef={containerRef} />
     </div>
   )
 }
@@ -7260,6 +7319,28 @@ export default function App() {
   function handleAudioError() {
     setBuffering(false)
     if (!loadedUrlRef.current) return
+    const current = library[track?.id] || track
+    if (current?.youtubeVideoId) {
+      const resumeTime = Math.max(0, getPlaybackTime() || 0)
+      loadedUrlRef.current = ''
+      pendingSeekRef.current = resumeTime
+      audioRef.current?.pause()
+      clearResolvedStream(current.id)
+      clearResolvedStream(`yt:${current.youtubeVideoId}`)
+      const fallback = {
+        ...current,
+        streamUrl: null,
+        status: 'ready',
+        preview: false,
+        needsHydration: false,
+      }
+      setLibrary((previous) => ({ ...previous, [current.id]: fallback }))
+      saveLibraryEntry(current.id, fallback)
+      setStreamRecovering(true)
+      setIsPlaying(true)
+      showToast('Direct stream unavailable — using the embedded player.')
+      return
+    }
     recoverCurrentStream('error')
   }
 
@@ -7599,6 +7680,8 @@ export default function App() {
               } else if (event.data === 1) {
                 const total = event.target.getDuration?.() || 0
                 if (total > 0) setDuration(total)
+                setBuffering(false)
+                setStreamRecovering(false)
                 setIsPlaying(true)
               }
             },
@@ -7612,7 +7695,7 @@ export default function App() {
         ytPlayerRef.current = player
       })
       .catch(() => {
-        if (!cancelled) showToast('YouTube playback is unavailable right now.', 'lock')
+        if (!cancelled) showToast('Streaming is unavailable right now.', 'lock')
       })
 
     return () => {
@@ -8375,9 +8458,6 @@ export default function App() {
       'Log in to open your library and saved playlists.',
     )) return
     if (nextView === 'home') {
-      setActiveRoomId(null)
-      setIsPlaying(false)
-      audioRef.current?.pause()
       setJoinPill(null)
       setActivePlaylistId(null)
       setView('home')
@@ -8428,8 +8508,10 @@ export default function App() {
     <MembersContext.Provider value={memberIndex}>
       <div className={`app ${theme}`} style={rootStyle}>
         <div className="ambient" />
-        <audio
-          ref={audioRef}
+        <AudioRootContainer
+          audioRef={audioRef}
+          containerRef={ytContainerRef}
+          trackId={track?.id}
           onTimeUpdate={(event) => {
             const audio = event.currentTarget
             setProgress(audio.currentTime || 0)
@@ -8455,7 +8537,6 @@ export default function App() {
           onEnded={handleEnded}
           onError={handleAudioError}
         />
-        <YouTubeBridge containerRef={ytContainerRef} />
 
         <div className={`shell ${shellChatOpen ? '' : 'chat-collapsed'}`}>
           <Sidebar
