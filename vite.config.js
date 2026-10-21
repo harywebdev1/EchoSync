@@ -4,7 +4,15 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { Innertube } from 'youtubei.js'
 
-const MEDIA_HOSTS = ['googlevideo.com', 'odycdn.com', 'youtube.com', 'ytimg.com']
+const ARTWORK_HOSTS = [
+  'mzstatic.com',
+  'saavncdn.com',
+  'scdn.co',
+  'spotifycdn.com',
+  'dzcdn.net',
+  'googleusercontent.com',
+]
+const MEDIA_HOSTS = ['googlevideo.com', 'odycdn.com', 'youtube.com', 'ytimg.com', ...ARTWORK_HOSTS]
 const MEDIA_CHUNK_SIZE = 1024 * 1024
 
 function mediaRange(value) {
@@ -19,6 +27,11 @@ function mediaRange(value) {
 function isAllowedMediaHost(hostname = '') {
   const host = hostname.toLowerCase()
   return MEDIA_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
+}
+
+function isArtworkHost(hostname = '') {
+  const host = hostname.toLowerCase()
+  return ARTWORK_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
 }
 
 let youtubeClientPromise = null
@@ -108,7 +121,8 @@ function mediaProxy() {
         if (req.method === 'OPTIONS') {
           res.statusCode = 204
           res.setHeader('Access-Control-Allow-Origin', '*')
-          res.setHeader('Access-Control-Allow-Headers', 'Range')
+          res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+          res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type')
           res.end()
           return
         }
@@ -139,13 +153,20 @@ function mediaProxy() {
           res.end('Media host is not allowed')
           return
         }
+        const artwork = isArtworkHost(parsed.hostname) || String(req.headers.accept || '').startsWith('image/')
         const headers = {
-          accept: '*/*',
+          accept: artwork
+            ? 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+            : '*/*',
           'user-agent': req.headers['user-agent'] || 'Mozilla/5.0',
-          origin: 'https://www.youtube.com',
-          referer: 'https://www.youtube.com/',
         }
-        headers.range = mediaRange(req.headers.range)
+        if (artwork) {
+          headers.referer = `${parsed.protocol}//${parsed.hostname}/`
+        } else {
+          headers.origin = 'https://www.youtube.com'
+          headers.referer = 'https://www.youtube.com/'
+          headers.range = mediaRange(req.headers.range)
+        }
         let upstream
         let current = parsed
         try {

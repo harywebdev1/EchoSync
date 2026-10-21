@@ -69,7 +69,6 @@ import {
   BellRing,
   ArrowRight,
   Mail,
-  Image,
   Save,
   Menu,
 } from 'lucide-react'
@@ -95,6 +94,7 @@ const MESSAGES_KEY = 'echosync_messages_v3'
 const PLAYLISTS_KEY = 'echosync_playlists_v1'
 const RECENT_KEY = 'echosync_recent_v1'
 const SETTINGS_KEY = 'echosync_settings_v1'
+const TASTE_PROFILE_KEY = 'echosync_taste_profile_v1'
 const TRANSLATE_KEY = 'echosync_translate.v1'
 const STREAM_CACHE_KEY = 'echosync_stream_cache_v4'
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
@@ -175,6 +175,30 @@ const ROOM_GRADIENTS = [
   { id: 'studio', c1: '#162430', c2: '#2e6582', accent: '#5bbde7', accent2: '#a9d8ee' },
   { id: 'dusk', c1: '#2b1f33', c2: '#6f4b8f', accent: '#b98ce0', accent2: '#dcc2f0' },
   { id: 'sunset', c1: '#33201b', c2: '#b25f3e', accent: '#ef8f5b', accent2: '#f4c191' },
+]
+
+const TASTE_WEIGHTS = { play: 3, like: 5, playlist: 4, search: 2, tune: 6 }
+
+const TASTE_VIBES = [
+  { id: 'pakistani-indie', label: 'Pakistani Indie', query: 'Pakistani indie songs', hint: 'Kaifi Khalil, Talha Anjum, Ali Sethi', c1: '#1d4f42', c2: '#78c59c', language: 'Urdu', genre: 'Indie' },
+  { id: 'coke-studio', label: 'Coke Studio', query: 'Coke Studio Pakistan songs', hint: 'Live sessions with a pulse', c1: '#5a2c17', c2: '#e8a65e', language: 'Urdu', genre: 'Coke Studio' },
+  { id: 'bollywood-romance', label: 'Bollywood Romance', query: 'Bollywood romantic songs', hint: 'Arijit, Pritam, soft endings', c1: '#5a2032', c2: '#ec8da0', language: 'Hindi', genre: 'Bollywood' },
+  { id: 'punjabi-hip-hop', label: 'Punjabi Hip-Hop', query: 'Punjabi hip hop songs', hint: 'AP Dhillon, Diljit, Sidhu', c1: '#183a31', c2: '#57c99a', language: 'Punjabi', genre: 'Hip-Hop' },
+  { id: 'sufi-qawwali', label: 'Sufi & Qawwali', query: 'Sufi qawwali songs', hint: 'Nusrat, Rahat, sacred scale', c1: '#4c3617', c2: '#d8b15f', language: 'Urdu', genre: 'Qawwali' },
+  { id: 'global-pop', label: 'Global Pop', query: 'global pop hits', hint: 'The Weeknd, Post Malone, Coldplay', c1: '#1b3158', c2: '#7ca9ee', language: 'English', genre: 'Pop' },
+  { id: 'lofi-chill', label: 'Lo-Fi Chill', query: 'lofi chill songs', hint: 'Soft focus, late hours', c1: '#292448', c2: '#a795e8', language: 'English', genre: 'Lo-Fi' },
+  { id: 'naat-spiritual', label: 'Naat & Spiritual', query: 'Naat spiritual songs', hint: 'Quiet devotion, open room', c1: '#204338', c2: '#8cd3ad', language: 'Urdu', genre: 'Spiritual' },
+]
+
+const SEARCH_CATEGORIES = [
+  { id: 'coke-studio-indie', label: 'Coke Studio & Indie', query: 'Coke Studio indie songs', hint: 'Live, left-field, alive', c1: '#633317', c2: '#e9a665' },
+  { id: 'sufi-qawwali', label: 'Sufi & Qawwali', query: 'Sufi qawwali songs', hint: 'Devotional depth', c1: '#4a3516', c2: '#d4ad58' },
+  { id: 'punjabi-hits', label: 'Punjabi Hits', query: 'Punjabi hits', hint: 'Moonlit anthems', c1: '#173c31', c2: '#54c897' },
+  { id: 'bollywood-fresh', label: 'Bollywood Fresh', query: 'new Bollywood songs', hint: 'The newest chorus', c1: '#4a1f31', c2: '#e78c9f' },
+  { id: 'late-night-lofi', label: 'Late Night Lo-Fi', query: 'late night lofi songs', hint: '2am, no rush', c1: '#282547', c2: '#a395e4' },
+  { id: 'global-charts', label: 'Global Charts', query: 'global chart hits', hint: 'Worldwide right now', c1: '#19325b', c2: '#75a6ee' },
+  { id: 'workout-energy', label: 'Workout Energy', query: 'workout energy songs', hint: 'Louder every mile', c1: '#541f20', c2: '#ec7f73' },
+  { id: 'spiritual-naat', label: 'Spiritual & Naat', query: 'Naat spiritual songs', hint: 'Centred and still', c1: '#1d4339', c2: '#86d1ab' },
 ]
 
 function uid(prefix = 'id') {
@@ -591,6 +615,221 @@ function safeMediaUrl(value) {
   const text = safeText(value)
   if (!/^(https?:\/\/|blob:|\/api\/media\?)/i.test(text)) return null
   return text.replace(/^http:\/\//i, 'https://')
+}
+
+const PALETTE_CACHE = new Map()
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function parseHexColor(value) {
+  const text = String(value || '').trim().replace(/^#/, '')
+  if (!/^[0-9a-f]{3}$|^[0-9a-f]{6}$/i.test(text)) return null
+  const expanded = text.length === 3 ? text.split('').map((part) => `${part}${part}`).join('') : text
+  const number = Number.parseInt(expanded, 16)
+  return { r: (number >> 16) & 255, g: (number >> 8) & 255, b: number & 255 }
+}
+
+function rgbToHsl({ r, g, b }) {
+  const red = r / 255
+  const green = g / 255
+  const blue = b / 255
+  const max = Math.max(red, green, blue)
+  const min = Math.min(red, green, blue)
+  const delta = max - min
+  let hue = 0
+  if (delta) {
+    if (max === red) hue = ((green - blue) / delta) % 6
+    else if (max === green) hue = (blue - red) / delta + 2
+    else hue = (red - green) / delta + 4
+    hue *= 60
+    if (hue < 0) hue += 360
+  }
+  const lightness = (max + min) / 2
+  const saturation = delta ? delta / (1 - Math.abs(2 * lightness - 1)) : 0
+  return { h: hue, s: saturation, l: lightness }
+}
+
+function hslToRgb(hue, saturation, lightness) {
+  const h = ((hue % 360) + 360) % 360
+  const s = clamp(saturation, 0, 1)
+  const l = clamp(lightness, 0, 1)
+  const chroma = (1 - Math.abs(2 * l - 1)) * s
+  const segment = h / 60
+  const second = chroma * (1 - Math.abs((segment % 2) - 1))
+  let rgb = [0, 0, 0]
+  if (segment < 1) rgb = [chroma, second, 0]
+  else if (segment < 2) rgb = [second, chroma, 0]
+  else if (segment < 3) rgb = [0, chroma, second]
+  else if (segment < 4) rgb = [0, second, chroma]
+  else if (segment < 5) rgb = [second, 0, chroma]
+  else rgb = [chroma, 0, second]
+  const match = l - chroma / 2
+  return {
+    r: Math.round((rgb[0] + match) * 255),
+    g: Math.round((rgb[1] + match) * 255),
+    b: Math.round((rgb[2] + match) * 255),
+  }
+}
+
+function cssColor({ r, g, b }, alpha = 1) {
+  return alpha >= 1 ? `rgb(${r} ${g} ${b})` : `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function hashHue(value, offset = 0) {
+  let hash = 0
+  const text = String(value || 'EchoSync')
+  for (let index = 0; index < text.length; index += 1) hash = ((hash * 31) + text.charCodeAt(index)) % 360
+  return (hash + offset) % 360
+}
+
+function paletteFromHue(hue, saturation = 0.68, lightness = 0.58, fallback = null) {
+  const primary = hslToRgb(hue, saturation, lightness)
+  const secondary = hslToRgb(hue + 28, Math.max(0.45, saturation - 0.12), Math.min(0.72, lightness + 0.08))
+  return {
+    accent: cssColor(primary),
+    accent2: fallback?.accent2 || cssColor(secondary),
+    glow: cssColor(primary, 0.34),
+    surface: cssColor(primary, 0.12),
+    hue,
+    saturation,
+    lightness,
+  }
+}
+
+function paletteFromTrack(track) {
+  if (!track || track.id === 'empty') return null
+  const colorA = parseHexColor(track.c2)
+  const colorB = parseHexColor(track.c1)
+  const chosen = colorA || colorB
+  if (!chosen) return paletteFromHue(hashHue(`${track.artist || ''} ${track.title || ''}`))
+  const hsl = rgbToHsl(chosen)
+  const hue = hsl.s < 0.16 ? hashHue(`${track.artist || ''} ${track.title || ''}`) : hsl.h
+  const secondary = colorB && colorB !== chosen ? rgbToHsl(colorB) : null
+  const base = paletteFromHue(
+    hue,
+    clamp(Math.max(hsl.s, 0.56), 0.5, 0.84),
+    clamp(hsl.l, 0.5, 0.64),
+  )
+  if (secondary) {
+    const secondaryHue = secondary.s < 0.12 ? hue + 32 : secondary.h
+    base.accent2 = cssColor(hslToRgb(secondaryHue, clamp(Math.max(secondary.s, 0.42), 0.4, 0.72), clamp(secondary.l, 0.55, 0.74)))
+  }
+  return base
+}
+
+function artworkImageSource(cover) {
+  const normalized = normalizeArtworkUrl(cover)
+  if (!normalized) return null
+  if (!DEV_API || normalized.startsWith('data:') || normalized.startsWith('blob:') || normalized.startsWith('/')) return normalized
+  return `/api/media?url=${encodeURIComponent(normalized)}`
+}
+
+function loadArtworkCanvasSource(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.crossOrigin = 'anonymous'
+    image.decoding = 'async'
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Artwork could not be read'))
+    image.src = source
+  })
+}
+
+function paletteFromArtworkPixels(data) {
+  const buckets = new Map()
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3]
+    if (alpha < 150) continue
+    const red = data[index]
+    const green = data[index + 1]
+    const blue = data[index + 2]
+    const hsl = rgbToHsl({ r: red, g: green, b: blue })
+    if (hsl.l < 0.08 || hsl.l > 0.94 || hsl.s < 0.12) continue
+    const key = `${Math.round(red / 24)}:${Math.round(green / 24)}:${Math.round(blue / 24)}`
+    const weight = 1 + (hsl.s * 2.2) + (1 - Math.abs(hsl.l - 0.55))
+    const bucket = buckets.get(key) || { r: 0, g: 0, b: 0, count: 0, weight: 0, hue: hsl.h, saturation: hsl.s, lightness: hsl.l }
+    bucket.r += red
+    bucket.g += green
+    bucket.b += blue
+    bucket.count += 1
+    bucket.weight += weight
+    bucket.hue = hsl.h
+    bucket.saturation = (bucket.saturation + hsl.s) / 2
+    bucket.lightness = (bucket.lightness + hsl.l) / 2
+    buckets.set(key, bucket)
+  }
+  const ranked = [...buckets.values()].sort((a, b) => (b.weight * Math.sqrt(b.count)) - (a.weight * Math.sqrt(a.count)))
+  if (!ranked.length) return null
+  const primary = ranked[0]
+  const hue = primary.saturation < 0.18 ? hashHue(`${primary.r}${primary.g}${primary.b}`) : primary.hue
+  const saturation = clamp(Math.max(primary.saturation, 0.58), 0.52, 0.86)
+  const lightness = clamp(primary.lightness, 0.48, 0.62)
+  const accent = hslToRgb(hue, saturation, lightness)
+  const partner = ranked.find((bucket) => {
+    const delta = Math.abs(bucket.hue - hue)
+    return bucket.count >= 3 && (delta > 36 && delta < 324) && bucket.saturation > 0.24
+  })
+  const accent2 = partner
+    ? hslToRgb(partner.hue, clamp(partner.saturation, 0.42, 0.76), clamp(partner.lightness, 0.52, 0.72))
+    : hslToRgb(hue + 28, Math.max(0.45, saturation - 0.12), Math.min(0.72, lightness + 0.08))
+  return {
+    accent: cssColor(accent),
+    accent2: cssColor(accent2),
+    glow: cssColor(accent, 0.34),
+    surface: cssColor(accent, 0.13),
+  }
+}
+
+async function extractArtworkPalette(cover) {
+  const source = artworkImageSource(cover)
+  if (!source) return null
+  if (PALETTE_CACHE.has(source)) return PALETTE_CACHE.get(source)
+  const task = (async () => {
+    const image = await loadArtworkCanvasSource(source)
+    const canvas = document.createElement('canvas')
+    canvas.width = 36
+    canvas.height = 36
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) return null
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+    return paletteFromArtworkPixels(pixels)
+  })()
+  PALETTE_CACHE.set(source, task)
+  try {
+    return await task
+  } catch {
+    PALETTE_CACHE.delete(source)
+    return null
+  }
+}
+
+function useTrackPalette(track) {
+  const trackKey = track?.id && track.id !== 'empty' ? track.id : ''
+  const cover = track?.cover || ''
+  const fallback = useMemo(
+    () => paletteFromTrack(track),
+    [trackKey, cover, track?.c1, track?.c2, track?.artist, track?.title],
+  )
+  const [palette, setPalette] = useState(fallback)
+
+  useEffect(() => {
+    setPalette(fallback)
+    if (!cover || !trackKey) return undefined
+    let cancelled = false
+    extractArtworkPalette(cover)
+      .then((extracted) => {
+        if (!cancelled && extracted) setPalette({ ...fallback, ...extracted })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [fallback, cover, trackKey])
+
+  return palette
 }
 
 function withTimeout(promise, ms, message = 'Request timed out') {
@@ -1028,6 +1267,181 @@ function tasteSummary(library, liked, recentIds, playlists) {
   }
 }
 
+function emptyTasteProfile() {
+  return {
+    version: 1,
+    artists: {},
+    languages: {},
+    genres: {},
+    vibes: {},
+    searches: [],
+    tuned: [],
+    events: 0,
+    updatedAt: 0,
+  }
+}
+
+function normalizeTasteProfile(raw) {
+  const profile = emptyTasteProfile()
+  if (!raw || typeof raw !== 'object') return profile
+  const copyWeights = (source) => {
+    if (!source || typeof source !== 'object') return {}
+    const entries = Object.entries(source)
+      .map(([key, value]) => {
+        if (value && typeof value === 'object') {
+          return [key, {
+            name: safeText(value.name, key),
+            weight: Math.max(0, Number(value.weight) || 0),
+          }]
+        }
+        return [key, { name: key, weight: Math.max(0, Number(value) || 0) }]
+      })
+      .filter(([key, value]) => key && value.weight > 0)
+      .sort((a, b) => b[1].weight - a[1].weight)
+      .slice(0, 30)
+    return Object.fromEntries(entries)
+  }
+  profile.artists = copyWeights(raw.artists)
+  profile.languages = copyWeights(raw.languages)
+  profile.genres = copyWeights(raw.genres)
+  profile.vibes = copyWeights(raw.vibes)
+  profile.searches = (Array.isArray(raw.searches) ? raw.searches : [])
+    .map((entry) => {
+      if (typeof entry === 'string') return { query: safeText(entry), at: 0 }
+      return { query: safeText(entry?.query), at: Number(entry?.at) || 0 }
+    })
+    .filter((entry) => entry.query)
+    .slice(0, 10)
+  profile.tuned = [...new Set((Array.isArray(raw.tuned) ? raw.tuned : []).filter((id) => TASTE_VIBES.some((vibe) => vibe.id === id)))]
+  profile.events = Math.max(0, Number(raw.events) || 0)
+  profile.updatedAt = Number(raw.updatedAt) || 0
+  return profile
+}
+
+function loadTasteProfile(userId) {
+  return normalizeTasteProfile(readUserValue(TASTE_PROFILE_KEY, userId || 'guest', null))
+}
+
+function bumpTasteWeight(map, key, name, amount) {
+  if (!key) return
+  const previous = map[key]
+  const weight = (previous?.weight || 0) + amount
+  map[key] = { name: name || previous?.name || key, weight }
+}
+
+function artistNames(track) {
+  return String(track?.artist || '')
+    .split(/\s*(?:&|,| and | feat\.? | ft\.? )\s*/i)
+    .map((artist) => artist.trim())
+    .filter((artist) => artist && !/unknown/i.test(artist))
+}
+
+function languageForTrack(track) {
+  const language = safeText(track?.language || track?.lang)
+  if (language) return language
+  const artist = normalize(artistNames(track)[0] || '')
+  if (ARTIST_LANGUAGE[artist]) return ARTIST_LANGUAGE[artist]
+  const title = normalize(`${track?.title || ''} ${track?.album || ''}`)
+  if (/\b(naat|qawwali|sufi|hamd|ghazal)\b/.test(title)) return 'Urdu'
+  if (/\b(punjabi|bhangra|jatt)\b/.test(title)) return 'Punjabi'
+  if (/\b(bollywood|filmi|hindi)\b/.test(title)) return 'Hindi'
+  return track?.provider === 'youtube' ? 'Global' : 'Hindi'
+}
+
+function genresForTrack(track) {
+  const text = normalize(`${track?.title || ''} ${track?.album || ''} ${track?.artist || ''}`)
+  const genres = []
+  if (/\b(qawwali|naat|sufi|hamd|ghazal)\b/.test(text)) genres.push(/naat|hamd/.test(text) ? 'Spiritual' : 'Qawwali')
+  if (/\b(coke studio)\b/.test(text)) genres.push('Coke Studio')
+  if (/\b(indie|underground|independent)\b/.test(text)) genres.push('Indie')
+  if (/\b(hip hop|hip-hop|rap|trap|drill)\b/.test(text) || /talha anjum|ap dhillon|diljit|sidhu/.test(text)) genres.push('Hip-Hop')
+  if (/\b(lofi|lo-fi|chill|ambient)\b/.test(text)) genres.push('Lo-Fi')
+  if (/\b(punjabi|bhangra)\b/.test(text)) genres.push('Punjabi')
+  if (/\b(romance|romantic|love|ishq|pyaar)\b/.test(text)) genres.push('Romance')
+  if (!genres.length) {
+    const language = languageForTrack(track)
+    if (language === 'Hindi') genres.push('Bollywood')
+    else if (language === 'Urdu') genres.push('South Asian')
+    else if (language === 'Punjabi') genres.push('Punjabi Pop')
+    else genres.push('Pop')
+  }
+  return [...new Set(genres)].slice(0, 2)
+}
+
+function applyTasteSignal(profile, type, payload = {}) {
+  const weight = TASTE_WEIGHTS[type] || 0
+  if (!weight) return profile
+  const next = normalizeTasteProfile(profile)
+  next.events += 1
+  next.updatedAt = Date.now()
+  if (type === 'tune') {
+    const selected = [...new Set((payload.vibes || []).filter((id) => TASTE_VIBES.some((vibe) => vibe.id === id)))]
+    const previous = new Set(next.tuned)
+    selected.forEach((id) => {
+      const vibe = TASTE_VIBES.find((item) => item.id === id)
+      if (!vibe) return
+      if (!previous.has(id)) {
+        bumpTasteWeight(next.vibes, vibe.id, vibe.label, weight)
+        bumpTasteWeight(next.languages, normalize(vibe.language), vibe.language, weight)
+        bumpTasteWeight(next.genres, normalize(vibe.genre), vibe.genre, weight)
+      }
+    })
+    next.tuned = selected
+    return next
+  }
+  if (type === 'search') {
+    const query = safeText(payload.query).slice(0, 80)
+    if (!query) return next
+    next.searches = [
+      { query, at: Date.now() },
+      ...next.searches.filter((entry) => normalize(entry.query) !== normalize(query)),
+    ].slice(0, 8)
+    return next
+  }
+  const track = payload.track
+  if (!track?.id) return next
+  artistNames(track).forEach((artist) => {
+    bumpTasteWeight(next.artists, normalize(artist), artist, weight)
+  })
+  const language = languageForTrack(track)
+  if (language) bumpTasteWeight(next.languages, normalize(language), language, weight)
+  genresForTrack(track).forEach((genre) => {
+    bumpTasteWeight(next.genres, normalize(genre), genre, weight)
+  })
+  return next
+}
+
+function topTasteLabels(map, limit = 4) {
+  return Object.values(map || {})
+    .sort((a, b) => b.weight - a.weight)
+    .map((entry) => entry.name)
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function buildTasteSuggestions(profile, dailyUser, trending) {
+  const suggestions = []
+  const seen = new Set()
+  const add = (label, query) => {
+    const cleanLabel = safeText(label)
+    const cleanQuery = safeText(query)
+    if (!cleanLabel || !cleanQuery || seen.has(normalize(cleanLabel))) return
+    seen.add(normalize(cleanLabel))
+    suggestions.push({ label: cleanLabel, query: cleanQuery })
+  }
+  ;(profile?.tuned || []).forEach((id) => {
+    const vibe = TASTE_VIBES.find((item) => item.id === id)
+    if (vibe) add(vibe.label, vibe.query)
+  })
+  topTasteLabels(profile?.artists, 3).forEach((artist) => add(artist, `${artist} songs`))
+  topTasteLabels(profile?.languages, 2).forEach((language) => add(`${language} picks`, `${language} songs`))
+  topTasteLabels(profile?.genres, 2).forEach((genre) => add(genre, `${genre} songs`))
+  ;(dailyUser?.topArtists || []).forEach((artist) => add(artist, `${artist} songs`))
+  const trendingArtists = [...new Set((trending || []).map((track) => safeText(track?.artist)).filter(Boolean))]
+  trendingArtists.slice(0, 3).forEach((artist) => add(artist, `${artist} songs`))
+  return suggestions.slice(0, 8)
+}
+
 function rotateDaily(items, dayKey, offset = 0) {
   if (!items.length) return []
   let hash = 0
@@ -1058,17 +1472,28 @@ async function buildDailyFeed({ dayKey, userKey, taste, rotation = 0, existing =
   const trending = existing?.trending?.length && !rotation
     ? existing.trending
     : await loadDailySection(trendingQueries, 20)
-  const user = { madeForYou: [], basedOnRecent: [], topArtists: taste.topArtists, topLanguages: taste.topLanguages }
-  if (userKey !== 'guest' && taste.trackCount > 0) {
-    const language = taste.topLanguages[0] || 'Hindi'
+  const profileArtists = Array.isArray(taste.profileArtists) ? taste.profileArtists : []
+  const profileLanguages = Array.isArray(taste.profileLanguages) ? taste.profileLanguages : []
+  const profileVibes = Array.isArray(taste.profileVibes) ? taste.profileVibes : []
+  const profileSearches = Array.isArray(taste.profileSearches) ? taste.profileSearches : []
+  const allArtists = [...new Set([...profileArtists, ...(taste.topArtists || [])])]
+  const allLanguages = [...new Set([...profileLanguages, ...(taste.topLanguages || [])])]
+  const hasProfile = Boolean(taste.profileEvents) || allArtists.length > 0 || profileVibes.length > 0
+  const user = { madeForYou: [], basedOnRecent: [], topArtists: allArtists.slice(0, 4), topLanguages: allLanguages.slice(0, 2) }
+  if ((userKey !== 'guest' || hasProfile) && (taste.trackCount > 0 || hasProfile)) {
+    const language = allLanguages[0] || 'Hindi'
     const madeQueries = [
-      ...taste.topArtists.slice(0, 3).map((artist) => `${artist} songs`),
+      ...allArtists.slice(0, 3).map((artist) => `${artist} songs`),
+      ...profileVibes.slice(0, 2).map((vibe) => vibe.query),
       `${language} songs`,
     ]
-    const recentQueries = taste.recentArtists.slice(0, 3).map((artist) => `${artist} songs`)
+    const recentQueries = [
+      ...profileSearches.slice(0, 2).map((query) => query),
+      ...(taste.recentArtists || []).slice(0, 3).map((artist) => `${artist} songs`),
+    ]
     const [made, based] = await Promise.all([
-      loadDailySection(madeQueries, 12),
-      recentQueries.length ? loadDailySection(recentQueries, 10) : Promise.resolve([]),
+      loadDailySection([...new Set(madeQueries)], 12),
+      recentQueries.length ? loadDailySection([...new Set(recentQueries)], 10) : Promise.resolve([]),
     ])
     user.madeForYou = uniqueTracks([...made, ...trending], new Set(made.map((track) => track.id))).slice(0, 12)
     user.basedOnRecent = uniqueTracks([...based, ...trending], new Set([...made, ...based].map((track) => track.id))).slice(0, 10)
@@ -2337,7 +2762,7 @@ function Sidebar({
           </button>
         </div>
 
-        <div className="sidebar-scroll">
+        <div className="side-middle">
           <button className="search-trigger" onClick={openSearch}>
             <Search size={14} />
             <span>Search songs, artists...</span>
@@ -2365,7 +2790,7 @@ function Sidebar({
             </button>
           </nav>
 
-          <div className="side-section">
+          <div className="side-section side-rooms">
             <div className="side-label">
               <span>LISTENING ROOMS</span>
               <span className="side-label-actions">
@@ -2725,6 +3150,8 @@ function HomeView({
   playlists,
   dailyFeed,
   dailyStatus,
+  tasteProfile,
+  onOpenTaste,
   onRefreshDaily,
   onPlayTrack,
   onPlayPlaylist,
@@ -2761,7 +3188,7 @@ function HomeView({
     <div className="home-grid">
       {tracks.map((track) => (
         <div key={track.id} className="home-card">
-          <button className="home-card-art" onClick={() => onPlayTrack(track)} aria-label={`Play ${track.title}`}>
+          <button className="home-card-art" onClick={() => onPlayTrack(track, tracks)} aria-label={`Play ${track.title}`}>
             <Cover track={track} size="" />
             <span className="home-card-play"><Play /></span>
           </button>
@@ -2801,8 +3228,18 @@ function HomeView({
           <h1 className="page-title">{greeting}, <em>{currentUser?.name?.split(' ')[0] || 'listener'}.</em></h1>
           <p className="page-sub">Your music, your rules. Press play, build a playlist, or open the door to a live room whenever you want company.</p>
           <div className="solo-actions">
-            <button className="primary-btn" onClick={() => heroTracks[0] && onPlayTrack(heroTracks[0])} disabled={!heroTracks.length}><Play /> Play something</button>
-            <button className="text-btn" onClick={() => heroTracks.length && onPlayTrack(heroTracks[Math.floor(Math.random() * heroTracks.length)])} disabled={!heroTracks.length}><Shuffle size={13} /> Shuffle</button>
+            <button className="primary-btn" onClick={() => heroTracks[0] && onPlayTrack(heroTracks[0], heroTracks)} disabled={!heroTracks.length}><Play /> Play something</button>
+            <button
+              className="text-btn"
+              onClick={() => {
+                if (!heroTracks.length) return
+                const shuffled = [...heroTracks].sort(() => Math.random() - 0.5)
+                onPlayTrack(shuffled[0], shuffled)
+              }}
+              disabled={!heroTracks.length}
+            >
+              <Shuffle size={13} /> Shuffle
+            </button>
             <button className="text-btn" onClick={onCreateRoom}><Radio size={13} /> Create room</button>
             <button className="text-btn" onClick={onJoinCode}><KeyRound size={13} /> Join with code</button>
           </div>
@@ -2821,6 +3258,19 @@ function HomeView({
         </div>
       </section>
 
+      {(!tasteProfile || tasteProfile.events === 0) && (
+        <section className="home-section taste-invite-section">
+          <button className="taste-invite-card" onClick={onOpenTaste}>
+            <span className="taste-invite-glyph"><Sparkles /></span>
+            <span className="taste-invite-copy">
+              <strong>Tune Your Taste</strong>
+              <span>Pick a few vibes and make Search, daily mixes, and suggestions sound more like you.</span>
+            </span>
+            <span className="taste-invite-action">Open <ChevronRight size={13} /></span>
+          </button>
+        </section>
+      )}
+
       {recent.length > 0 && (
         <section className="home-section">
           <div className="section-head">
@@ -2830,7 +3280,7 @@ function HomeView({
           <HomeRail>
             {recent.map((track) => (
               <div key={track.id} className="home-tile-wrap">
-                <button className="home-tile" onClick={() => onPlayTrack(track)}>
+                <button className="home-tile" onClick={() => onPlayTrack(track, recent)}>
                   <Cover track={track} size="" playing />
                   <strong>{track.title}</strong>
                   <span>{track.artist}</span>
@@ -3090,7 +3540,7 @@ function LibraryView({
                 <button className="text-btn" onClick={onSearch}><Search size={12} /> Find songs</button>
               </div>
             ) : playlistTracks.map((track, index) => (
-              <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track)}>
+                <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, likedTracks)}>
                 <span className="num">{String(index + 1).padStart(2, '0')}</span>
                 <Cover track={track} size="cover-size-sm" />
                 <div className="queue-copy">
@@ -3170,7 +3620,7 @@ function LibraryView({
                   <button className="text-btn" onClick={onSearch}><Search size={12} /> Find something new</button>
                 </div>
               ) : likedTracks.map((track, index) => (
-                <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track)}>
+              <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, playlistTracks)}>
                   <span className="num">{String(index + 1).padStart(2, '0')}</span>
                   <Cover track={track} size="cover-size-sm" />
                   <div className="queue-copy">
@@ -3200,7 +3650,7 @@ function LibraryView({
                   <button className="text-btn" onClick={onSearch}><Search size={12} /> Play something</button>
                 </div>
               ) : recent.map((track, index) => (
-                <div className="library-row" key={`${track.id}-${index}`} role="button" tabIndex={0} onClick={() => onPlay(track)}>
+                <div className="library-row" key={`${track.id}-${index}`} role="button" tabIndex={0} onClick={() => onPlay(track, recent)}>
                   <span className="num">{String(index + 1).padStart(2, '0')}</span>
                   <Cover track={track} size="cover-size-sm" />
                   <div className="queue-copy">
@@ -3643,16 +4093,85 @@ function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch, onSig
   )
 }
 
+function TastePicker({ selected = [], onSave, onSkip }) {
+  const [picked, setPicked] = useState(() => [...selected])
+  const toggle = (id) => {
+    setPicked((previous) => (
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id]
+    ))
+  }
+  return (
+    <div className="taste-picker">
+      <div className="taste-vibe-grid">
+        {TASTE_VIBES.map((vibe) => {
+          const active = picked.includes(vibe.id)
+          return (
+            <button
+              type="button"
+              key={vibe.id}
+              className={`taste-vibe ${active ? 'selected' : ''}`}
+              onClick={() => toggle(vibe.id)}
+              aria-pressed={active}
+            >
+              <span>{vibe.label}</span>
+              <small>{vibe.hint}</small>
+              <i>{active ? <Check size={11} /> : <Plus size={11} />}</i>
+            </button>
+          )
+        })}
+      </div>
+      <div className="taste-picker-actions">
+        <span>{picked.length ? `${picked.length} vibe${picked.length === 1 ? '' : 's'} selected` : 'Pick as many as you like'}</span>
+        <div>
+          {picked.length > 0 && <button type="button" className="text-btn" onClick={() => setPicked([])}>Clear</button>}
+          {onSkip && <button type="button" className="text-btn" onClick={onSkip}>Not now</button>}
+          <button type="button" className="primary-btn" onClick={() => onSave(picked)}>
+            <Sparkles size={12} /> Save taste
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TasteModal({ profile, onClose, onSave }) {
+  return (
+    <ModalShell onClose={onClose} size="modal-taste">
+      <div className="modal-head">
+        <div>
+          <span className="eyebrow"><span className="seg" /> TASTE PROFILE</span>
+          <h2>Tune Your Taste</h2>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="Close taste tuning"><X /></button>
+      </div>
+      <div className="modal-body taste-modal-body">
+        <div className="taste-intro">
+          <span className="taste-intro-glyph"><Sparkles /></span>
+          <div>
+            <h3>Tell EchoSync what moves you.</h3>
+            <p>Your picks shape Search suggestions, daily mixes, and the shortcuts waiting when you open search. Change them whenever you like.</p>
+          </div>
+        </div>
+        <TastePicker selected={profile.tuned} onSave={onSave} onSkip={onClose} />
+      </div>
+    </ModalShell>
+  )
+}
+
 function SettingsModal({
   user,
   settings,
   stats,
   cacheInfo,
+  tasteProfile,
   onClose,
   onSaveProfile,
   onSaveSettings,
   onClearCache,
   onSignOut,
+  onSaveTaste,
 }) {
   const [tab, setTab] = useState('profile')
   const [form, setForm] = useState({
@@ -3707,6 +4226,7 @@ function SettingsModal({
         <nav className="settings-nav">
           <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRoundPlus /> Profile</button>
           <button className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')}><SlidersHorizontal /> Audio & playback</button>
+          <button className={tab === 'taste' ? 'active' : ''} onClick={() => setTab('taste')}><Sparkles /> Taste profile</button>
           <button className={tab === 'social' ? 'active' : ''} onClick={() => setTab('social')}><UsersRound /> Social & privacy</button>
           <button className={tab === 'storage' ? 'active' : ''} onClick={() => setTab('storage')}><HardDrive /> Storage & cache</button>
           <span className="grow" />
@@ -3852,6 +4372,25 @@ function SettingsModal({
               <div className="modal-actions">
                 <button className="primary-btn" onClick={saveAudio}><Save size={12} /> Save preferences</button>
               </div>
+            </div>
+          )}
+
+          {tab === 'taste' && (
+            <div className="settings-section">
+              <div className="settings-section-head">
+                <h3>Taste profile</h3>
+                <p>Shape Search suggestions and daily mixes without changing who you follow or listen with.</p>
+              </div>
+              {topTasteLabels(tasteProfile.artists, 3).length > 0 && (
+                <div className="taste-summary">
+                  <span>Strongest signals</span>
+                  <div>
+                    {topTasteLabels(tasteProfile.artists, 3).map((artist) => <b key={artist}>{artist}</b>)}
+                    {topTasteLabels(tasteProfile.languages, 1).map((language) => <b key={language}>{language}</b>)}
+                  </div>
+                </div>
+              )}
+              <TastePicker selected={tasteProfile.tuned} onSave={onSaveTaste} />
             </div>
           )}
 
@@ -4304,7 +4843,7 @@ function MembersModal({
   )
 }
 
-function RoomModal({ mode, room, defaultTrackId, onClose, onCreate, onUpdate, onDelete }) {
+function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
   const [form, setForm] = useState(() => ({
     name: room?.name || '',
     tagline: room?.tagline || '',
@@ -4312,9 +4851,7 @@ function RoomModal({ mode, room, defaultTrackId, onClose, onCreate, onUpdate, on
     gradient: ROOM_GRADIENTS.find((gradient) => gradient.accent === room?.accent)?.id || ROOM_GRADIENTS[0].id,
     private: Boolean(room?.private),
     code: room?.code || roomCode(),
-    trackIds: Array.isArray(room?.trackIds)
-      ? [...room.trackIds]
-      : defaultTrackId ? [defaultTrackId] : [],
+    trackIds: mode === 'edit' && Array.isArray(room?.trackIds) ? [...room.trackIds] : [],
   }))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
@@ -4418,7 +4955,11 @@ function RoomModal({ mode, room, defaultTrackId, onClose, onCreate, onUpdate, on
         )}
 
         <div className="settings-note room-queue-note">
-          {form.trackIds.length ? 'The room queue starts with your current track.' : 'The room starts empty. Add songs together once everyone arrives.'}
+          {mode === 'create'
+            ? 'The room starts empty. Add songs together once everyone arrives.'
+            : form.trackIds.length
+              ? 'This room already has a shared queue.'
+              : 'The room queue is empty. Add songs together once everyone arrives.'}
         </div>
 
         <div className="modal-actions">
@@ -5321,7 +5862,7 @@ function RoomView({
 
       {role === 'admin' && roleRequests?.length === 0 && (
         <button className="chip-btn" onClick={onOpenMembers}>
-          <ShieldCheck size={12} /> {room.members.length} members · manage roles
+          <ShieldCheck size={12} /> {room.members.length} {room.members.length === 1 ? 'member' : 'members'} · manage roles
         </button>
       )}
 
@@ -5440,7 +5981,9 @@ function RoomView({
       <div className="section-head">
         <div>
           <h3>The room queue</h3>
-          <p>Everyone hears the same <b>1</b> at the same time.</p>
+          <p>{queue.length
+            ? <>Everyone hears the same <b>{queue.length}</b> {queue.length === 1 ? 'track' : 'tracks'} at the same time.</>
+            : 'The queue is empty until someone adds a song.'}</p>
         </div>
         <div className="head-actions">
           <button className="text-btn" onClick={onSearch}><Plus /> Add a song</button>
@@ -5653,7 +6196,19 @@ function MobileNav({ view, chatOpen, onNavigate, onSearch, onChat, inRoom }) {
   )
 }
 
-function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
+function SearchOverlay({
+  onClose,
+  onPlay,
+  onQueue,
+  onAddToPlaylist,
+  suggestions = [],
+  recentSearches = [],
+  onSearchCommit,
+  onRemoveRecentSearch,
+  onClearRecentSearches,
+  tasteTracks = [],
+  onOpenTaste,
+}) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [status, setStatus] = useState('idle')
@@ -5679,15 +6234,32 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
     latestQuery.current = trimmed
     setStatus('loading')
     const timer = setTimeout(async () => {
-      const found = await searchEverything(trimmed)
-      if (latestQuery.current !== trimmed) return
-      setResults(found)
-      setStatus('ready')
+      onSearchCommit?.(trimmed)
+      try {
+        const found = await searchEverything(trimmed)
+        if (latestQuery.current !== trimmed) return
+        setResults(found)
+        setStatus('ready')
+      } catch {
+        if (latestQuery.current === trimmed) setStatus('error')
+      }
     }, 380)
     return () => clearTimeout(timer)
   }, [query])
 
-  const suggestions = ['Kesariya', 'Pasoori', 'Nusrat Fateh Ali Khan qawwali', 'Naat', 'The Weeknd', 'Atif Aslam']
+  const runQuery = (value) => {
+    const next = safeText(value)
+    if (!next) return
+    setQuery(next)
+  }
+
+  const fallbackSuggestions = suggestions.length
+    ? suggestions
+    : [...new Set(tasteTracks.map((track) => track.artist).filter(Boolean))]
+      .slice(0, 4)
+      .map((artist) => ({ label: artist, query: `${artist} songs` }))
+  const recent = recentSearches.filter(Boolean).slice(0, 6)
+  const picks = tasteTracks.slice(0, 5)
 
   return (
     <div className="modal-scrim" onMouseDown={onClose}>
@@ -5707,19 +6279,92 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
         <div className="search-results">
           {status === 'idle' && (
             <div className="search-idle">
-              <h4>What does tonight sound like?</h4>
-              <p>Search every catalogue. Every result resolves to a real, playable stream.</p>
-              <div className="suggestion-chips">
-                {suggestions.map((suggestion) => (
-                  <button key={suggestion} onClick={() => setQuery(suggestion)}>{suggestion}</button>
-                ))}
+              <div className="search-idle-head">
+                <div>
+                  <h4>What does tonight sound like?</h4>
+                  <p>Your taste shapes the shortcuts. Every result resolves to a real, playable stream.</p>
+                </div>
+                <button className="text-btn search-tune-btn" onClick={onOpenTaste}>
+                  <Sparkles size={12} /> Tune your taste
+                </button>
               </div>
-              <div className="search-caption"><span>Room favourites</span><b>try one</b></div>
-              <div className="suggestion-chips">
-                {SEED_TRACKS.slice(0, 6).map((seed) => (
-                  <button key={seed.id} onClick={() => setQuery(seed.title)}>{seed.title}</button>
-                ))}
-              </div>
+
+              {recent.length > 0 && (
+                <section className="search-block search-recent" data-testid="search-recent">
+                  <div className="search-caption">
+                    <span>Recent searches</span>
+                    <button className="text-btn" onClick={onClearRecentSearches}>Clear all</button>
+                  </div>
+                  <div className="recent-search-list">
+                    {recent.map((item) => (
+                      <span key={item} className="recent-search-chip">
+                        <button className="recent-search-go" onClick={() => runQuery(item)}>
+                          <Clock3 size={11} /> {item}
+                        </button>
+                        <button
+                          className="recent-search-remove"
+                          onClick={() => onRemoveRecentSearch?.(item)}
+                          aria-label={`Remove ${item} from recent searches`}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section className="search-block" data-testid="search-suggestions">
+                <div className="search-caption">
+                  <span>Suggested for your taste</span>
+                  <b>{fallbackSuggestions.length ? 'personalised' : 'start with a vibe'}</b>
+                </div>
+                {fallbackSuggestions.length ? (
+                  <div className="suggestion-chips">
+                    {fallbackSuggestions.map((suggestion) => (
+                      <button key={suggestion.label} onClick={() => runQuery(suggestion.query)}>{suggestion.label}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="search-idle-note">Tune a few vibes and this space will start shaping itself around you.</p>
+                )}
+              </section>
+
+              {picks.length > 0 && (
+                <section className="search-block">
+                  <div className="search-caption"><span>Picked for you</span><b>{picks.length} tracks</b></div>
+                  <div className="search-mini-grid">
+                    {picks.map((track) => (
+                      <button key={track.id} className="search-mini-card" onClick={() => onPlay(track, picks)}>
+                        <Cover track={track} size="" />
+                        <span className="search-mini-play"><Play /></span>
+                        <strong>{track.title}</strong>
+                        <span>{track.artist}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section className="search-block search-browse">
+                <div className="search-caption"><span>Browse vibes</span><b>{SEARCH_CATEGORIES.length} moods</b></div>
+                <div className="browse-vibe-grid">
+                  {SEARCH_CATEGORIES.map((category) => {
+                    const palette = paletteFromHue(hashHue(category.label))
+                    return (
+                      <button
+                        key={category.id}
+                        className="browse-vibe-card"
+                        style={{ '--vibe-1': palette.accent, '--vibe-2': palette.accent2 }}
+                        onClick={() => runQuery(category.query)}
+                      >
+                        <span>{category.label}</span>
+                        <Search size={13} />
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
             </div>
           )}
 
@@ -5728,7 +6373,14 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
           )}
 
           {status === 'ready' && results.length === 0 && (
-            <div className="no-results">No streams found for “{query}”. Try another spelling or artist.</div>
+            <div className="no-results">
+              <span>No streams found for “{query}”. Try another spelling or artist.</span>
+              <button className="text-btn" onClick={onOpenTaste}><Sparkles size={12} /> Refine your taste</button>
+            </div>
+          )}
+
+          {status === 'error' && (
+            <div className="no-results">Search is unavailable right now. Try again in a moment.</div>
           )}
 
           {status === 'ready' && results.length > 0 && (
@@ -5742,8 +6394,8 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
                   tabIndex={0}
                   data-provider={track.provider}
                   data-track-id={track.id}
-                  onClick={() => onPlay(track)}
-                  onKeyDown={(event) => event.key === 'Enter' && onPlay(track)}
+                  onClick={() => onPlay(track, results)}
+                  onKeyDown={(event) => event.key === 'Enter' && onPlay(track, results)}
                 >
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
@@ -5754,7 +6406,7 @@ function SearchOverlay({ onClose, onPlay, onQueue, onAddToPlaylist }) {
                     className="search-play"
                     onClick={(event) => {
                       event.stopPropagation()
-                      onPlay(track)
+                      onPlay(track, results)
                     }}
                     aria-label="Play now"
                   >
@@ -5954,13 +6606,19 @@ function Toast({ toast }) {
 
 const EMPTY_TRACK = {
   id: 'empty',
-  title: 'The room is quiet',
-  artist: 'Add a song to begin',
+  title: 'Nothing playing',
+  artist: 'Choose a song to begin',
   album: '',
   duration: 0,
   status: 'idle',
   c1: '#26303a',
   c2: '#a65845',
+}
+
+const ROOM_EMPTY_TRACK = {
+  ...EMPTY_TRACK,
+  title: 'The room is quiet',
+  artist: 'Add a song to begin',
 }
 
 function YouTubeBridge({ containerRef }) {
@@ -5992,7 +6650,7 @@ function AudioRootContainer({ audioRef, containerRef, trackId, onTimeUpdate, onL
 }
 
 function buildInitialQueues(rooms) {
-  const queues = { [SOLO_ROOM_ID]: SEED_TRACKS.slice(0, 8).map((track) => track.id) }
+  const queues = { [SOLO_ROOM_ID]: [] }
   rooms.forEach((room) => {
     queues[room.id] = Array.isArray(room.trackIds) ? [...room.trackIds] : []
   })
@@ -6062,8 +6720,9 @@ export default function App() {
   const [view, setView] = useState('home')
   const [rooms, setRooms] = useState(() => loadStoredRooms().map(normalizeRoom).filter(Boolean))
   const [activeRoomId, setActiveRoomId] = useState(null)
-  const [soloQueue, setSoloQueue] = useState(() => SEED_TRACKS.slice(0, 8).map((seed) => seed.id))
+  const [soloQueue, setSoloQueue] = useState([])
   const [currentByRoom, setCurrentByRoom] = useState({ [SOLO_ROOM_ID]: 0 })
+  const [tasteProfile, setTasteProfile] = useState(() => loadTasteProfile(currentUserId))
   const [isPlaying, setIsPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -6107,6 +6766,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [fullPlayer, setFullPlayer] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tasteOpen, setTasteOpen] = useState(false)
   const [membersOpen, setMembersOpen] = useState(false)
   const [joinRoomOpen, setJoinRoomOpen] = useState(false)
   const [roomEditor, setRoomEditor] = useState(null)
@@ -6179,6 +6839,9 @@ export default function App() {
   const receivedChatIdsRef = useRef(new Set())
   const viewRef = useRef(view)
   const chatOpenRef = useRef(chatOpen)
+  const soloSnapshotRef = useRef({ track: null, currentTime: 0, isPlaying: false, queue: [], index: 0 })
+  const soloResumeRef = useRef(null)
+  const searchRoomRef = useRef(null)
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
   const dailyDayKey = new Date().toISOString().slice(0, 10)
@@ -6188,13 +6851,14 @@ export default function App() {
 
   const activeRoom = activeRoomId ? rooms.find((room) => room.id === activeRoomId) || null : null
   const inRoom = Boolean(activeRoom)
+  const roomPlaybackActive = Boolean(activeRoom && view === 'room')
   const role = inRoom ? activeRoom.roles?.[currentUserId] || 'listener' : 'listener'
-  const canControl = !inRoom || role === 'admin' || role === 'dj'
-  const canModerate = inRoom && role === 'admin'
+  const canControl = !roomPlaybackActive || role === 'admin' || role === 'dj'
+  const canModerate = roomPlaybackActive && role === 'admin'
   const remoteSpeaking = Object.keys(remoteVoice).length > 0
   const voiceSpeaking = speaking || remoteSpeaking
-  const activeKey = activeRoomId || SOLO_ROOM_ID
-  const queueIds = inRoom ? activeRoom.trackIds : soloQueue
+  const activeKey = roomPlaybackActive ? activeRoom.id : SOLO_ROOM_ID
+  const queueIds = roomPlaybackActive ? activeRoom.trackIds : soloQueue
   const queue = queueIds.map((id) => {
     if (library[id]) return library[id]
     if (SEED_BY_ID[id]) return { ...SEED_BY_ID[id], status: 'pending', streamUrl: null }
@@ -6211,7 +6875,7 @@ export default function App() {
   })
   const requestedIndex = currentByRoom[activeKey] ?? 0
   const currentIndex = queue.length ? Math.min(requestedIndex, queue.length - 1) : 0
-  const track = queue[currentIndex] || EMPTY_TRACK
+  const track = queue[currentIndex] || (roomPlaybackActive ? ROOM_EMPTY_TRACK : EMPTY_TRACK)
   const roomMessages = activeRoomId ? messages[activeRoomId] || [] : []
   const typingMemberId = activeRoomId ? typing[activeRoomId] || null : null
   const likedSet = Array.isArray(liked) ? liked : []
@@ -6410,6 +7074,10 @@ export default function App() {
   }, [currentUserId, settings])
 
   useEffect(() => {
+    writeUserValue(TASTE_PROFILE_KEY, currentUserId || 'guest', tasteProfile)
+  }, [currentUserId, tasteProfile])
+
+  useEffect(() => {
     const userKey = currentUserId || 'guest'
     const existing = loadDailyFeedCache(dailyDayKey)
     const existingUser = existing?.users?.[userKey]
@@ -6429,7 +7097,16 @@ export default function App() {
     }
     let cancelled = false
     setDailyStatus('loading')
-    const taste = tasteSummary(library, likedSet, recent, playlists)
+    const taste = {
+      ...tasteSummary(library, likedSet, recent, playlists),
+      profileArtists: topTasteLabels(tasteProfile.artists, 4),
+      profileLanguages: topTasteLabels(tasteProfile.languages, 2),
+      profileVibes: tasteProfile.tuned
+        .map((id) => TASTE_VIBES.find((vibe) => vibe.id === id))
+        .filter(Boolean),
+      profileSearches: tasteProfile.searches.slice(0, 2).map((entry) => entry.query),
+      profileEvents: tasteProfile.events,
+    }
     buildDailyFeed({
       dayKey: dailyDayKey,
       userKey,
@@ -6501,10 +7178,10 @@ export default function App() {
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        setSearchOpen(true)
+        openSearchExperience()
       }
       if (event.key === 'Escape') {
-        if (searchOpen) setSearchOpen(false)
+        if (searchOpen) closeSearchExperience()
         else if (fullPlayer) setFullPlayer(false)
         else if (addTrack) setAddTrack(null)
         else if (playlistDialog) setPlaylistDialog(null)
@@ -6524,11 +7201,26 @@ export default function App() {
   useEffect(() => {
     if (!activeRoomId) return
     if (rooms.some((room) => room.id === activeRoomId)) return
-    setActiveRoomId(null)
+    leaveRoomPlayback()
     setView('home')
-    setIsPlaying(false)
-    audioRef.current?.pause()
+    viewRef.current = 'home'
   }, [rooms, activeRoomId])
+
+  useEffect(() => {
+    if (view === 'room' || !activeRoomId) return
+    leaveRoomPlayback()
+  }, [view, activeRoomId])
+
+  useEffect(() => {
+    if (activeRoomId) return
+    const resume = soloResumeRef.current
+    if (!resume?.track || track?.id !== resume.track) return
+    soloResumeRef.current = null
+    pendingSeekRef.current = resume.time || 0
+    setSeekSignal((value) => value + 1)
+    setProgress(resume.time || 0)
+    setDuration(track?.duration || 0)
+  }, [activeRoomId, track?.id, track?.streamUrl])
 
   useEffect(() => {
     if (!currentUser) return
@@ -6600,11 +7292,12 @@ export default function App() {
     setLibrary((previous) => mergeLikedTracks(previous, userLikes).library)
     setPlaylists(Array.isArray(userPlaylists) ? userPlaylists : [])
     setRecent(Array.isArray(userRecent) ? userRecent : [])
+    setTasteProfile(loadTasteProfile(id))
     setSettings(userSettings)
     setTranslateOn(Boolean(userSettings.autoTranslate))
     streamQuality = userSettings.quality || 'high'
     setActiveRoomId(null)
-    setSoloQueue(SEED_TRACKS.slice(0, 8).map((seed) => seed.id))
+    setSoloQueue([])
     setCurrentByRoom({ [SOLO_ROOM_ID]: 0 })
     setActivePlaylistId(null)
     setView('home')
@@ -6617,9 +7310,13 @@ export default function App() {
     setSearchOpen(false)
     setFullPlayer(false)
     setSettingsOpen(false)
+    setTasteOpen(false)
     setMembersOpen(false)
     setJoinRoomOpen(false)
     setRoomEditor(null)
+    soloSnapshotRef.current = { track: null, currentTime: 0, isPlaying: false, queue: [], index: 0 }
+    soloResumeRef.current = null
+    searchRoomRef.current = null
     setPlaylistDialog(null)
     setAddTrack(null)
     setPendingPlaylistTrack(null)
@@ -6697,14 +7394,19 @@ export default function App() {
     setLiked([])
     setPlaylists([])
     setRecent([])
+    setSoloQueue([])
+    setCurrentByRoom({ [SOLO_ROOM_ID]: 0 })
+    setTasteProfile(loadTasteProfile('guest'))
     setSettings({ ...DEFAULT_SETTINGS })
     setTranslateOn(false)
     setActiveRoomId(null)
     setActivePlaylistId(null)
     setView('home')
     setSearchOpen(false)
+    searchRoomRef.current = null
     setFullPlayer(false)
     setSettingsOpen(false)
+    setTasteOpen(false)
     setMembersOpen(false)
     setJoinRoomOpen(false)
     setRoomEditor(null)
@@ -6775,6 +7477,35 @@ export default function App() {
     setRecent((previous) => [trackId, ...previous.filter((id) => id !== trackId)].slice(0, 30))
   }
 
+  function recordTasteSignal(type, payload = {}) {
+    setTasteProfile((previous) => applyTasteSignal(previous, type, payload))
+  }
+
+  function recordSearchQuery(query) {
+    const clean = safeText(query)
+    if (!clean) return
+    recordTasteSignal('search', { query: clean })
+  }
+
+  function removeRecentSearch(query) {
+    setTasteProfile((previous) => ({
+      ...previous,
+      searches: previous.searches.filter((entry) => entry.query !== query),
+      updatedAt: Date.now(),
+    }))
+  }
+
+  function clearRecentSearches() {
+    setTasteProfile((previous) => ({ ...previous, searches: [], updatedAt: Date.now() }))
+  }
+
+  function saveTasteVibes(vibes) {
+    recordTasteSignal('tune', { vibes })
+    setTasteOpen(false)
+    setDailyRefresh((value) => value + 1)
+    showToast(vibes.length ? 'Your taste map has been tuned' : 'Taste preferences cleared')
+  }
+
   function rememberTrack(candidate) {
     if (!candidate?.id) return
     const entry = sanitizeTrack({ ...candidate, status: candidate.status || 'ready' })
@@ -6805,7 +7536,9 @@ export default function App() {
       ts: Date.now(),
     })
     const stored = loadRoomStateSnapshot()
-    if (stored?.roomId === roomId && stored.ts && Date.now() - stored.ts < 15000) applyRemoteState(stored)
+    if (stored?.roomId === roomId && stored.ts && Date.now() - stored.ts < 15000) {
+      applyRemoteState({ ...stored, isPlaying: false, ts: Date.now() }, { forcePaused: true })
+    }
   }
 
   function joinRoom(candidate, userId = currentUserId) {
@@ -6839,8 +7572,8 @@ export default function App() {
     }
     const changed = activeRoomId !== candidate.id
     if (changed) {
+      captureSoloSnapshot()
       audioRef.current?.pause()
-      if (audioRef.current) audioRef.current.currentTime = 0
       setIsPlaying(false)
       setProgress(0)
       setDuration(0)
@@ -6849,9 +7582,11 @@ export default function App() {
       setJoinPill(null)
       pendingSeekRef.current = null
     }
+    activeRoomRef.current = candidate.id
     setActiveRoomId(candidate.id)
     setCurrentByRoom((previous) => ({ ...previous, [candidate.id]: previous[candidate.id] || 0 }))
     setView('room')
+    viewRef.current = 'room'
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     if (changed) setTimeout(() => requestRoomSync(candidate.id), 140)
     showToast(changed ? `Joined ${candidate.name}` : `You are already in ${candidate.name}`)
@@ -6888,7 +7623,7 @@ export default function App() {
     const gradient = ROOM_GRADIENTS.find((option) => option.id === input.gradient) || ROOM_GRADIENTS[0]
     let code = roomCode()
     while (rooms.some((room) => room.code === code)) code = roomCode()
-    const trackIds = Array.isArray(input.trackIds) ? input.trackIds.map((id) => safeText(id)).filter(Boolean) : []
+    const trackIds = []
     const room = {
       id: uid('room'),
       name: String(input.name || '').trim(),
@@ -6909,10 +7644,18 @@ export default function App() {
       createdBy: currentUserId,
       createdAt: Date.now(),
     }
+    captureSoloSnapshot()
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    setProgress(0)
+    setDuration(0)
+    pendingSeekRef.current = null
     setRooms((previous) => [...previous, room])
     setCurrentByRoom((previous) => ({ ...previous, [room.id]: 0 }))
+    activeRoomRef.current = room.id
     setActiveRoomId(room.id)
     setView('room')
+    viewRef.current = 'room'
     setRoomEditor(null)
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     channelRef.current?.postMessage({ type: 'room-added', sender: tabIdRef.current, room })
@@ -6974,11 +7717,9 @@ export default function App() {
       return next
     })
     clearRoomPreview(roomId)
-    setIsPlaying(false)
-    audioRef.current?.pause()
-    stopMic()
-    setActiveRoomId(null)
+    leaveRoomPlayback()
     setView('rooms')
+    viewRef.current = 'rooms'
     setRoomEditor(null)
     setMembersOpen(false)
     channelRef.current?.postMessage({ type: 'room-deleted', sender: tabIdRef.current, roomId })
@@ -7182,11 +7923,9 @@ export default function App() {
       setRooms((previous) => previous.filter((room) => room.id !== roomId))
       channelRef.current?.postMessage({ type: 'room-deleted', sender: tabIdRef.current, roomId })
     }
-    setIsPlaying(false)
-    audioRef.current?.pause()
-    stopMic()
-    setActiveRoomId(null)
+    leaveRoomPlayback()
     setView('rooms')
+    viewRef.current = 'rooms'
     setUnreadRoomCounts((previous) => {
       const next = { ...previous }
       delete next[roomId]
@@ -7399,10 +8138,13 @@ export default function App() {
         trackIds: pendingPlaylistTrack ? [pendingPlaylistTrack.id] : [],
         createdAt: Date.now(),
       }
-      if (pendingPlaylistTrack) rememberPlaylistTrack(pendingPlaylistTrack)
+      if (pendingPlaylistTrack) {
+        rememberPlaylistTrack(pendingPlaylistTrack)
+        recordTasteSignal('playlist', { track: pendingPlaylistTrack })
+      }
       setPlaylists((previous) => [playlist, ...previous])
       setActivePlaylistId(playlist.id)
-      setView('library')
+      navigateView('library')
       showToast('Playlist created')
     }
     setPlaylistDialog(null)
@@ -7419,12 +8161,14 @@ export default function App() {
   function addTrackToPlaylist(playlistId, candidate) {
     if (!candidate?.id) return
     rememberPlaylistTrack(candidate)
-    setPlaylists((previous) => previous.map((playlist) => (
-      playlist.id === playlistId && !playlist.trackIds.includes(candidate.id)
-        ? { ...playlist, trackIds: [...playlist.trackIds, candidate.id] }
-        : playlist
-    )))
     const playlist = playlists.find((item) => item.id === playlistId)
+    const alreadyAdded = Boolean(playlist?.trackIds.includes(candidate.id))
+    setPlaylists((previous) => previous.map((item) => (
+      item.id === playlistId && !item.trackIds.includes(candidate.id)
+        ? { ...item, trackIds: [...item.trackIds, candidate.id] }
+        : item
+    )))
+    if (!alreadyAdded) recordTasteSignal('playlist', { track: candidate })
     showToast(`Added to ${playlist?.name || 'playlist'}`)
     setAddTrack(null)
   }
@@ -7441,7 +8185,7 @@ export default function App() {
   function openPlaylist(playlist) {
     if (requireAuth({ type: 'library' }, 'Log in to open your playlists.')) return
     setActivePlaylistId(playlist.id)
-    setView('library')
+    navigateView('library')
   }
 
   function playPlaylist(playlist) {
@@ -7482,7 +8226,10 @@ export default function App() {
       : library[trackId] || SEED_BY_ID[trackId] || null
     if (requireAuth({ type: 'like', trackId, track: candidate }, 'Log in to save tracks to your library.')) return
     const removing = liked.includes(trackId)
-    if (!removing && candidate) rememberTrack(candidate)
+    if (!removing && candidate) {
+      rememberTrack(candidate)
+      recordTasteSignal('like', { track: candidate })
+    }
     setLiked((previous) => (
       previous.includes(trackId)
         ? previous.filter((id) => id !== trackId)
@@ -7507,9 +8254,74 @@ export default function App() {
     return 0
   }
 
+  function captureSoloSnapshot() {
+    if (activeRoomRef.current) return
+    const index = currentByRoom[SOLO_ROOM_ID] ?? 0
+    soloSnapshotRef.current = {
+      track: track?.id && track.id !== 'empty' ? track.id : null,
+      currentTime: getPlaybackTime(),
+      isPlaying: false,
+      queue: [...soloQueue],
+      index,
+    }
+    soloResumeRef.current = null
+  }
+
+  function leaveRoomPlayback() {
+    if (!activeRoomRef.current) return
+    const snapshot = soloSnapshotRef.current
+    soloResumeRef.current = snapshot?.track
+      ? { track: snapshot.track, time: snapshot.currentTime || 0, queue: snapshot.queue || [], index: snapshot.index || 0 }
+      : null
+    stopMic()
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    setActiveRoomId(null)
+    activeRoomRef.current = null
+    setJoinPill(null)
+    setProgress(0)
+    setDuration(0)
+    pendingSeekRef.current = null
+    searchRoomRef.current = null
+  }
+
+  function openSearchExperience() {
+    if (viewRef.current === 'room' && activeRoomRef.current) {
+      searchRoomRef.current = {
+        roomId: activeRoomRef.current,
+        wasPlaying: isPlayingRef.current,
+        time: getPlaybackTime(),
+        trackId: track?.id || null,
+        openedAt: Date.now(),
+      }
+      audioRef.current?.pause()
+      setIsPlaying(false)
+      setJoinPill(null)
+    } else {
+      searchRoomRef.current = null
+    }
+    setSearchOpen(true)
+  }
+
+  function closeSearchExperience() {
+    const context = searchRoomRef.current
+    searchRoomRef.current = null
+    setSearchOpen(false)
+    if (!context || viewRef.current !== 'room' || activeRoomRef.current !== context.roomId) return
+    if (context.trackId && context.trackId !== track?.id) return
+    if (context.wasPlaying && track?.id && track.id !== 'empty') {
+      const target = (context.time || 0) + Math.max(0, Date.now() - (context.openedAt || Date.now())) / 1000
+      pendingSeekRef.current = target
+      setSeekSignal((value) => value + 1)
+      setProgress(target)
+      setIsPlaying(true)
+      audioRef.current?.play().catch(() => {})
+    }
+  }
+
   function roomSnapshot(overrides = {}) {
     const roomId = activeRoomRef.current
-    if (!roomId) return null
+    if (!roomId || viewRef.current !== 'room') return null
     const index = currentIndexRef.current
     const snapshot = {
       type: 'state',
@@ -7531,8 +8343,10 @@ export default function App() {
     if (snapshot) channelRef.current?.postMessage(snapshot)
   }
 
-  function applyRemoteState(data) {
+  function applyRemoteState(data, { forcePaused = false } = {}) {
+    if (viewRef.current !== 'room') return
     if (!data?.roomId || data.roomId !== activeRoomRef.current) return
+    const nextPlaying = forcePaused ? false : data.isPlaying
     const roomQueue = queueIdsRef.current
     let index = typeof data.index === 'number' ? data.index : currentIndexRef.current
     if (typeof data.index !== 'number' && data.trackId) {
@@ -7546,23 +8360,23 @@ export default function App() {
       setProgress(0)
     }
     setSyncMs(Math.max(2, Math.min(399, Math.round(Date.now() - (data.ts || Date.now())))))
-    const elapsed = data.isPlaying ? Math.max(0, Date.now() - (data.ts || Date.now())) / 1000 : 0
+    const elapsed = nextPlaying ? Math.max(0, Date.now() - (data.ts || Date.now())) / 1000 : 0
     const target = Math.max(0, (data.time || 0) + elapsed)
     const drift = Math.abs(getPlaybackTime() - target)
-    const lateJoin = !hasInteractedRef.current && data.isPlaying
+    const lateJoin = !hasInteractedRef.current && nextPlaying
     if (lateJoin) {
       pendingSeekRef.current = target
       setSeekSignal((value) => value + 1)
       setJoinPill({ time: target, roomName: activeRoomRef.current })
-      setIsPlaying(Boolean(data.isPlaying))
+      setIsPlaying(Boolean(nextPlaying))
       return
     }
     if (indexChanged || !data.heartbeat || drift > 0.35) {
       pendingSeekRef.current = target
       setSeekSignal((value) => value + 1)
     }
-    if (typeof data.isPlaying === 'boolean') setIsPlaying(data.isPlaying)
-    if (data.isPlaying) setJoinPill(null)
+    if (typeof data.isPlaying === 'boolean') setIsPlaying(Boolean(nextPlaying))
+    if (nextPlaying) setJoinPill(null)
   }
 
   function beginPlayback(key, ids, index, candidate) {
@@ -7572,7 +8386,10 @@ export default function App() {
     pendingSeekRef.current = null
     setJoinPill(null)
     setIsPlaying(true)
-    if (candidate?.id) addRecent(candidate.id)
+    if (candidate?.id) {
+      addRecent(candidate.id)
+      recordTasteSignal('play', { track: candidate })
+    }
     if (key !== SOLO_ROOM_ID) announce({ index, time: 0, isPlaying: true })
   }
 
@@ -7682,8 +8499,13 @@ export default function App() {
   }
 
   function startPlaybackAt(index, candidate) {
-    const key = activeRoomRef.current || SOLO_ROOM_ID
-    beginPlayback(key, queueIdsRef.current, index, candidate)
+    const key = viewRef.current === 'room' && activeRoomRef.current ? activeRoomRef.current : SOLO_ROOM_ID
+    if (key === SOLO_ROOM_ID && activeRoomRef.current) {
+      activeRoomRef.current = null
+      setActiveRoomId(null)
+    }
+    const ids = key === SOLO_ROOM_ID ? soloQueue : queueIdsRef.current
+    beginPlayback(key, ids, index, candidate)
   }
 
   async function togglePlay() {
@@ -7971,7 +8793,7 @@ export default function App() {
   function addToActiveQueue(candidate) {
     if (!candidate?.id) return { ids: queueIds, index: -1 }
     rememberTrack(candidate)
-    if (inRoom) {
+    if (roomPlaybackActive) {
       const ids = activeRoom.trackIds.includes(candidate.id)
         ? activeRoom.trackIds
         : [...activeRoom.trackIds, candidate.id]
@@ -7988,48 +8810,61 @@ export default function App() {
     return { ids, index: ids.indexOf(candidate.id) }
   }
 
-  async function playSearchTrack(candidate) {
+  async function playSearchTrack(candidate, contextTracks = null) {
     if (!candidate) return
-    if (!inRoom && requireAuth(
+    if (!roomPlaybackActive && requireAuth(
       { type: 'playSolo', track: candidate },
       'Sign up to play full-length tracks. Your first listen starts right after.',
       'signup',
     )) return
-    if (inRoom && !canControl) {
+    if (roomPlaybackActive && !canControl) {
       lockToast()
       return
     }
     const playable = await ensurePlayable(candidate)
     if (!playable) return
-    if (inRoom) {
+    if (roomPlaybackActive) {
       const { ids, index } = addToActiveQueue(playable)
       beginPlayback(activeRoom.id, ids, index, playable)
     } else {
-      const ids = soloQueue.includes(playable.id) ? soloQueue : [...soloQueue, playable.id]
+      const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
+      context.forEach((item) => {
+        if (item.id !== playable.id) rememberTrack(item)
+      })
+      const contextIds = context.map((item) => item.id)
+      const ids = contextIds.includes(playable.id)
+        ? contextIds
+        : soloQueue.includes(playable.id)
+          ? soloQueue
+          : [...soloQueue, playable.id]
       const index = ids.indexOf(playable.id)
+      activeRoomRef.current = null
       setActiveRoomId(null)
       setSoloQueue(ids)
-      setView((current) => (current === 'rooms' ? 'home' : current))
+      const nextView = viewRef.current === 'rooms' ? 'home' : viewRef.current
+      viewRef.current = nextView
+      setView(nextView)
       beginPlayback(SOLO_ROOM_ID, ids, index, playable)
     }
+    searchRoomRef.current = null
     setSearchOpen(false)
     showToast(`Playing “${playable.title}”`)
   }
 
   function queueSearchTrack(candidate) {
     if (!candidate) return
-    if (!inRoom && requireAuth(
+    if (!roomPlaybackActive && requireAuth(
       { type: 'queueSolo', track: candidate },
       'Log in to build your queue.',
     )) return
-    if (inRoom && !canControl) {
+    if (roomPlaybackActive && !canControl) {
       lockToast()
       return
     }
     const playable = ensurePlayable(candidate)
     playable.then((ready) => {
       if (!ready) return
-      if (inRoom) {
+      if (roomPlaybackActive) {
         const ids = activeRoom.trackIds.includes(ready.id)
           ? activeRoom.trackIds
           : [...activeRoom.trackIds, ready.id]
@@ -8044,7 +8879,7 @@ export default function App() {
         showToast(`Added “${ready.title}” to your queue`)
       }
     })
-    setSearchOpen(false)
+    closeSearchExperience()
   }
 
   async function playSoloQueue(ids, startIndex = 0) {
@@ -8054,6 +8889,12 @@ export default function App() {
     const index = Math.max(0, Math.min(startIndex, clean.length - 1))
     const candidate = library[clean[index]] || SEED_BY_ID[clean[index]]
     if (!candidate) return
+    if (activeRoomRef.current) leaveRoomPlayback()
+    soloResumeRef.current = null
+    if (viewRef.current === 'room') {
+      setView('home')
+      viewRef.current = 'home'
+    }
     audioRef.current?.pause()
     setIsPlaying(false)
     setActiveRoomId(null)
@@ -8066,7 +8907,7 @@ export default function App() {
     beginPlayback(SOLO_ROOM_ID, clean, index, playable)
   }
 
-  async function playSoloTrack(candidate) {
+  async function playSoloTrack(candidate, contextTracks = null) {
     if (!candidate?.id) return
     if (requireAuth(
       { type: 'playSolo', track: candidate },
@@ -8075,10 +8916,26 @@ export default function App() {
     )) return
     const playable = await ensurePlayable(candidate)
     if (!playable) return
-    const ids = soloQueue.includes(playable.id) ? soloQueue : [...soloQueue, playable.id]
+    const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
+    context.forEach((item) => {
+      if (item.id !== playable.id) rememberTrack(item)
+    })
+    const contextIds = context.map((item) => item.id)
+    const ids = contextIds.includes(playable.id)
+      ? contextIds
+      : soloQueue.includes(playable.id)
+        ? soloQueue
+        : [...soloQueue, playable.id]
     const index = ids.indexOf(playable.id)
+    if (activeRoomRef.current) leaveRoomPlayback()
+    soloResumeRef.current = null
+    if (viewRef.current === 'room') {
+      setView('home')
+      viewRef.current = 'home'
+    }
     audioRef.current?.pause()
     setIsPlaying(false)
+    activeRoomRef.current = null
     setActiveRoomId(null)
     setSoloQueue(ids)
     beginPlayback(SOLO_ROOM_ID, ids, index, playable)
@@ -8626,11 +9483,18 @@ export default function App() {
         })
         clearRoomPreview(data.roomId)
         if (activeRoomRef.current === data.roomId) {
+          const snapshot = soloSnapshotRef.current
+          soloResumeRef.current = snapshot?.track
+            ? { track: snapshot.track, time: snapshot.currentTime || 0, queue: snapshot.queue || [], index: snapshot.index || 0 }
+            : null
           activeRoomRef.current = null
           setActiveRoomId(null)
           setView('home')
+          viewRef.current = 'home'
           setIsPlaying(false)
           audioRef.current?.pause()
+          setProgress(0)
+          setDuration(0)
           showToast('That room was closed by its host.', 'lock')
         }
         return
@@ -9087,6 +9951,10 @@ export default function App() {
       { type: 'library' },
       'Log in to open your library and saved playlists.',
     )) return
+    if (viewRef.current === 'room' && nextView !== 'room') {
+      leaveRoomPlayback()
+      setFullPlayer(false)
+    }
     if (nextView === 'home') {
       setJoinPill(null)
       setActivePlaylistId(null)
@@ -9094,6 +9962,7 @@ export default function App() {
     } else {
       setView(nextView)
     }
+    viewRef.current = nextView
     if (typeof window !== 'undefined' && window.innerWidth <= 1050) setChatOpen(false)
   }
 
@@ -9150,9 +10019,20 @@ export default function App() {
     })
   }, [])
 
+  const searchDailyUser = dailyFeed?.users?.[currentUserId || 'guest'] || {}
+  const searchSuggestions = buildTasteSuggestions(tasteProfile, searchDailyUser, dailyFeed?.trending)
+  const searchTasteTracks = (searchDailyUser.madeForYou?.length ? searchDailyUser.madeForYou : dailyFeed?.trending) || []
+  const recentSearches = tasteProfile.searches.map((entry) => entry.query).filter(Boolean)
+  const trackPalette = useTrackPalette(track)
+  const accent = trackPalette?.accent || displayRoom.accent || '#f16b73'
+  const accent2 = trackPalette?.accent2 || displayRoom.accent2 || '#f2b38e'
   const rootStyle = {
-    '--accent': displayRoom.accent || '#f16b73',
-    '--accent-2': displayRoom.accent2 || '#f2b38e',
+    '--accent': accent,
+    '--accent-2': accent2,
+    '--song-accent': accent,
+    '--song-accent-2': accent2,
+    '--song-glow': trackPalette?.glow || `color-mix(in srgb, ${accent} 30%, transparent)`,
+    '--song-surface': trackPalette?.surface || `color-mix(in srgb, ${accent} 13%, #0b0c0f)`,
   }
 
   return (
@@ -9195,13 +10075,13 @@ export default function App() {
             room={displayRoom}
             rooms={rooms}
             view={view}
-            inRoom={inRoom}
+            inRoom={roomPlaybackActive}
             role={ROLE_COPY[role]?.label || 'Listener'}
             likedCount={likedSet.filter((id) => library[id]).length}
             currentUser={currentUser}
             playlists={playlists}
             onNavigate={navigateView}
-            onSearch={() => setSearchOpen(true)}
+            onSearch={openSearchExperience}
             onJoinRoom={joinRoom}
             onJoinCode={requestJoinCode}
             onInvite={copyInvite}
@@ -9230,14 +10110,14 @@ export default function App() {
             <StageBar
               room={displayRoom}
               view={view}
-              inRoom={inRoom}
+              inRoom={roomPlaybackActive}
               theme={theme}
               currentUser={currentUser}
               chatOpen={chatOpen}
               unreadCount={activeRoomUnread}
               onOpenProfile={openProfile}
               onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
-              onSearch={() => setSearchOpen(true)}
+              onSearch={openSearchExperience}
               onToggleChat={() => setChatOpen((value) => !value)}
               onHome={() => navigateView('home')}
               onLogin={() => openAuth('signin')}
@@ -9256,13 +10136,15 @@ export default function App() {
                   playlists={playlists}
                   dailyFeed={dailyFeed}
                   dailyStatus={dailyStatus}
+                  tasteProfile={tasteProfile}
+                  onOpenTaste={() => setTasteOpen(true)}
                   onRefreshDaily={refreshDailyFeed}
                   roomCount={rooms.length}
                   onPlayTrack={playSoloTrack}
                   onPlayPlaylist={playPlaylist}
                   onLike={toggleLike}
                   onAddToPlaylist={requestAddToPlaylist}
-                  onSearch={() => setSearchOpen(true)}
+                  onSearch={openSearchExperience}
                   onCreatePlaylist={() => openCreatePlaylist()}
                   onOpenPlaylist={openPlaylist}
                   onCreateRoom={requestCreateRoom}
@@ -9297,7 +10179,7 @@ export default function App() {
                     if (!activePlaylistId) return
                     addTrackToPlaylist(activePlaylistId, candidate)
                   }}
-                  onSearch={() => setSearchOpen(true)}
+                  onSearch={openSearchExperience}
                   onCreatePlaylist={() => openCreatePlaylist()}
                   onPlayPlaylist={playPlaylist}
                   onRenamePlaylist={openEditPlaylist}
@@ -9343,7 +10225,7 @@ export default function App() {
                   onLike={toggleLike}
                   onAddToPlaylist={requestAddToPlaylist}
                   onInvite={() => setMembersOpen(true)}
-                  onSearch={() => setSearchOpen(true)}
+                  onSearch={openSearchExperience}
                   onPlayIndex={playIndex}
                   onOpenFull={() => setFullPlayer(true)}
                 />
@@ -9354,7 +10236,7 @@ export default function App() {
             <ErrorBoundary resetKey="player-dock">
               <PlayerDock
                 track={track}
-                inRoom={inRoom}
+                inRoom={roomPlaybackActive}
                 isPlaying={isPlaying}
                 buffering={buffering || streamRecovering}
                 progress={progress}
@@ -9378,10 +10260,10 @@ export default function App() {
 
             <MobileNav
               view={view}
-              inRoom={inRoom}
+              inRoom={roomPlaybackActive}
               chatOpen={chatOpen}
               onNavigate={navigateView}
-              onSearch={() => setSearchOpen(true)}
+              onSearch={openSearchExperience}
               onChat={() => {
                 setView('room')
                 setActiveTab('chat')
@@ -9463,17 +10345,27 @@ export default function App() {
 
         {searchOpen && (
           <SearchOverlay
-            onClose={() => setSearchOpen(false)}
+            onClose={closeSearchExperience}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
             onAddToPlaylist={requestAddToPlaylist}
+            suggestions={searchSuggestions}
+            recentSearches={recentSearches}
+            onSearchCommit={recordSearchQuery}
+            onRemoveRecentSearch={removeRecentSearch}
+            onClearRecentSearches={clearRecentSearches}
+            tasteTracks={searchTasteTracks}
+            onOpenTaste={() => {
+              closeSearchExperience()
+              setTasteOpen(true)
+            }}
           />
         )}
 
         {fullPlayer && (
           <FullPlayer
             room={displayRoom}
-            inRoom={inRoom}
+            inRoom={roomPlaybackActive}
             track={track}
             queue={queue}
             isPlaying={isPlaying}
@@ -9503,11 +10395,20 @@ export default function App() {
           />
         )}
 
+        {tasteOpen && (
+          <TasteModal
+            profile={tasteProfile}
+            onClose={() => setTasteOpen(false)}
+            onSave={saveTasteVibes}
+          />
+        )}
+
         {settingsOpen && currentUser && (
           <SettingsModal
             user={currentUser}
             settings={settings}
             cacheInfo={cacheInfo}
+            tasteProfile={tasteProfile}
             stats={{
               playlists: playlists.length,
               liked: likedSet.length,
@@ -9516,6 +10417,7 @@ export default function App() {
             onClose={() => setSettingsOpen(false)}
             onSaveProfile={saveProfile}
             onSaveSettings={saveUserSettings}
+            onSaveTaste={saveTasteVibes}
             onClearCache={clearAllCaches}
             onSignOut={signOut}
           />
@@ -9552,7 +10454,6 @@ export default function App() {
         {roomEditor === 'create' && (
           <RoomModal
             mode="create"
-            defaultTrackId={track?.id && track.id !== 'empty' ? track.id : null}
             onClose={() => setRoomEditor(null)}
             onCreate={createRoom}
           />
