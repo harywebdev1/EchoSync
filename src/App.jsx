@@ -2290,6 +2290,8 @@ function Sidebar({
   onLeaveRoom,
   currentUser,
   inRoom,
+  unreadRoomCounts,
+  latestRoomPreview,
   mobileOpen,
   onMobileClose,
 }) {
@@ -2375,21 +2377,50 @@ function Sidebar({
               {rooms.length === 0 && (
                 <p className="side-empty">No rooms yet. Start one and invite a friend.</p>
               )}
-              {rooms.map((item) => (
-                <button
-                  key={item.id}
-                  className={`room-link ${inRoom && room.id === item.id && view === 'room' ? 'active' : ''}`}
-                  style={{ '--room-accent': item.accent }}
-                  onClick={() => joinRoom(item)}
-                >
-                  <span className="room-dot" />
-                  <span className="room-link-name">{item.name}</span>
-                  {item.private
-                    ? <Lock size={9} style={{ opacity: 0.45 }} aria-label="Private room" />
-                    : <Globe2 size={9} style={{ opacity: 0.3 }} aria-label="Public room" />}
-                  <Equalizer />
-                </button>
-              ))}
+              {rooms.map((item) => {
+                const unread = unreadRoomCounts?.[item.id] || 0
+                const preview = latestRoomPreview?.[item.id]
+                const connected = inRoom && room.id === item.id
+                return (
+                  <div key={item.id} className={`room-item-wrap ${unread ? 'has-unread' : ''}`}>
+                    {preview && (
+                      <button
+                        key={preview.id}
+                        type="button"
+                        className="room-chat-preview"
+                        data-testid={`room-chat-preview-${item.id}`}
+                        onClick={() => joinRoom(item)}
+                        aria-label={`Open ${item.name} chat: ${preview.text}`}
+                      >
+                        <MessageCircle size={10} />
+                        <span className="room-chat-preview-copy">
+                          <b>@{preview.sender}</b>
+                          <span>{preview.text}</span>
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      className={`room-link ${inRoom && room.id === item.id && view === 'room' ? 'active' : ''} ${connected ? 'connected' : ''}`}
+                      style={{ '--room-accent': item.accent }}
+                      onClick={() => joinRoom(item)}
+                      aria-label={`${item.name}${unread ? `, ${unread} unread messages` : ''}`}
+                    >
+                      <span className="room-dot" />
+                      <span className="room-link-name">{item.name}</span>
+                      {item.private
+                        ? <Lock size={9} style={{ opacity: 0.45 }} aria-label="Private room" />
+                        : <Globe2 size={9} style={{ opacity: 0.3 }} aria-label="Public room" />}
+                      <Equalizer />
+                      {unread > 0 && (
+                        <span className="room-unread-pill" data-testid={`room-unread-${item.id}`}>
+                          <MessageCircle size={9} />
+                          <b>{unread > 99 ? '99+' : unread}</b>
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
 
@@ -2449,6 +2480,7 @@ function StageBar({
   onSearch,
   onToggleChat,
   chatOpen,
+  unreadCount,
   onHome,
   currentUser,
   onOpenProfile,
@@ -2494,9 +2526,18 @@ function StageBar({
         <button className="icon-btn" onClick={onToggleTheme} aria-label="Toggle theme">
           {theme === 'dark' ? <Sun /> : <Moon />}
         </button>
-        {inRoom && (
-          <button className={`icon-btn chat-desktop-toggle ${chatOpen ? 'active' : ''}`} onClick={onToggleChat} aria-label="Toggle room chat">
+        {inRoom && view === 'room' && (
+          <button
+            className={`icon-btn chat-desktop-toggle ${chatOpen ? 'active' : ''}`}
+            onClick={onToggleChat}
+            aria-label={unreadCount ? `Toggle room chat, ${unreadCount} unread messages` : 'Toggle room chat'}
+          >
             <MessageCircle />
+            {!chatOpen && unreadCount > 0 && (
+              <span className="chat-unread-badge" data-testid="chat-toggle-unread">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -5501,25 +5542,39 @@ function PlayerDock({
   onAddToPlaylist,
   onVolume,
   onToggleMute,
+  onSeek,
   onOpenFull,
   inRoom,
+  canSeek = true,
 }) {
   const total = duration || track?.duration || 0
   const pct = total ? Math.min(100, Math.max(0, (progress / total) * 100)) : 0
   return (
-    <div className="player-dock">
-      <div className="dock-progress"><span style={{ width: `${pct}%` }} /></div>
-      <div
-        className="dock-track"
-        role="button"
-        tabIndex={0}
-        onClick={onOpenFull}
-        onKeyDown={(event) => event.key === 'Enter' && onOpenFull()}
-      >
-        <Cover track={track} size="cover-size-sm" playing={isPlaying} />
-        <div className="dock-copy">
-          <strong>{track?.title || 'Nothing playing'}</strong>
+    <div className="player-dock" data-testid="player-dock">
+      <div className="dock-track">
+        <button type="button" className="dock-cover" onClick={onOpenFull} aria-label="Open full player">
+          <Cover track={track} size="cover-size-md" playing={isPlaying} />
+        </button>
+        <button type="button" className="dock-copy" onClick={onOpenFull}>
+          <strong title={track?.title || 'Nothing playing'}>{track?.title || 'Nothing playing'}</strong>
           <span>{track?.artist || 'EchoSync'}</span>
+        </button>
+        <div className="dock-quick-actions">
+          <button
+            className={`like-btn dock-like ${liked.includes(track?.id) ? 'liked' : ''}`}
+            onClick={() => onLike(track)}
+            aria-label="Like track"
+          >
+            <Heart />
+          </button>
+          <button
+            className="icon-btn dock-add"
+            onClick={() => onAddToPlaylist(track)}
+            aria-label="Add to playlist"
+            title="Add to playlist"
+          >
+            <ListPlus />
+          </button>
         </div>
       </div>
       <div className="dock-center">
@@ -5532,19 +5587,28 @@ function PlayerDock({
         </div>
         <div className="dock-time">
           <span>{formatTime(progress)}</span>
-          <div className="dock-mini-line"><span style={{ width: `${pct}%` }} /></div>
+          <input
+            className="dock-seek"
+            data-testid="dock-seek"
+            style={{ '--seek-pct': `${pct}%` }}
+            type="range"
+            min="0"
+            max={total || 1}
+            step="0.1"
+            value={Math.min(progress, total || progress)}
+            onChange={(event) => onSeek(Number(event.target.value))}
+            disabled={!canSeek || !total}
+            aria-label="Seek playback"
+          />
           <span>{formatTime(total)}</span>
         </div>
       </div>
       <div className="dock-actions">
-        {inRoom ? (
-          <span className="dock-sync"><Wifi /> <b>{syncMs} ms</b></span>
-        ) : (
-          <span className="dock-sync solo"><Headphones /> <b>Solo</b></span>
-        )}
-        <button className="icon-btn dock-add" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
-        <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track"><Heart /></button>
-        <div className="volume-box">
+        <span className={`dock-sync ${inRoom ? 'live' : 'solo'}`}>
+          {inRoom ? <Wifi /> : <Headphones />}
+          <b>{inRoom ? `${syncMs} ms` : 'Solo'}</b>
+        </span>
+        <div className="dock-volume">
           <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
             {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
           </button>
@@ -5559,7 +5623,7 @@ function PlayerDock({
             aria-label="Volume"
           />
         </div>
-        <button className="icon-btn" onClick={onOpenFull} aria-label="Expand player"><Maximize2 /></button>
+        <button className="icon-btn dock-expand" onClick={onOpenFull} aria-label="Expand player"><Maximize2 /></button>
       </div>
     </div>
   )
@@ -6038,6 +6102,8 @@ export default function App() {
   const [replyTo, setReplyTo] = useState(null)
   const [activeTab, setActiveTab] = useState('chat')
   const [chatOpen, setChatOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth > 1050))
+  const [unreadRoomCounts, setUnreadRoomCounts] = useState({})
+  const [latestRoomPreview, setLatestRoomPreview] = useState({})
   const [searchOpen, setSearchOpen] = useState(false)
   const [fullPlayer, setFullPlayer] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -6109,6 +6175,10 @@ export default function App() {
   const remoteVoiceTimersRef = useRef({})
   const remoteAudioQueueRef = useRef({ entries: {} })
   const acceptedInviteRoomsRef = useRef(new Set())
+  const roomPreviewTimersRef = useRef({})
+  const receivedChatIdsRef = useRef(new Set())
+  const viewRef = useRef(view)
+  const chatOpenRef = useRef(chatOpen)
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
   const dailyDayKey = new Date().toISOString().slice(0, 10)
@@ -6178,12 +6248,45 @@ export default function App() {
   const pendingInvite = currentUser
     ? invites.find((invite) => invite.toUserId === currentUser.id) || null
     : null
-  const shellChatOpen = inRoom && chatOpen
+  const shellChatOpen = inRoom && view === 'room' && chatOpen
+  const activeRoomUnread = activeRoomId ? unreadRoomCounts[activeRoomId] || 0 : 0
   const lyricsKey = track?.id || 'empty'
 
   useEffect(() => {
     activeRoomRef.current = activeRoomId
   }, [activeRoomId])
+
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
+
+  useEffect(() => {
+    chatOpenRef.current = chatOpen
+  }, [chatOpen])
+
+  useEffect(() => {
+    if (view !== 'room') setChatOpen(false)
+  }, [view])
+
+  useEffect(() => {
+    if (searchOpen) setChatOpen(false)
+  }, [searchOpen])
+
+  useEffect(() => {
+    if (!activeRoomId || view !== 'room') return
+    setUnreadRoomCounts((previous) => {
+      if (!previous[activeRoomId]) return previous
+      const next = { ...previous }
+      delete next[activeRoomId]
+      return next
+    })
+    clearRoomPreview(activeRoomId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRoomId, view, chatOpen])
+
+  useEffect(() => () => {
+    Object.values(roomPreviewTimersRef.current).forEach((timer) => clearTimeout(timer))
+  }, [])
 
   useEffect(() => {
     roomsRef.current = rooms
@@ -6865,6 +6968,12 @@ export default function App() {
       delete next[roomId]
       return next
     })
+    setUnreadRoomCounts((previous) => {
+      const next = { ...previous }
+      delete next[roomId]
+      return next
+    })
+    clearRoomPreview(roomId)
     setIsPlaying(false)
     audioRef.current?.pause()
     stopMic()
@@ -7078,6 +7187,12 @@ export default function App() {
     stopMic()
     setActiveRoomId(null)
     setView('rooms')
+    setUnreadRoomCounts((previous) => {
+      const next = { ...previous }
+      delete next[roomId]
+      return next
+    })
+    clearRoomPreview(roomId)
     setMembersOpen(false)
     setSettingsOpen(false)
     setDraft('')
@@ -7108,6 +7223,44 @@ export default function App() {
     }
   }
 
+  function clearRoomPreview(roomId) {
+    if (!roomId) return
+    clearTimeout(roomPreviewTimersRef.current[roomId])
+    delete roomPreviewTimersRef.current[roomId]
+    setLatestRoomPreview((previous) => {
+      if (!previous[roomId]) return previous
+      const next = { ...previous }
+      delete next[roomId]
+      return next
+    })
+  }
+
+  function rememberRoomUnread(roomId, message) {
+    if (!roomId || !message) return
+    const member = memberIndexRef.current[message.author]
+    const sender = message.userName || member?.name || member?.handle || 'Someone'
+    const rawText = message.type === 'voice' ? '🎙️ Voice note' : String(message.text || 'New message')
+    const text = rawText.replace(/\s+/g, ' ').trim().slice(0, 74)
+    setUnreadRoomCounts((previous) => ({
+      ...previous,
+      [roomId]: Math.min(99, (previous[roomId] || 0) + 1),
+    }))
+    setLatestRoomPreview((previous) => ({
+      ...previous,
+      [roomId]: { id: message.id, sender, text },
+    }))
+    clearTimeout(roomPreviewTimersRef.current[roomId])
+    roomPreviewTimersRef.current[roomId] = setTimeout(() => {
+      setLatestRoomPreview((previous) => {
+        if (!previous[roomId]) return previous
+        const next = { ...previous }
+        delete next[roomId]
+        return next
+      })
+      delete roomPreviewTimersRef.current[roomId]
+    }, 6000)
+  }
+
   function sendMessage() {
     if (!activeRoom || !currentUserId || !draft.trim()) return
     const replySnapshot = replyTo
@@ -7116,6 +7269,7 @@ export default function App() {
     const message = {
       id: uid('msg'),
       author: currentUserId,
+      userName: currentUser?.name || 'Listener',
       text: draft.trim().slice(0, 500),
       time: clockNow(),
       reactions: [],
@@ -7143,6 +7297,7 @@ export default function App() {
     const message = {
       id: uid('msg'),
       author: currentUserId,
+      userName: currentUser?.name || 'Listener',
       type: 'voice',
       text: '',
       voiceData: dataUrl,
@@ -8464,6 +8619,12 @@ export default function App() {
           delete next[data.roomId]
           return next
         })
+        setUnreadRoomCounts((previous) => {
+          const next = { ...previous }
+          delete next[data.roomId]
+          return next
+        })
+        clearRoomPreview(data.roomId)
         if (activeRoomRef.current === data.roomId) {
           activeRoomRef.current = null
           setActiveRoomId(null)
@@ -8518,9 +8679,18 @@ export default function App() {
       }
 
       if (data.type === 'chat' && data.roomId && data.message) {
+        const messageId = data.message.id
+        const isFreshMessage = !receivedChatIdsRef.current.has(messageId)
+        if (isFreshMessage) {
+          receivedChatIdsRef.current.add(messageId)
+          const isVisible = viewRef.current === 'room'
+            && chatOpenRef.current
+            && activeRoomRef.current === data.roomId
+          if (!isVisible) rememberRoomUnread(data.roomId, data.message)
+        }
         setMessages((previous) => {
           const list = previous[data.roomId] || []
-          if (list.some((message) => message.id === data.message.id)) return previous
+          if (list.some((message) => message.id === messageId)) return previous
           return { ...previous, [data.roomId]: [...list, data.message] }
         })
         const me = currentUserRef.current
@@ -9040,6 +9210,8 @@ export default function App() {
             onCreatePlaylist={() => openCreatePlaylist()}
             onOpenPlaylist={openPlaylist}
             onLeaveRoom={leaveRoom}
+            unreadRoomCounts={unreadRoomCounts}
+            latestRoomPreview={latestRoomPreview}
             mobileOpen={sidebarOpen}
             onMobileClose={() => setSidebarOpen(false)}
           />
@@ -9062,6 +9234,7 @@ export default function App() {
               theme={theme}
               currentUser={currentUser}
               chatOpen={chatOpen}
+              unreadCount={activeRoomUnread}
               onOpenProfile={openProfile}
               onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
               onSearch={() => setSearchOpen(true)}
@@ -9197,6 +9370,8 @@ export default function App() {
                 onAddToPlaylist={requestAddToPlaylist}
                 onVolume={handleVolume}
                 onToggleMute={() => setMuted((value) => !value)}
+                onSeek={seekTo}
+                canSeek={canControl}
                 onOpenFull={() => setFullPlayer(true)}
               />
             </ErrorBoundary>
@@ -9208,13 +9383,14 @@ export default function App() {
               onNavigate={navigateView}
               onSearch={() => setSearchOpen(true)}
               onChat={() => {
+                setView('room')
                 setActiveTab('chat')
                 setChatOpen(true)
               }}
             />
           </main>
 
-          {inRoom && (
+          {inRoom && view === 'room' && (
             <ChatPanel
               room={activeRoom}
               activeTab={activeTab}
