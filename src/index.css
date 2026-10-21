@@ -4752,12 +4752,86 @@ img {
 
 .home-section { margin-top: 32px; }
 
-.home-rail {
+.home-rail-shell {
+  position: relative;
+  min-width: 0;
+}
+
+.home-rail,
+.shelf-row,
+.h-scroll,
+.recent-row,
+.cards-rail {
   display: flex;
   gap: 11px;
   overflow-x: auto;
-  padding-bottom: 5px;
-  scrollbar-width: thin;
+  padding: 2px 1px 5px;
+  overscroll-behavior-inline: contain;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.home-rail::-webkit-scrollbar,
+.shelf-row::-webkit-scrollbar,
+.h-scroll::-webkit-scrollbar,
+.recent-row::-webkit-scrollbar,
+.cards-rail::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.home-rail .home-tile-wrap { scroll-snap-align: start; }
+
+.rail-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(16px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 0.2s var(--ease), background 0.2s, border-color 0.2s, transform 0.2s var(--ease);
+}
+
+.rail-arrow svg { width: 16px; height: 16px; }
+.rail-arrow-prev { left: -11px; }
+.rail-arrow-next { right: -11px; }
+
+.home-rail-shell.has-overflow .rail-arrow {
+  opacity: 0.78;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.home-rail-shell.has-overflow .rail-arrow:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  transform: translateY(-50%) scale(1.06);
+}
+
+.rail-arrow:disabled {
+  opacity: 0.18 !important;
+  cursor: default;
+}
+
+@media (max-width: 560px) {
+  .rail-arrow { width: 30px; height: 30px; }
+  .rail-arrow-prev { left: -7px; }
+  .rail-arrow-next { right: -7px; }
 }
 
 .home-tile {

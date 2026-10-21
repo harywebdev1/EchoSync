@@ -1,4 +1,4 @@
-import { Component, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Home,
   Radio,
@@ -19,6 +19,7 @@ import {
   MessageCircle,
   X,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Send,
   Smile,
@@ -98,7 +99,8 @@ const TRANSLATE_KEY = 'echosync_translate.v1'
 const STREAM_CACHE_KEY = 'echosync_stream_cache_v4'
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
 const INVITES_KEY = 'echosync_invites_v1'
-const DAILY_FEED_PREFIX = 'echosync_daily_feed_'
+const DAILY_FEED_PREFIX = 'echosync_daily_feed_v2_'
+const DAILY_FEED_LEGACY_PREFIX = 'echosync_daily_feed_'
 const LOCK_MESSAGE = 'Listener Mode: Only Room Admin or DJ can control playback'
 const SOLO_ROOM_ID = 'solo'
 const DAILY_QUERIES = [
@@ -565,9 +567,81 @@ function safeText(value, fallback = '') {
   return fallback
 }
 
+function normalizeArtworkUrl(value) {
+  if (Array.isArray(value)) {
+    const found = value.map((entry) => normalizeArtworkUrl(entry)).filter(Boolean)
+    return found[found.length - 1] || null
+  }
+  if (value && typeof value === 'object') {
+    const keys = ['url', 'link', 'src', 'image', 'images', 'cover', 'artwork', 'thumbnail', 'thumbnails']
+    for (const key of keys) {
+      const found = normalizeArtworkUrl(value[key])
+      if (found) return found
+    }
+    return null
+  }
+  let text = decodeEntities(safeText(value)).trim()
+  if (!text) return null
+  if (text.startsWith('//')) text = `https:${text}`
+  if (/^http:\/\//i.test(text)) text = text.replace(/^http:/i, 'https:')
+  return /^(https:\/\/|data:image\/|blob:|\/(?!\/))/i.test(text) ? text : null
+}
+
 function safeMediaUrl(value) {
   const text = safeText(value)
-  return /^(https?:\/\/|data:image\/|blob:|\/api\/media\?)/i.test(text) ? text : null
+  if (!/^(https?:\/\/|blob:|\/api\/media\?)/i.test(text)) return null
+  return text.replace(/^http:\/\//i, 'https://')
+}
+
+function withTimeout(promise, ms, message = 'Request timed out') {
+  let timer
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(message)
+        error.timeout = true
+        reject(error)
+      }, ms)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+function likedTrackId(value) {
+  if (typeof value === 'string') return safeText(value)
+  if (value && typeof value === 'object') return safeText(value.id || value.trackId)
+  return ''
+}
+
+function likedIdsFrom(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map(likedTrackId).filter(Boolean))]
+}
+
+function mergeLikedTracks(library, value) {
+  const next = { ...(library || {}) }
+  const ids = []
+  ;(Array.isArray(value) ? value : []).forEach((entry) => {
+    const id = likedTrackId(entry)
+    if (!id) return
+    ids.push(id)
+    if (!entry || typeof entry !== 'object') return
+    const incoming = sanitizeTrack({ ...entry, id })
+    const existing = next[id]
+    const merged = sanitizeTrack({
+      ...incoming,
+      ...existing,
+      id,
+      title: existing?.title && existing.title !== 'Unknown track' ? existing.title : incoming.title,
+      artist: existing?.artist && existing.artist !== 'Unknown artist' ? existing.artist : incoming.artist,
+      cover: existing?.cover || incoming.cover,
+      streamUrl: existing?.streamUrl || incoming.streamUrl,
+      youtubeVideoId: existing?.youtubeVideoId || incoming.youtubeVideoId,
+    })
+    if (merged.streamUrl || merged.youtubeVideoId) merged.status = 'ready'
+    else if (!merged.status || merged.status === 'ready') merged.status = 'pending'
+    next[id] = merged
+  })
+  return { library: next, ids: [...new Set(ids)] }
 }
 
 function sanitizeTrack(raw) {
@@ -589,7 +663,7 @@ function sanitizeTrack(raw) {
     duration: Number.isFinite(duration) ? Math.max(0, duration) : 0,
     fullDuration: Number.isFinite(fullDuration) ? Math.max(0, fullDuration) : undefined,
     streamUrl: safeMediaUrl(source.streamUrl),
-    cover: safeMediaUrl(source.cover),
+    cover: normalizeArtworkUrl(source.cover),
     youtubeVideoId: safeText(source.youtubeVideoId) || undefined,
     quality: safeText(source.quality),
     c1: safeText(source.c1, '#26303a'),
@@ -727,15 +801,11 @@ function loadLibraryCache() {
   const now = Date.now()
   const valid = {}
   Object.entries(cache).forEach(([id, entry]) => {
-    if (
-      entry &&
-      entry.savedAt &&
-      now - entry.savedAt < 1000 * 60 * 60 * 10 &&
-      entry.track?.streamUrl &&
-      !isPreviewTrack(entry.track)
-    ) {
-      valid[id] = sanitizeTrack(entry.track)
-    }
+    if (!entry?.savedAt || !entry.track || isPreviewTrack(entry.track)) return
+    const maxAge = entry.track.streamUrl || entry.track.youtubeVideoId
+      ? 1000 * 60 * 60 * 10
+      : 1000 * 60 * 60 * 24 * 30
+    if (now - entry.savedAt < maxAge) valid[id] = sanitizeTrack(entry.track)
   })
   return valid
 }
@@ -752,7 +822,11 @@ function buildInitialLibrary() {
   })
   Object.values(cache).forEach((track) => {
     if (!track?.id || SEED_BY_ID[track.id] || isPreviewTrack(track)) return
-    library[track.id] = sanitizeTrack({ ...track, preview: false, status: 'ready' })
+    library[track.id] = sanitizeTrack({
+      ...track,
+      preview: false,
+      status: track.streamUrl || track.youtubeVideoId ? 'ready' : 'pending',
+    })
   })
   return library
 }
@@ -764,8 +838,106 @@ function saveLibraryEntry(id, track) {
   writeStorage(LIBRARY_CACHE_KEY, cache)
 }
 
+function replaceTrackArtwork(tracks, trackId, cover) {
+  if (!Array.isArray(tracks)) return tracks
+  return tracks.map((entry) => (entry?.id === trackId ? { ...entry, cover } : entry))
+}
+
+function persistTrackArtwork(trackId, cover) {
+  const safeCover = normalizeArtworkUrl(cover)
+  if (!trackId || !safeCover) return
+  const updateTrack = (entry) => (entry?.id === trackId ? { ...entry, cover: safeCover } : entry)
+
+  const libraryCache = readStorage(LIBRARY_CACHE_KEY, null)
+  if (libraryCache && typeof libraryCache === 'object') {
+    Object.values(libraryCache).forEach((entry) => {
+      if (entry?.track?.id === trackId) entry.track.cover = safeCover
+    })
+    writeStorage(LIBRARY_CACHE_KEY, libraryCache)
+  }
+
+  const likes = readStorage(LIKES_KEY, null)
+  if (likes && typeof likes === 'object' && !Array.isArray(likes)) {
+    let changed = false
+    Object.keys(likes).forEach((userId) => {
+      if (!Array.isArray(likes[userId])) return
+      likes[userId] = likes[userId].map((entry) => {
+        if (!entry || typeof entry !== 'object' || entry.id !== trackId) return entry
+        changed = true
+        return { ...entry, cover: safeCover }
+      })
+    })
+    if (changed) writeStorage(LIKES_KEY, likes)
+  }
+
+  try {
+    Object.keys(localStorage).forEach((key) => {
+      if (!key.startsWith(DAILY_FEED_LEGACY_PREFIX)) return
+      const feed = readStorage(key, null)
+      if (!feed || typeof feed !== 'object') return
+      let changed = false
+      if (Array.isArray(feed.trending)) {
+        const next = replaceTrackArtwork(feed.trending, trackId, safeCover)
+        changed = changed || next !== feed.trending
+        feed.trending = next
+      }
+      Object.values(feed.users || {}).forEach((user) => {
+        if (Array.isArray(user?.madeForYou)) {
+          const next = replaceTrackArtwork(user.madeForYou, trackId, safeCover)
+          changed = changed || next !== user.madeForYou
+          user.madeForYou = next
+        }
+        if (Array.isArray(user?.basedOnRecent)) {
+          const next = replaceTrackArtwork(user.basedOnRecent, trackId, safeCover)
+          changed = changed || next !== user.basedOnRecent
+          user.basedOnRecent = next
+        }
+      })
+      if (changed) writeStorage(key, feed)
+    })
+  } catch {
+    /* storage can be unavailable */
+  }
+
+  let cacheChanged = false
+  Object.values(streamCache.searches).forEach((entry) => {
+    if (!Array.isArray(entry?.tracks)) return
+    const next = entry.tracks.map(updateTrack)
+    if (next.some((track, index) => track !== entry.tracks[index])) {
+      entry.tracks = next
+      cacheChanged = true
+    }
+  })
+  Object.values(streamCache.streams).forEach((entry) => {
+    if (entry?.track?.id === trackId) {
+      entry.track.cover = safeCover
+      cacheChanged = true
+    }
+  })
+  if (cacheChanged) persistStreamCache()
+}
+
 function dailyFeedKey(dayKey) {
   return `${DAILY_FEED_PREFIX}${dayKey}`
+}
+
+function normalizeDailyFeed(dayKey, feed, builtAt = Date.now()) {
+  const users = Object.fromEntries(Object.entries(feed?.users || {}).slice(-8).map(([id, user]) => [
+    id,
+    {
+      ...user,
+      madeForYou: Array.isArray(user?.madeForYou) ? user.madeForYou.map(sanitizeTrack) : [],
+      basedOnRecent: Array.isArray(user?.basedOnRecent) ? user.basedOnRecent.map(sanitizeTrack) : [],
+      topArtists: Array.isArray(user?.topArtists) ? user.topArtists : [],
+      topLanguages: Array.isArray(user?.topLanguages) ? user.topLanguages : [],
+    },
+  ]))
+  return {
+    dayKey,
+    builtAt,
+    trending: Array.isArray(feed?.trending) ? feed.trending.map(sanitizeTrack) : [],
+    users,
+  }
 }
 
 function loadDailyFeedCache(dayKey) {
@@ -773,27 +945,23 @@ function loadDailyFeedCache(dayKey) {
   if (!cached || cached.dayKey !== dayKey) return null
   try {
     Object.keys(localStorage).forEach((key) => {
-      if (key.startsWith(DAILY_FEED_PREFIX) && key !== dailyFeedKey(dayKey)) localStorage.removeItem(key)
+      if (
+        key.startsWith(DAILY_FEED_LEGACY_PREFIX) &&
+        key !== dailyFeedKey(dayKey)
+      ) localStorage.removeItem(key)
     })
   } catch {
     /* storage can be unavailable */
   }
-  return {
-    dayKey,
-    builtAt: Number(cached.builtAt) || 0,
-    trending: Array.isArray(cached.trending) ? cached.trending.map(sanitizeTrack) : [],
-    users: cached.users && typeof cached.users === 'object' ? cached.users : {},
+  const normalized = normalizeDailyFeed(dayKey, cached, Number(cached.builtAt) || 0)
+  if (JSON.stringify(normalized) !== JSON.stringify(cached)) {
+    writeStorage(dailyFeedKey(dayKey), normalized)
   }
+  return normalized
 }
 
 function saveDailyFeedCache(dayKey, feed) {
-  const users = Object.fromEntries(Object.entries(feed.users || {}).slice(-8))
-  writeStorage(dailyFeedKey(dayKey), {
-    dayKey,
-    builtAt: Date.now(),
-    trending: (feed.trending || []).map(sanitizeTrack),
-    users,
-  })
+  writeStorage(dailyFeedKey(dayKey), normalizeDailyFeed(dayKey, feed))
 }
 
 function uniqueTracks(tracks = [], excluded = new Set()) {
@@ -1182,6 +1350,46 @@ async function fetchItunesSearch(query, limit = 12) {
   } catch {
     return []
   }
+}
+
+const artworkFallbackCache = new Map()
+const artworkFallbackMisses = new Set()
+const artworkFallbackInflight = new Map()
+
+async function fetchArtworkFallback(titleOrTrack, artist = '', videoId = '') {
+  const track = titleOrTrack && typeof titleOrTrack === 'object' ? titleOrTrack : null
+  const title = safeText(track?.title || titleOrTrack)
+  const by = safeText(track?.artist || artist)
+  const youtubeVideoId = safeText(track?.youtubeVideoId || videoId)
+  if (!title || /^unknown track$/i.test(title)) return null
+  const key = `${normalize(title)}::${normalize(by)}::${youtubeVideoId}`
+  if (artworkFallbackCache.has(key)) return artworkFallbackCache.get(key)
+  if (artworkFallbackMisses.has(key)) return null
+  if (artworkFallbackInflight.has(key)) return artworkFallbackInflight.get(key)
+
+  const task = (async () => {
+    if (youtubeVideoId) {
+      const thumbnail = normalizeArtworkUrl(`https://i.ytimg.com/vi/${youtubeVideoId}/hqdefault.jpg`)
+      artworkFallbackCache.set(key, thumbnail)
+      return thumbnail
+    }
+    const query = `${title} ${by}`.trim()
+    const results = await Promise.allSettled([
+      withTimeout(fetchJioSearch(query, 8), 4500),
+      withTimeout(fetchItunesSearch(query, 8), 4500),
+    ])
+    const candidates = results.flatMap((result) => (
+      result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
+    )).filter((candidate) => normalizeArtworkUrl(candidate?.cover))
+    const ranked = rankCandidates(candidates, { ...track, title, artist: by })
+    const cover = normalizeArtworkUrl(ranked[0]?.track?.cover || candidates[0]?.cover)
+    if (cover) artworkFallbackCache.set(key, cover)
+    else artworkFallbackMisses.add(key)
+    return cover
+  })().finally(() => artworkFallbackInflight.delete(key))
+
+  artworkFallbackInflight.set(key, task)
+  return task
 }
 
 function normalizePipedCandidate(item) {
@@ -1575,6 +1783,92 @@ async function resolveFullTrack(candidate) {
   return null
 }
 
+async function resolveByMetadata(candidate) {
+  if (!candidate) return null
+  const target = {
+    ...candidate,
+    searchTitle: candidate.searchTitle || candidate.title,
+    preview: false,
+    needsHydration: true,
+  }
+  const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
+  if (!query) return null
+
+  const [jioResult, youtubeResult] = await Promise.allSettled([
+    withTimeout(fetchJioSearch(query, 16), 4500),
+    withTimeout(searchYouTubeCandidates(query), 4500),
+  ])
+  const jioTracks = jioResult.status === 'fulfilled' ? jioResult.value : []
+  const youtubeTracks = youtubeResult.status === 'fulfilled' ? youtubeResult.value : []
+
+  const ranked = rankCandidates(jioTracks, target)
+  for (const entry of ranked.slice(0, 2)) {
+    if (entry.track?.streamUrl && !isPreviewTrack(entry.track) && isFullLengthTrack(entry.track)) {
+      const ready = sanitizeTrack({
+        ...target,
+        ...entry.track,
+        id: target.id,
+        cover: target.cover || entry.track.cover || null,
+        preview: false,
+        needsHydration: false,
+        status: 'ready',
+      })
+      cacheResolvedStream(target.id, ready)
+      return ready
+    }
+  }
+
+  const youtubeRanked = rankYouTubeCandidates(youtubeTracks, target)
+  const youtubeCandidate = youtubeRanked[0]?.track || youtubeTracks[0] || null
+  if (youtubeCandidate?.videoId) {
+    let audio = null
+    try {
+      audio = await withTimeout(getYouTubeAudio(youtubeCandidate.videoId), 4500)
+    } catch {
+      audio = null
+    }
+    const ready = sanitizeTrack({
+      ...target,
+      ...(audio || {}),
+      id: target.id,
+      provider: 'youtube',
+      providerLabel: '',
+      youtubeVideoId: youtubeCandidate.videoId,
+      streamUrl: audio?.streamUrl || null,
+      duration: youtubeCandidate.duration || audio?.duration || target.duration,
+      cover: target.cover || audio?.cover || youtubeCandidate.cover || null,
+      quality: audio?.quality || 'Stream',
+      preview: false,
+      needsHydration: false,
+      status: 'ready',
+    })
+    cacheResolvedStream(target.id, ready)
+    return ready
+  }
+
+  for (const entry of ranked.slice(0, 2)) {
+    try {
+      const hydrated = await withTimeout(hydrateJioTrack(entry.track), 4500)
+      if (hydrated?.streamUrl && !isPreviewTrack(hydrated) && isFullLengthTrack(hydrated)) {
+        const ready = sanitizeTrack({
+          ...target,
+          ...hydrated,
+          id: target.id,
+          cover: target.cover || hydrated.cover || null,
+          preview: false,
+          needsHydration: false,
+          status: 'ready',
+        })
+        cacheResolvedStream(target.id, ready)
+        return ready
+      }
+    } catch {
+      /* try the next matching source */
+    }
+  }
+  return null
+}
+
 const resolutionPromises = new Map()
 
 async function resolveSeed(seed) {
@@ -1916,20 +2210,48 @@ function AvatarStack({ ids = [], size = 'xs', max = 4 }) {
   )
 }
 
+const ArtworkContext = createContext(() => {})
+
 function Cover({ track, size = 'cover-size-sm', className = '', showQuality = false, playing = false }) {
+  const healArtwork = useContext(ArtworkContext)
+  const [imageSrc, setImageSrc] = useState(() => normalizeArtworkUrl(track?.cover))
+  const attemptedRef = useRef('')
+
+  useEffect(() => {
+    setImageSrc(normalizeArtworkUrl(track?.cover))
+  }, [track?.id, track?.cover])
+
+  useEffect(() => {
+    if (imageSrc || !track?.id || attemptedRef.current === track.id) return undefined
+    attemptedRef.current = track.id
+    let cancelled = false
+    fetchArtworkFallback(track)
+      .then((cover) => {
+        if (cancelled || !cover) return
+        setImageSrc(cover)
+        healArtwork(track.id, cover)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [imageSrc, track, healArtwork])
+
   return (
     <div
       className={`cover ${size} ${playing ? 'playing' : ''} ${className}`}
       style={{ '--c1': track?.c1 || '#26303a', '--c2': track?.c2 || '#a65845' }}
     >
-      {track?.cover ? (
+      {imageSrc && (
         <img
-          src={track.cover}
+          src={imageSrc}
           alt=""
           loading={size === 'cover-size-hero' ? 'eager' : 'lazy'}
-          onError={(event) => { event.currentTarget.style.display = 'none' }}
+          referrerPolicy="no-referrer"
+          onError={() => setImageSrc(null)}
         />
-      ) : (
+      )}
+      {!imageSrc && (
         <div className="cover-fallback">
           <span className="cover-glyph">{initials(track?.title || 'Echo')}</span>
         </div>
@@ -2282,6 +2604,78 @@ function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoinCode }
   )
 }
 
+function HomeRail({ children }) {
+  const railRef = useRef(null)
+  const [edges, setEdges] = useState({ overflow: false, canPrev: false, canNext: false })
+  const childCount = Array.isArray(children) ? children.length : 0
+
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return undefined
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const max = rail.scrollWidth - rail.clientWidth
+        setEdges({
+          overflow: max > 2,
+          canPrev: rail.scrollLeft > 2,
+          canNext: rail.scrollLeft < max - 2,
+        })
+      })
+    }
+    measure()
+    rail.addEventListener('scroll', measure, { passive: true })
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    observer?.observe(rail)
+    window.addEventListener('resize', measure)
+    return () => {
+      cancelAnimationFrame(frame)
+      rail.removeEventListener('scroll', measure)
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [childCount])
+
+  const scroll = (direction) => {
+    const rail = railRef.current
+    if (!rail) return
+    rail.scrollBy({ left: direction * Math.min(520, Math.max(260, rail.clientWidth * 0.72)), behavior: 'smooth' })
+  }
+
+  return (
+    <div className={`home-rail-shell ${edges.overflow ? 'has-overflow' : ''}`}>
+      <div
+        ref={railRef}
+        className="home-rail shelf-row h-scroll recent-row cards-rail"
+        data-testid="home-rail"
+      >
+        {children}
+      </div>
+      <button
+        type="button"
+        className="rail-arrow rail-arrow-prev"
+        onClick={() => scroll(-1)}
+        disabled={!edges.canPrev}
+        aria-label="Scroll left"
+        title="Scroll left"
+      >
+        <ChevronLeft />
+      </button>
+      <button
+        type="button"
+        className="rail-arrow rail-arrow-next"
+        onClick={() => scroll(1)}
+        disabled={!edges.canNext}
+        aria-label="Scroll right"
+        title="Scroll right"
+      >
+        <ChevronRight />
+      </button>
+    </div>
+  )
+}
+
 function HomeView({
   currentUser,
   library,
@@ -2303,6 +2697,7 @@ function HomeView({
   roomCount,
 }) {
   const recent = recentIds.map((id) => library[id]).filter(Boolean).slice(0, 8)
+  const likedCount = liked.filter((id) => library[id]).length
   const dailyUser = dailyFeed?.users?.[currentUser?.id || 'guest'] || {}
   const madeForYou = Array.isArray(dailyUser.madeForYou) ? dailyUser.madeForYou : []
   const basedOnRecent = Array.isArray(dailyUser.basedOnRecent) ? dailyUser.basedOnRecent : []
@@ -2343,7 +2738,7 @@ function HomeView({
           </button>
           <button
             className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`}
-            onClick={() => onLike(track.id)}
+            onClick={() => onLike(track)}
             aria-label="Like track"
           >
             <Heart />
@@ -2371,7 +2766,7 @@ function HomeView({
             <button className="text-btn" onClick={onJoinCode}><KeyRound size={13} /> Join with code</button>
           </div>
           <div className="solo-stats">
-            <span><b>{liked.length}</b> liked songs</span>
+            <span><b>{likedCount}</b> liked songs</span>
             <span><b>{playlists.length}</b> playlists</span>
             <span><b>{roomCount}</b> live rooms</span>
           </div>
@@ -2391,7 +2786,7 @@ function HomeView({
             <div><h3>Recently played</h3><p>Pick up right where you left off.</p></div>
             <span className="source-badge">{recent.length} tracks</span>
           </div>
-          <div className="home-rail">
+          <HomeRail>
             {recent.map((track) => (
               <div key={track.id} className="home-tile-wrap">
                 <button className="home-tile" onClick={() => onPlayTrack(track)}>
@@ -2404,7 +2799,7 @@ function HomeView({
                 </button>
               </div>
             ))}
-          </div>
+          </HomeRail>
         </section>
       )}
 
@@ -2746,7 +3141,7 @@ function LibraryView({
                   <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
                     <ListPlus />
                   </button>
-                  <button className="queue-heart liked" onClick={(event) => { event.stopPropagation(); onLike(track.id) }} aria-label="Unlike track">
+                  <button className="queue-heart liked" onClick={(event) => { event.stopPropagation(); onLike(track) }} aria-label="Unlike track">
                     <Heart />
                   </button>
                 </div>
@@ -2776,7 +3171,7 @@ function LibraryView({
                   <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
                     <ListPlus />
                   </button>
-                  <button className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`} onClick={(event) => { event.stopPropagation(); onLike(track.id) }} aria-label="Like track">
+                  <button className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`} onClick={(event) => { event.stopPropagation(); onLike(track) }} aria-label="Like track">
                     <Heart />
                   </button>
                 </div>
@@ -4994,7 +5389,7 @@ function RoomView({
                 <RefreshCw size={11} /> Retry Full Stream
               </button>
             )}
-            <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track">
+            <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track">
               <Heart />
             </button>
           </div>
@@ -5059,7 +5454,7 @@ function RoomView({
                 className={`queue-heart ${liked.includes(item?.id) ? 'liked' : ''}`}
                 onClick={(event) => {
                   event.stopPropagation()
-                  onLike(item?.id)
+                  onLike(item)
                 }}
                 aria-label="Like track"
               >
@@ -5148,7 +5543,7 @@ function PlayerDock({
           <span className="dock-sync solo"><Headphones /> <b>Solo</b></span>
         )}
         <button className="icon-btn dock-add" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
-        <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track"><Heart /></button>
+        <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track"><Heart /></button>
         <div className="volume-box">
           <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
             {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
@@ -5433,7 +5828,7 @@ function FullPlayer({
               </div>
 
               <div className="fp-bottom-row">
-                <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track?.id)} aria-label="Like track"><Heart /></button>
+                <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track"><Heart /></button>
                 <button className="icon-btn" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
                 <div className="volume-box">
                   <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
@@ -5610,11 +6005,13 @@ export default function App() {
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(0.82)
   const [muted, setMuted] = useState(false)
-  const [library, setLibrary] = useState(buildInitialLibrary)
-  const [liked, setLiked] = useState(() => {
-    const value = readUserValue(LIKES_KEY, currentUserId, [])
-    return Array.isArray(value) ? value.map((id) => safeText(id)).filter(Boolean) : []
+  const [library, setLibrary] = useState(() => {
+    const base = buildInitialLibrary()
+    return mergeLikedTracks(base, readUserValue(LIKES_KEY, currentUserId, [])).library
   })
+  const [liked, setLiked] = useState(() => (
+    likedIdsFrom(readUserValue(LIKES_KEY, currentUserId, []))
+  ))
   const [playlists, setPlaylists] = useState(() => {
     const value = readUserValue(PLAYLISTS_KEY, currentUserId, [])
     return Array.isArray(value) ? value.map(sanitizePlaylist).filter(Boolean) : []
@@ -5881,8 +6278,17 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUserId) return
-    writeUserValue(LIKES_KEY, currentUserId, liked)
-  }, [currentUserId, liked])
+    const visible = liked.filter((id) => library[id])
+    if (visible.length !== liked.length) {
+      setLiked(visible)
+      return
+    }
+    writeUserValue(
+      LIKES_KEY,
+      currentUserId,
+      visible.map((id) => sanitizeTrack(library[id])),
+    )
+  }, [currentUserId, liked, library])
 
   useEffect(() => {
     if (!currentUserId) return
@@ -6082,7 +6488,13 @@ export default function App() {
     const userPlaylists = readUserValue(PLAYLISTS_KEY, id, [])
     const userRecent = readUserValue(RECENT_KEY, id, [])
     const userSettings = { ...DEFAULT_SETTINGS, ...(readUserValue(SETTINGS_KEY, id, {}) || {}) }
-    setLiked(Array.isArray(userLikes) ? userLikes : [])
+    ;(Array.isArray(userLikes) ? userLikes : []).forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const track = sanitizeTrack(entry)
+      if (track.id) saveLibraryEntry(track.id, track)
+    })
+    setLiked(likedIdsFrom(userLikes))
+    setLibrary((previous) => mergeLikedTracks(previous, userLikes).library)
     setPlaylists(Array.isArray(userPlaylists) ? userPlaylists : [])
     setRecent(Array.isArray(userRecent) ? userRecent : [])
     setSettings(userSettings)
@@ -6267,7 +6679,7 @@ export default function App() {
       ...previous,
       [entry.id]: sanitizeTrack({ ...(previous[entry.id] || {}), ...entry }),
     }))
-    if (entry.streamUrl || entry.youtubeVideoId) saveLibraryEntry(entry.id, entry)
+    saveLibraryEntry(entry.id, entry)
   }
 
   function pushSystemMessage(roomId, text) {
@@ -6907,15 +7319,21 @@ export default function App() {
     showToast('Shuffling your playlist')
   }
 
-  function toggleLike(trackId) {
+  function toggleLike(trackOrId) {
+    const trackId = likedTrackId(trackOrId)
     if (!trackId || trackId === 'empty') return
-    if (requireAuth({ type: 'like', trackId }, 'Log in to save tracks to your library.')) return
+    const candidate = trackOrId && typeof trackOrId === 'object'
+      ? trackOrId
+      : library[trackId] || SEED_BY_ID[trackId] || null
+    if (requireAuth({ type: 'like', trackId, track: candidate }, 'Log in to save tracks to your library.')) return
+    const removing = liked.includes(trackId)
+    if (!removing && candidate) rememberTrack(candidate)
     setLiked((previous) => (
       previous.includes(trackId)
         ? previous.filter((id) => id !== trackId)
         : [trackId, ...previous]
     ))
-    showToast(liked.includes(trackId) ? 'Removed from your library' : 'Saved to your library')
+    showToast(removing ? 'Removed from your library' : 'Saved to your library')
   }
 
   function getPlaybackTime() {
@@ -7006,23 +7424,56 @@ export default function App() {
   async function ensurePlayable(rawCandidate) {
     if (!rawCandidate) return null
     const candidate = sanitizeTrack(rawCandidate)
-    if (
+    if (!candidate.id) return null
+    const direct = Boolean(
       (candidate.streamUrl || candidate.youtubeVideoId) &&
       !isPreviewTrack(candidate) &&
-      isFullLengthTrack(candidate) &&
-      candidate.status === 'ready'
-    ) {
-      return candidate
+      isFullLengthTrack(candidate),
+    )
+    const staged = sanitizeTrack({
+      ...candidate,
+      preview: false,
+      status: direct ? 'ready' : 'resolving',
+    })
+    setLibrary((previous) => {
+      const existing = previous[candidate.id]
+      return {
+        ...previous,
+        [candidate.id]: sanitizeTrack({
+          ...existing,
+          ...staged,
+          streamUrl: staged.streamUrl || existing?.streamUrl || null,
+          youtubeVideoId: staged.youtubeVideoId || existing?.youtubeVideoId || undefined,
+          cover: staged.cover || existing?.cover || null,
+          status: direct ? 'ready' : 'resolving',
+        }),
+      }
+    })
+    if (direct) {
+      saveLibraryEntry(candidate.id, staged)
+      return staged
     }
     if (candidate.streamUrl && isPreviewTrack(candidate)) {
       clearResolvedStream(candidate.id)
     }
-    setLibrary((previous) => ({
-      ...previous,
-      [candidate.id]: { ...(previous[candidate.id] || candidate), status: 'resolving' },
-    }))
     try {
-      const resolved = await resolveFullTrack(candidate)
+      let resolved = null
+      try {
+        resolved = await withTimeout(
+          resolveFullTrack(candidate),
+          4500,
+          'Primary stream lookup timed out',
+        )
+      } catch {
+        resolved = null
+      }
+      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
+        resolved = await withTimeout(
+          resolveByMetadata(candidate),
+          9000,
+          'Fallback stream lookup timed out',
+        )
+      }
       if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
         throw new Error('No playable full-length source')
       }
@@ -7052,6 +7503,12 @@ export default function App() {
       }))
       showToast(`Could not find a full stream for “${candidate.title || 'this track'}”.`, 'lock')
       return null
+    } finally {
+      setLibrary((previous) => {
+        const entry = previous[candidate.id]
+        if (!entry || entry.status !== 'resolving') return previous
+        return { ...previous, [candidate.id]: { ...entry, status: 'error' } }
+      })
     }
   }
 
@@ -8218,7 +8675,10 @@ export default function App() {
 
   function clearAllCaches() {
     clearPlaybackCaches()
-    setLibrary(buildInitialLibrary())
+    setLibrary(() => mergeLikedTracks(
+      buildInitialLibrary(),
+      readUserValue(LIKES_KEY, currentUserId, []),
+    ).library)
     setCacheRevision((value) => value + 1)
     setLyrics({ status: 'idle' })
     setLyricsRefresh((value) => value + 1)
@@ -8412,7 +8872,7 @@ export default function App() {
       return
     }
     if (action.type === 'like') {
-      toggleLike(action.trackId)
+      toggleLike(action.track || action.trackId)
       return
     }
     if (action.type === 'createRoom') {
@@ -8499,12 +8959,34 @@ export default function App() {
     setRoomEditor('edit')
   }
 
+  const healArtwork = useCallback((trackId, cover) => {
+    const safeCover = normalizeArtworkUrl(cover)
+    if (!trackId || !safeCover) return
+    persistTrackArtwork(trackId, safeCover)
+    setLibrary((previous) => (
+      previous[trackId] ? { ...previous, [trackId]: { ...previous[trackId], cover: safeCover } } : previous
+    ))
+    setDailyFeed((previous) => {
+      const updateUser = (user) => ({
+        ...user,
+        madeForYou: replaceTrackArtwork(user?.madeForYou, trackId, safeCover),
+        basedOnRecent: replaceTrackArtwork(user?.basedOnRecent, trackId, safeCover),
+      })
+      return {
+        ...previous,
+        trending: replaceTrackArtwork(previous.trending, trackId, safeCover),
+        users: Object.fromEntries(Object.entries(previous.users || {}).map(([id, user]) => [id, updateUser(user)])),
+      }
+    })
+  }, [])
+
   const rootStyle = {
     '--accent': displayRoom.accent || '#f16b73',
     '--accent-2': displayRoom.accent2 || '#f2b38e',
   }
 
   return (
+    <ArtworkContext.Provider value={healArtwork}>
     <MembersContext.Provider value={memberIndex}>
       <div className={`app ${theme}`} style={rootStyle}>
         <div className="ambient" />
@@ -8545,7 +9027,7 @@ export default function App() {
             view={view}
             inRoom={inRoom}
             role={ROLE_COPY[role]?.label || 'Listener'}
-            likedCount={likedSet.length}
+            likedCount={likedSet.filter((id) => library[id]).length}
             currentUser={currentUser}
             playlists={playlists}
             onNavigate={navigateView}
@@ -8966,5 +9448,6 @@ export default function App() {
         <Toast toast={toast} />
       </div>
     </MembersContext.Provider>
+    </ArtworkContext.Provider>
   )
 }
