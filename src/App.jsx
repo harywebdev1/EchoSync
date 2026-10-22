@@ -99,21 +99,19 @@ const TRANSLATE_KEY = 'echosync_translate.v1'
 const STREAM_CACHE_KEY = 'echosync_stream_cache_v4'
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
 const INVITES_KEY = 'echosync_invites_v1'
-const DAILY_FEED_PREFIX = 'echosync_daily_feed_v2_'
+const DAILY_FEED_PREFIX = 'echosync_daily_feed_v3_'
 const DAILY_FEED_LEGACY_PREFIX = 'echosync_daily_feed_'
 const LOCK_MESSAGE = 'Listener Mode: Only Room Admin or DJ can control playback'
 const SOLO_ROOM_ID = 'solo'
 const DAILY_QUERIES = [
   'Atif Aslam songs',
   'Arijit Singh songs',
-  'Coke Studio Pakistan songs',
+  'Coke Studio songs',
+  'Pritam songs',
   'The Weeknd songs',
   'Diljit Dosanjh songs',
-  'AP Dhillon songs',
-  'Talha Anjum songs',
-  'Pritam songs',
+  'Nusrat Fateh Ali Khan songs',
   'AR Rahman songs',
-  'Coldplay songs',
 ]
 const ARTIST_LANGUAGE = {
   'atif aslam': 'Urdu',
@@ -1174,8 +1172,66 @@ function normalizeDailyFeed(dayKey, feed, builtAt = Date.now()) {
   return {
     dayKey,
     builtAt,
+    liveCount: Number(feed?.liveCount) || 0,
     trending: Array.isArray(feed?.trending) ? feed.trending.map(sanitizeTrack) : [],
     users,
+  }
+}
+
+function validDailyTracks(tracks, minimum = 1) {
+  const clean = uniqueTracks(
+    (Array.isArray(tracks) ? tracks : [])
+      .filter((track) => track?.id && !isPreviewTrack(track) && isFullLengthTrack(track))
+      .map((track) => sanitizeTrack(track)),
+  )
+  return clean.length >= minimum ? clean : []
+}
+
+function buildDailyStarterFeed(dayKey, userKey, library = {}) {
+  const cachedTracks = Object.values(library)
+    .filter((track) => track?.id && !track.preview && isFullLengthTrack(track))
+    .sort((left, right) => Number(right.status === 'ready') - Number(left.status === 'ready'))
+  const pool = uniqueTracks([...cachedTracks, ...SEED_TRACKS])
+  const trending = rotateDaily(pool, dayKey, 0).slice(0, 16)
+  const madeForYou = rotateDaily(pool, `${dayKey}:${userKey}`, 4).slice(0, 12)
+  const basedOnRecent = rotateDaily(pool, `${dayKey}:${userKey}`, 9).slice(0, 10)
+  return {
+    dayKey,
+    builtAt: 0,
+    liveCount: 0,
+    trending,
+    users: {
+      [userKey]: {
+        madeForYou,
+        basedOnRecent,
+        topArtists: [...new Set(pool.map((track) => safeText(track.artist)).filter(Boolean))].slice(0, 4),
+        topLanguages: [],
+      },
+    },
+  }
+}
+
+function fillDailyFeed(feed, starter, userKey) {
+  const existingUser = feed?.users?.[userKey] || {}
+  const starterUser = starter.users[userKey]
+  const trending = validDailyTracks(feed?.trending, 6)
+  return {
+    ...(feed || starter),
+    trending: trending.length ? trending : starter.trending,
+    users: {
+      ...(feed?.users || {}),
+      [userKey]: {
+        ...existingUser,
+        madeForYou: validDailyTracks(existingUser.madeForYou).length
+          ? validDailyTracks(existingUser.madeForYou)
+          : starterUser.madeForYou,
+        basedOnRecent: validDailyTracks(existingUser.basedOnRecent).length
+          ? validDailyTracks(existingUser.basedOnRecent)
+          : starterUser.basedOnRecent,
+        topArtists: existingUser.topArtists?.length ? existingUser.topArtists : starterUser.topArtists,
+        topLanguages: Array.isArray(existingUser.topLanguages) ? existingUser.topLanguages : [],
+      },
+    },
   }
 }
 
@@ -1193,6 +1249,14 @@ function loadDailyFeedCache(dayKey) {
     /* storage can be unavailable */
   }
   const normalized = normalizeDailyFeed(dayKey, cached, Number(cached.builtAt) || 0)
+  if (validDailyTracks(normalized.trending, 6).length < 6) {
+    try {
+      localStorage.removeItem(dailyFeedKey(dayKey))
+    } catch {
+      /* storage can be unavailable */
+    }
+    return null
+  }
   if (JSON.stringify(normalized) !== JSON.stringify(cached)) {
     writeStorage(dailyFeedKey(dayKey), normalized)
   }
@@ -1200,6 +1264,7 @@ function loadDailyFeedCache(dayKey) {
 }
 
 function saveDailyFeedCache(dayKey, feed) {
+  if (validDailyTracks(feed?.trending, 6).length < 6 || Number(feed?.liveCount) < 6) return
   writeStorage(dailyFeedKey(dayKey), normalizeDailyFeed(dayKey, feed))
 }
 
@@ -1469,9 +1534,15 @@ async function loadDailySection(queries, limit) {
 
 async function buildDailyFeed({ dayKey, userKey, taste, rotation = 0, existing = null }) {
   const trendingQueries = rotateDaily(DAILY_QUERIES, dayKey, rotation).slice(0, 4)
-  const trending = existing?.trending?.length && !rotation
-    ? existing.trending
-    : await loadDailySection(trendingQueries, 20)
+  const fallbackQueries = DAILY_QUERIES.filter((query) => !trendingQueries.includes(query))
+  let live = await loadDailySection(trendingQueries, 20)
+  if (live.length < 6) {
+    live = uniqueTracks([...live, ...await loadDailySection(fallbackQueries, 20)])
+  }
+  const trending = uniqueTracks([
+    ...live,
+    ...(validDailyTracks(existing?.trending, 6) || []),
+  ]).slice(0, 20)
   const profileArtists = Array.isArray(taste.profileArtists) ? taste.profileArtists : []
   const profileLanguages = Array.isArray(taste.profileLanguages) ? taste.profileLanguages : []
   const profileVibes = Array.isArray(taste.profileVibes) ? taste.profileVibes : []
@@ -1495,10 +1566,10 @@ async function buildDailyFeed({ dayKey, userKey, taste, rotation = 0, existing =
       loadDailySection([...new Set(madeQueries)], 12),
       recentQueries.length ? loadDailySection([...new Set(recentQueries)], 10) : Promise.resolve([]),
     ])
-    user.madeForYou = uniqueTracks([...made, ...trending], new Set(made.map((track) => track.id))).slice(0, 12)
-    user.basedOnRecent = uniqueTracks([...based, ...trending], new Set([...made, ...based].map((track) => track.id))).slice(0, 10)
+    user.madeForYou = uniqueTracks([...made, ...trending]).slice(0, 12)
+    user.basedOnRecent = uniqueTracks([...based, ...trending]).slice(0, 10)
   }
-  return { dayKey, builtAt: Date.now(), trending, users: { [userKey]: user } }
+  return { dayKey, builtAt: Date.now(), liveCount: live.length, trending, users: { [userKey]: user } }
 }
 
 function evictLibraryEntry(id) {
@@ -3407,6 +3478,7 @@ function LibraryView({
   onRemoveFromPlaylist,
   onShufflePlaylist,
   onOpenPlaylist,
+  onImportPlaylist,
 }) {
   const [tab, setTab] = useState('playlists')
   const [playlistQuery, setPlaylistQuery] = useState('')
@@ -3480,6 +3552,7 @@ function LibraryView({
               <div className="playlist-detail-actions">
                 <button className="primary-btn" onClick={() => onPlayPlaylist(activePlaylist)} disabled={!playlistTracks.length}><Play /> Play</button>
                 <button className="text-btn" onClick={() => onShufflePlaylist(activePlaylist)} disabled={!playlistTracks.length}><Shuffle size={12} /> Shuffle</button>
+                <button className="text-btn" onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>
                 <button className="text-btn" onClick={() => onRenamePlaylist(activePlaylist)}><Pencil size={12} /> Edit</button>
                 <button className="text-btn danger-btn" onClick={() => onDeletePlaylist(activePlaylist)}><Trash2 size={12} /> Delete</button>
                 <button className="text-btn ghosted" onClick={() => onSelectPlaylist(null)}><X size={12} /> Close</button>
@@ -3576,6 +3649,14 @@ function LibraryView({
             <button className={tab === 'liked' ? 'active' : ''} onClick={() => setTab('liked')}><Heart /> Liked songs</button>
             <button className={tab === 'recent' ? 'active' : ''} onClick={() => setTab('recent')}><Clock3 /> Recently played</button>
             <span className="grow" />
+            {tab === 'liked' && likedTracks.length > 0 && (
+              <button
+                className="text-btn"
+                onClick={() => onImportPlaylist?.({ id: 'liked', name: 'Liked songs', trackIds: likedTracks.map((track) => track.id) })}
+              >
+                <Radio size={12} /> Add Liked to Room
+              </button>
+            )}
             <button className="text-btn" onClick={onCreatePlaylist}><Plus /> New playlist</button>
           </div>
 
@@ -3598,6 +3679,25 @@ function LibraryView({
                           <span key={cover.id} style={cover.cover ? { backgroundImage: `url(${cover.cover})` } : { background: `linear-gradient(135deg, ${cover.c1}, ${cover.c2})` }} />
                         )) : <span className="mosaic-empty"><Music2 /></span>}
                       </div>
+                      <span
+                        className="playlist-room-btn"
+                        role="button"
+                        tabIndex={0}
+                        title="Add playlist to Room"
+                        aria-label={`Add ${playlist.name} to Room`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onImportPlaylist?.(playlist)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter' && event.key !== ' ') return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          onImportPlaylist?.(playlist)
+                        }}
+                      >
+                        <Radio size={11} />
+                      </span>
                       <strong>{playlist.name}</strong>
                       <span>{playlist.trackIds.length} track{playlist.trackIds.length === 1 ? '' : 's'}</span>
                       <em onClick={(event) => { event.stopPropagation(); onPlayPlaylist(playlist) }} role="button" tabIndex={0}>
@@ -5751,7 +5851,14 @@ function RoomView({
   onFindFull,
   onRetryFull,
   onLeaveRoom,
+  playlists = [],
+  likedTracks = [],
+  canControlRoom = false,
+  onRemoveQueueTrack,
+  onClearQueue,
+  onImportPlaylist,
 }) {
+  const [importOpen, setImportOpen] = useState(false)
   const members = useMembers()
   const words = room.name.split(' ')
   const lastWord = words.pop()
@@ -5987,11 +6094,52 @@ function RoomView({
         </div>
         <div className="head-actions">
           <button className="text-btn" onClick={onSearch}><Plus /> Add a song</button>
+          {canControlRoom && (
+            <div className="room-import-wrap">
+              <button className="text-btn" onClick={() => setImportOpen((value) => !value)} aria-expanded={importOpen}>
+                <ListPlus /> Import playlist
+              </button>
+              {importOpen && (
+                <div className="room-import-popover">
+                  <span className="room-import-label">Add a playlist to the room</span>
+                  <button
+                    onClick={() => {
+                      onImportPlaylist?.({ id: 'liked', name: 'Liked songs', trackIds: likedTracks.map((track) => track.id) })
+                      setImportOpen(false)
+                    }}
+                  >
+                    <Heart size={12} />
+                    <span>Liked songs</span>
+                    <b>{likedTracks.length}</b>
+                  </button>
+                  {playlists.map((playlist) => (
+                    <button
+                      key={playlist.id}
+                      onClick={() => {
+                        onImportPlaylist?.(playlist)
+                        setImportOpen(false)
+                      }}
+                    >
+                      <ListMusic size={12} />
+                      <span>{playlist.name}</span>
+                      <b>{playlist.trackIds.length}</b>
+                    </button>
+                  ))}
+                  {!playlists.length && !likedTracks.length && (
+                    <p>No saved playlists yet.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {canControlRoom && queue.length > 0 && (
+            <button className="text-btn queue-clear-btn" onClick={onClearQueue}><Trash2 /> Clear queue</button>
+          )}
           <span className="source-badge">{queue.length} {queue.length === 1 ? 'track' : 'tracks'}</span>
         </div>
       </div>
 
-      <section className="queue">
+      <section className="queue room-queue">
         {queue.length === 0 && (
           <div className="queue-empty room-queue-empty">
             <span className="empty-icon"><ListMusic /></span>
@@ -6055,6 +6203,19 @@ function RoomView({
               >
                 <ListPlus />
               </button>
+              {canControlRoom && (
+                <button
+                  className="queue-more queue-remove"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onRemoveQueueTrack?.(index)
+                  }}
+                  aria-label={`Remove ${item?.title || 'track'} from room queue`}
+                  title="Remove from room queue"
+                >
+                  <Trash2 />
+                </button>
+              )}
             </div>
           )
         })}
@@ -6208,6 +6369,9 @@ function SearchOverlay({
   onClearRecentSearches,
   tasteTracks = [],
   onOpenTaste,
+  context = { mode: 'solo', roomName: '' },
+  canControlRoom = false,
+  pendingTrackId = '',
 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -6274,6 +6438,21 @@ function SearchOverlay({
           />
           <span className="esc-key">ESC</span>
           <button className="icon-btn" onClick={onClose} aria-label="Close search"><X /></button>
+        </div>
+
+        <div className={`search-context-pill ${context.mode}`} data-testid="search-context">
+          {context.mode === 'room' ? (
+            <>
+              <Radio size={12} />
+              <span>Adding &amp; Playing in Room: {context.roomName || 'Room'}</span>
+              {!canControlRoom && <b>Admin/DJ only</b>}
+            </>
+          ) : (
+            <>
+              <Headphones size={12} />
+              <span>Playing in Solo Mode</span>
+            </>
+          )}
         </div>
 
         <div className="search-results">
@@ -6401,6 +6580,7 @@ function SearchOverlay({
                   <div className="search-copy">
                     <strong>{track.title}</strong>
                     <span>{track.artist}{track.preview ? ' · preview' : ''}</span>
+                    {pendingTrackId === track.id && <span className="search-pending-copy">Loading stream...</span>}
                   </div>
                   <button
                     className="search-play"
@@ -6408,9 +6588,10 @@ function SearchOverlay({
                       event.stopPropagation()
                       onPlay(track, results)
                     }}
-                    aria-label="Play now"
+                    aria-label={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
+                    title={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
                   >
-                    <Play />
+                    {pendingTrackId === track.id ? <span className="spinner" /> : <Play />}
                   </button>
                   <button
                     className="search-save"
@@ -6429,9 +6610,12 @@ function SearchOverlay({
                       event.stopPropagation()
                       onQueue(track)
                     }}
-                    aria-label="Add to queue"
+                    aria-label={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
+                    title={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
+                    disabled={context.mode === 'room' && !canControlRoom}
                   >
                     <Plus />
+                    <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>
                   </button>
                 </div>
               ))}
@@ -6749,8 +6933,16 @@ export default function App() {
   }))
   const [translateOn, setTranslateOn] = useState(() => Boolean(settings.autoTranslate))
   const [translating, setTranslating] = useState(false)
-  const [dailyFeed, setDailyFeed] = useState({ dayKey: '', trending: [], users: {} })
-  const [dailyStatus, setDailyStatus] = useState('loading')
+  const [dailyFeed, setDailyFeed] = useState(() => {
+    const dayKey = new Date().toISOString().slice(0, 10)
+    const userKey = currentUserId || 'guest'
+    const cached = loadDailyFeedCache(dayKey)
+    const starter = buildDailyStarterFeed(dayKey, userKey, library)
+    return cached ? fillDailyFeed(cached, starter, userKey) : starter
+  })
+  const [dailyStatus, setDailyStatus] = useState(() => (
+    validDailyTracks(dailyFeed?.trending, 6).length ? 'ready' : 'loading'
+  ))
   const [dailyRefresh, setDailyRefresh] = useState(0)
   const [crossfadeGain, setCrossfadeGain] = useState(1)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -6764,6 +6956,8 @@ export default function App() {
   const [unreadRoomCounts, setUnreadRoomCounts] = useState({})
   const [latestRoomPreview, setLatestRoomPreview] = useState({})
   const [searchOpen, setSearchOpen] = useState(false)
+  const [searchContext, setSearchContext] = useState({ mode: 'solo', roomId: null, roomName: '' })
+  const [pendingPlayId, setPendingPlayId] = useState('')
   const [fullPlayer, setFullPlayer] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tasteOpen, setTasteOpen] = useState(false)
@@ -6807,9 +7001,13 @@ export default function App() {
   const activeRoomRef = useRef(activeRoomId)
   const roomsRef = useRef(rooms)
   const queueIdsRef = useRef([])
+  const roomQueueRef = useRef([])
   const currentIndexRef = useRef(0)
   const isPlayingRef = useRef(false)
   const canControlRef = useRef(true)
+  const roomControlRef = useRef(false)
+  const roomClockRef = useRef({ roomId: null, index: 0, trackId: null, time: 0, updatedAt: 0, isPlaying: false })
+  const libraryRef = useRef({})
   const currentUserRef = useRef(null)
   const memberIndexRef = useRef({})
   const messagesRef = useRef(messages)
@@ -6842,6 +7040,8 @@ export default function App() {
   const soloSnapshotRef = useRef({ track: null, currentTime: 0, isPlaying: false, queue: [], index: 0 })
   const soloResumeRef = useRef(null)
   const searchRoomRef = useRef(null)
+  const searchTargetRef = useRef({ mode: 'solo', roomId: null })
+  const playRequestRef = useRef({ seq: 0, id: '' })
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
   const dailyDayKey = new Date().toISOString().slice(0, 10)
@@ -6853,7 +7053,8 @@ export default function App() {
   const inRoom = Boolean(activeRoom)
   const roomPlaybackActive = Boolean(activeRoom && view === 'room')
   const role = inRoom ? activeRoom.roles?.[currentUserId] || 'listener' : 'listener'
-  const canControl = !roomPlaybackActive || role === 'admin' || role === 'dj'
+  const canControlRoom = role === 'admin' || role === 'dj'
+  const canControl = !roomPlaybackActive || canControlRoom
   const canModerate = roomPlaybackActive && role === 'admin'
   const remoteSpeaking = Object.keys(remoteVoice).length > 0
   const voiceSpeaking = speaking || remoteSpeaking
@@ -6879,7 +7080,7 @@ export default function App() {
   const roomMessages = activeRoomId ? messages[activeRoomId] || [] : []
   const typingMemberId = activeRoomId ? typing[activeRoomId] || null : null
   const likedSet = Array.isArray(liked) ? liked : []
-  const displayRoom = activeRoom || {
+  const displayRoom = roomPlaybackActive && activeRoom ? activeRoom : {
     id: SOLO_ROOM_ID,
     name: 'Solo listening',
     accent: '#f16b73',
@@ -6961,6 +7162,14 @@ export default function App() {
   }, [queueIds])
 
   useEffect(() => {
+    roomQueueRef.current = activeRoom?.trackIds || []
+  }, [activeRoom])
+
+  useEffect(() => {
+    libraryRef.current = library
+  }, [library])
+
+  useEffect(() => {
     currentIndexRef.current = currentIndex
   }, [currentIndex])
 
@@ -6971,6 +7180,10 @@ export default function App() {
   useEffect(() => {
     canControlRef.current = canControl
   }, [canControl])
+
+  useEffect(() => {
+    roomControlRef.current = canControlRoom
+  }, [canControlRoom])
 
   useEffect(() => {
     currentUserRef.current = currentUser
@@ -7079,21 +7292,15 @@ export default function App() {
 
   useEffect(() => {
     const userKey = currentUserId || 'guest'
+    const starter = buildDailyStarterFeed(dailyDayKey, userKey, library)
     const existing = loadDailyFeedCache(dailyDayKey)
     const existingUser = existing?.users?.[userKey]
-    if (existingUser) {
-      existing.users[userKey] = {
-        ...existingUser,
-        madeForYou: Array.isArray(existingUser.madeForYou) ? existingUser.madeForYou.map(sanitizeTrack) : [],
-        basedOnRecent: Array.isArray(existingUser.basedOnRecent) ? existingUser.basedOnRecent.map(sanitizeTrack) : [],
-        topArtists: Array.isArray(existingUser.topArtists) ? existingUser.topArtists : [],
-        topLanguages: Array.isArray(existingUser.topLanguages) ? existingUser.topLanguages : [],
+    if (existing) {
+      setDailyFeed(fillDailyFeed(existing, starter, userKey))
+      if (existingUser && dailyRefresh === 0) {
+        setDailyStatus('ready')
+        return undefined
       }
-    }
-    if (existing?.trending?.length && existingUser && dailyRefresh === 0) {
-      setDailyFeed({ dayKey: dailyDayKey, trending: existing.trending, users: existing.users })
-      setDailyStatus('ready')
-      return undefined
     }
     let cancelled = false
     setDailyStatus('loading')
@@ -7117,14 +7324,18 @@ export default function App() {
       .then((feed) => {
         if (cancelled) return
         const users = { ...(existing?.users || {}), ...feed.users }
-        const next = { dayKey: dailyDayKey, builtAt: feed.builtAt, trending: feed.trending, users }
+        const next = fillDailyFeed(
+          { dayKey: dailyDayKey, builtAt: feed.builtAt, liveCount: feed.liveCount, trending: feed.trending, users },
+          starter,
+          userKey,
+        )
         setDailyFeed(next)
         setDailyStatus('ready')
         saveDailyFeedCache(dailyDayKey, next)
       })
       .catch(() => {
         if (cancelled) return
-        setDailyStatus('error')
+        setDailyStatus((previous) => (previous === 'ready' ? 'ready' : 'error'))
       })
     return () => {
       cancelled = true
@@ -7208,7 +7419,9 @@ export default function App() {
 
   useEffect(() => {
     if (view === 'room' || !activeRoomId) return
-    leaveRoomPlayback()
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    setJoinPill(null)
   }, [view, activeRoomId])
 
   useEffect(() => {
@@ -7537,7 +7750,7 @@ export default function App() {
     })
     const stored = loadRoomStateSnapshot()
     if (stored?.roomId === roomId && stored.ts && Date.now() - stored.ts < 15000) {
-      applyRemoteState({ ...stored, isPlaying: false, ts: Date.now() }, { forcePaused: true })
+      applyRemoteState(stored)
     }
   }
 
@@ -7572,6 +7785,7 @@ export default function App() {
     }
     const changed = activeRoomId !== candidate.id
     if (changed) {
+      if (activeRoomRef.current && viewRef.current === 'room') syncRoomClockFromPlayback()
       captureSoloSnapshot()
       audioRef.current?.pause()
       setIsPlaying(false)
@@ -7581,12 +7795,23 @@ export default function App() {
       setReplyTo(null)
       setJoinPill(null)
       pendingSeekRef.current = null
+      setRoomClock({
+        roomId: candidate.id,
+        index: 0,
+        trackId: candidate.trackIds?.[0] || null,
+        time: 0,
+        isPlaying: false,
+      })
     }
     activeRoomRef.current = candidate.id
     setActiveRoomId(candidate.id)
     setCurrentByRoom((previous) => ({ ...previous, [candidate.id]: previous[candidate.id] || 0 }))
-    setView('room')
-    viewRef.current = 'room'
+    if (!changed && viewRef.current !== 'room') {
+      resumeRoomOnEntry(candidate.id)
+    } else {
+      setView('room')
+      viewRef.current = 'room'
+    }
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     if (changed) setTimeout(() => requestRoomSync(candidate.id), 140)
     showToast(changed ? `Joined ${candidate.name}` : `You are already in ${candidate.name}`)
@@ -8238,6 +8463,148 @@ export default function App() {
     showToast(removing ? 'Removed from your library' : 'Saved to your library')
   }
 
+  function setRoomClock(patch = {}) {
+    const previous = roomClockRef.current || {}
+    roomClockRef.current = {
+      ...previous,
+      ...patch,
+      updatedAt: patch.updatedAt ?? Date.now(),
+    }
+    return roomClockRef.current
+  }
+
+  function roomClockTime(clock = roomClockRef.current) {
+    if (!clock?.roomId) return 0
+    const elapsed = clock.isPlaying ? Math.max(0, Date.now() - (clock.updatedAt || Date.now())) / 1000 : 0
+    return Math.max(0, (Number(clock.time) || 0) + elapsed)
+  }
+
+  function roomTrackDuration(clock = roomClockRef.current) {
+    const item = libraryRef.current[clock?.trackId] || SEED_BY_ID[clock?.trackId]
+    return Number(item?.duration) || 0
+  }
+
+  function syncRoomClockFromPlayback(overrides = {}) {
+    const roomId = activeRoomRef.current
+    if (!roomId) return null
+    const index = currentIndexRef.current
+    const clock = roomClockRef.current
+    const trackId = roomQueueRef.current[index] || null
+    const wallTime = roomClockTime(clock)
+    const audio = audioRef.current
+    const liveTime = getPlaybackTime()
+    const sameTrack = Boolean(clock?.trackId && clock.trackId === trackId)
+    const ready = Boolean(audio && Number.isFinite(audio.duration) && audio.duration > 0 && audio.readyState >= 2)
+    const closeToWall = clock?.isPlaying
+      ? Math.abs(liveTime - wallTime) <= 2
+      : liveTime > 0
+    const trusted = sameTrack && ready && (wallTime < 1 || closeToWall)
+    return setRoomClock({
+      roomId,
+      index,
+      trackId,
+      time: trusted ? liveTime : wallTime,
+      isPlaying: isPlayingRef.current,
+      ...overrides,
+    })
+  }
+
+  function suspendRoomPlayback() {
+    if (!activeRoomRef.current) return null
+    const clock = viewRef.current === 'room' ? syncRoomClockFromPlayback() : roomClockRef.current
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    setJoinPill(null)
+    setBuffering(false)
+    return clock
+  }
+
+  function resumeRoomOnEntry(roomId = activeRoomRef.current) {
+    if (!roomId) return
+    activeRoomRef.current = roomId
+    setActiveRoomId(roomId)
+    let clock = roomClockRef.current
+    if (clock?.roomId !== roomId) {
+      clock = setRoomClock({
+        roomId,
+        index: 0,
+        trackId: roomQueueRef.current[0] || null,
+        time: 0,
+        isPlaying: false,
+      })
+    }
+    const index = Math.max(0, Math.min(Number(clock.index) || 0, Math.max(0, roomQueueRef.current.length - 1)))
+    const itemId = roomQueueRef.current[index]
+    const item = libraryRef.current[itemId] || SEED_BY_ID[itemId]
+    const target = roomClockTime(clock)
+    setCurrentByRoom((previous) => ({ ...previous, [roomId]: index }))
+    pendingSeekRef.current = target
+    setSeekSignal((value) => value + 1)
+    setProgress(target)
+    setDuration(Number(item?.duration) || 0)
+    setIsPlaying(Boolean(clock.isPlaying))
+    if (clock.isPlaying) setJoinPill(null)
+    setView('room')
+    viewRef.current = 'room'
+    setTimeout(() => requestRoomSync(roomId), 120)
+  }
+
+  function safeAudioPlay(audio) {
+    if (!audio?.play) return null
+    try {
+      const result = audio.play()
+      if (result?.catch) {
+        result.catch((error) => {
+          if (error?.name === 'AbortError' || error?.name === 'NotAllowedError') return
+          setIsPlaying(false)
+        })
+      }
+      return result
+    } catch {
+      return null
+    }
+  }
+
+  function advanceRoomClock({ broadcast = true } = {}) {
+    const roomId = activeRoomRef.current
+    if (!roomId) return false
+    const room = roomsRef.current.find((candidate) => candidate.id === roomId)
+    const ids = room?.trackIds || roomQueueRef.current || []
+    const clock = roomClockRef.current
+    if (!ids.length) {
+      setRoomClock({ roomId, index: 0, trackId: null, time: 0, isPlaying: false })
+      if (viewRef.current === 'room') setIsPlaying(false)
+      if (broadcast) announce({ index: 0, time: 0, isPlaying: false })
+      return false
+    }
+    const current = Math.max(0, Math.min(Number(clock.index) || 0, ids.length - 1))
+    const nextIndex = current + 1
+    if (nextIndex >= ids.length) {
+      const endedAt = roomClockTime(clock)
+      setRoomClock({ roomId, index: current, trackId: ids[current] || null, time: endedAt, isPlaying: false })
+      if (viewRef.current === 'room') {
+        setIsPlaying(false)
+        setProgress(endedAt)
+      }
+      if (broadcast) announce({ index: current, time: endedAt, isPlaying: false })
+      return false
+    }
+    const nextId = ids[nextIndex]
+    setRoomClock({ roomId, index: nextIndex, trackId: nextId, time: 0, isPlaying: true })
+    setCurrentByRoom((previous) => ({ ...previous, [roomId]: nextIndex }))
+    if (viewRef.current === 'room') {
+      const candidate = libraryRef.current[nextId] || SEED_BY_ID[nextId]
+      if (candidate) {
+        ensurePlayable(candidate).then((playable) => {
+          if (!playable || activeRoomRef.current !== roomId || roomClockRef.current.index !== nextIndex) return
+          beginPlayback(roomId, roomQueueRef.current, nextIndex, playable)
+        })
+      }
+    }
+    if (broadcast) announce({ index: nextIndex, time: 0, isPlaying: true })
+    return true
+  }
+
   function getPlaybackTime() {
     const audio = audioRef.current
     if (loadedUrlRef.current && audio) return audio.currentTime || 0
@@ -8283,54 +8650,51 @@ export default function App() {
     setDuration(0)
     pendingSeekRef.current = null
     searchRoomRef.current = null
+    searchTargetRef.current = { mode: 'solo', roomId: null }
+    setRoomClock({ roomId: null, index: 0, trackId: null, time: 0, isPlaying: false })
   }
 
   function openSearchExperience() {
-    if (viewRef.current === 'room' && activeRoomRef.current) {
-      searchRoomRef.current = {
-        roomId: activeRoomRef.current,
-        wasPlaying: isPlayingRef.current,
-        time: getPlaybackTime(),
-        trackId: track?.id || null,
-        openedAt: Date.now(),
-      }
-      audioRef.current?.pause()
-      setIsPlaying(false)
-      setJoinPill(null)
-    } else {
-      searchRoomRef.current = null
+    const targetRoom = viewRef.current === 'room' ? activeRoomRef.current : null
+    const room = targetRoom ? roomsRef.current.find((candidate) => candidate.id === targetRoom) : null
+    searchTargetRef.current = {
+      mode: targetRoom ? 'room' : 'solo',
+      roomId: targetRoom || null,
     }
+    searchRoomRef.current = null
+    setSearchContext({
+      mode: targetRoom ? 'room' : 'solo',
+      roomId: targetRoom || null,
+      roomName: room?.name || '',
+    })
     setSearchOpen(true)
   }
 
   function closeSearchExperience() {
-    const context = searchRoomRef.current
     searchRoomRef.current = null
     setSearchOpen(false)
-    if (!context || viewRef.current !== 'room' || activeRoomRef.current !== context.roomId) return
-    if (context.trackId && context.trackId !== track?.id) return
-    if (context.wasPlaying && track?.id && track.id !== 'empty') {
-      const target = (context.time || 0) + Math.max(0, Date.now() - (context.openedAt || Date.now())) / 1000
-      pendingSeekRef.current = target
-      setSeekSignal((value) => value + 1)
-      setProgress(target)
-      setIsPlaying(true)
-      audioRef.current?.play().catch(() => {})
-    }
   }
 
   function roomSnapshot(overrides = {}) {
     const roomId = activeRoomRef.current
-    if (!roomId || viewRef.current !== 'room') return null
-    const index = currentIndexRef.current
+    if (!roomId) return null
+    if (viewRef.current === 'room') {
+      const clockOverrides = {}
+      if (Object.prototype.hasOwnProperty.call(overrides, 'isPlaying')) clockOverrides.isPlaying = overrides.isPlaying
+      if (Object.prototype.hasOwnProperty.call(overrides, 'time')) clockOverrides.time = overrides.time
+      if (Object.prototype.hasOwnProperty.call(overrides, 'index')) clockOverrides.index = overrides.index
+      syncRoomClockFromPlayback(clockOverrides)
+    }
+    const clock = roomClockRef.current
+    const index = Math.max(0, Math.min(Number(clock.index) || 0, Math.max(0, roomQueueRef.current.length - 1)))
     const snapshot = {
       type: 'state',
       roomId,
       sender: tabIdRef.current,
       index,
-      trackId: queueIdsRef.current[index] || null,
-      isPlaying: isPlayingRef.current,
-      time: getPlaybackTime(),
+      trackId: roomQueueRef.current[index] || null,
+      isPlaying: Boolean(clock.isPlaying),
+      time: roomClockTime(clock),
       ts: Date.now(),
       ...overrides,
     }
@@ -8343,39 +8707,57 @@ export default function App() {
     if (snapshot) channelRef.current?.postMessage(snapshot)
   }
 
-  function applyRemoteState(data, { forcePaused = false } = {}) {
-    if (viewRef.current !== 'room') return
+  function applyRemoteState(data) {
     if (!data?.roomId || data.roomId !== activeRoomRef.current) return
-    const nextPlaying = forcePaused ? false : data.isPlaying
-    const roomQueue = queueIdsRef.current
+    const room = roomsRef.current.find((candidate) => candidate.id === data.roomId)
+    const roomQueue = room?.trackIds || roomQueueRef.current
     let index = typeof data.index === 'number' ? data.index : currentIndexRef.current
     if (typeof data.index !== 'number' && data.trackId) {
       const found = roomQueue.indexOf(data.trackId)
       if (found >= 0) index = found
     }
     if (roomQueue.length) index = Math.max(0, Math.min(index, roomQueue.length - 1))
+    const nextPlaying = data.isPlaying === undefined
+      ? Boolean(roomClockRef.current.isPlaying)
+      : Boolean(data.isPlaying)
+    const baseTime = Math.max(0, Number(data.time) || 0)
+    const stamp = Number(data.ts) || Date.now()
+    setRoomClock({
+      roomId: data.roomId,
+      index,
+      trackId: roomQueue[index] || data.trackId || null,
+      time: baseTime,
+      updatedAt: stamp,
+      isPlaying: nextPlaying,
+    })
+    if (index !== currentIndexRef.current) {
+      setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: index }))
+    }
+    if (viewRef.current !== 'room') return
     const indexChanged = index !== currentIndexRef.current
     if (indexChanged) {
-      setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: index }))
       setProgress(0)
+      const candidate = libraryRef.current[roomQueue[index]] || SEED_BY_ID[roomQueue[index]]
+      if (candidate && !candidate.streamUrl && !candidate.youtubeVideoId) {
+        ensurePlayable(candidate)
+      }
     }
-    setSyncMs(Math.max(2, Math.min(399, Math.round(Date.now() - (data.ts || Date.now())))))
-    const elapsed = nextPlaying ? Math.max(0, Date.now() - (data.ts || Date.now())) / 1000 : 0
-    const target = Math.max(0, (data.time || 0) + elapsed)
+    setSyncMs(Math.max(2, Math.min(399, Math.round(Date.now() - stamp))))
+    const target = roomClockTime()
     const drift = Math.abs(getPlaybackTime() - target)
     const lateJoin = !hasInteractedRef.current && nextPlaying
     if (lateJoin) {
       pendingSeekRef.current = target
       setSeekSignal((value) => value + 1)
       setJoinPill({ time: target, roomName: activeRoomRef.current })
-      setIsPlaying(Boolean(nextPlaying))
+      setIsPlaying(true)
       return
     }
     if (indexChanged || !data.heartbeat || drift > 0.35) {
       pendingSeekRef.current = target
       setSeekSignal((value) => value + 1)
     }
-    if (typeof data.isPlaying === 'boolean') setIsPlaying(Boolean(nextPlaying))
+    setIsPlaying(nextPlaying)
     if (nextPlaying) setJoinPill(null)
   }
 
@@ -8385,12 +8767,27 @@ export default function App() {
     setDuration(candidate?.duration || 0)
     pendingSeekRef.current = null
     setJoinPill(null)
-    setIsPlaying(true)
+    if (key !== SOLO_ROOM_ID) {
+      setRoomClock({
+        roomId: key,
+        index,
+        trackId: candidate?.id || ids[index] || null,
+        time: 0,
+        isPlaying: true,
+      })
+      if (viewRef.current !== 'room' || activeRoomRef.current !== key) {
+        setIsPlaying(false)
+      } else {
+        setIsPlaying(true)
+      }
+      announce({ index, time: 0, isPlaying: true })
+    } else {
+      setIsPlaying(true)
+    }
     if (candidate?.id) {
       addRecent(candidate.id)
       recordTasteSignal('play', { track: candidate })
     }
-    if (key !== SOLO_ROOM_ID) announce({ index, time: 0, isPlaying: true })
   }
 
   async function ensurePlayable(rawCandidate) {
@@ -8500,10 +8897,6 @@ export default function App() {
 
   function startPlaybackAt(index, candidate) {
     const key = viewRef.current === 'room' && activeRoomRef.current ? activeRoomRef.current : SOLO_ROOM_ID
-    if (key === SOLO_ROOM_ID && activeRoomRef.current) {
-      activeRoomRef.current = null
-      setActiveRoomId(null)
-    }
     const ids = key === SOLO_ROOM_ID ? soloQueue : queueIdsRef.current
     beginPlayback(key, ids, index, candidate)
   }
@@ -8529,9 +8922,13 @@ export default function App() {
       return
     }
     const next = !isPlaying
+    const time = roomPlaybackActive ? roomClockTime() : getPlaybackTime()
     setIsPlaying(next)
     if (next) setJoinPill(null)
-    announce({ isPlaying: next, time: getPlaybackTime() })
+    if (roomPlaybackActive) {
+      setRoomClock({ time, isPlaying: next })
+      announce({ isPlaying: next, time })
+    }
   }
 
   async function nextTrack() {
@@ -8579,7 +8976,10 @@ export default function App() {
     }
     setProgress(target)
     setJoinPill(null)
-    announce({ time: target })
+    if (roomPlaybackActive) {
+      setRoomClock({ time: target })
+      announce({ time: target })
+    }
   }
 
   function handleVolume(value) {
@@ -8588,6 +8988,14 @@ export default function App() {
   }
 
   function handleEnded() {
+    if (roomPlaybackActive) {
+      if (!canControlRoom) {
+        setIsPlaying(false)
+        return
+      }
+      advanceRoomClock()
+      return
+    }
     if (inRoom && !canControl) {
       setIsPlaying(false)
       return
@@ -8790,19 +9198,142 @@ export default function App() {
     setJoinPill(null)
   }
 
+  function commitRoomQueue(room, nextIds) {
+    const nextRoom = { ...room, trackIds: [...new Set(nextIds.filter(Boolean))] }
+    roomQueueRef.current = nextRoom.trackIds
+    roomsRef.current = roomsRef.current.map((candidate) => (candidate.id === nextRoom.id ? nextRoom : candidate))
+    setRooms((previous) => previous.map((candidate) => (candidate.id === nextRoom.id ? nextRoom : candidate)))
+    broadcastRoom(nextRoom)
+    return nextRoom
+  }
+
+  function placeRoomAt(roomId, ids, index, time, isPlaying) {
+    setRoomClock({
+      roomId,
+      index,
+      trackId: ids[index] || null,
+      time,
+      isPlaying: Boolean(isPlaying && ids.length),
+    })
+    setCurrentByRoom((previous) => ({ ...previous, [roomId]: index }))
+  }
+
+  function startRoomQueueAt(roomId, ids, index) {
+    const candidate = libraryRef.current[ids[index]] || SEED_BY_ID[ids[index]]
+    if (!candidate) return
+    ensurePlayable(candidate).then((playable) => {
+      if (!playable || activeRoomRef.current !== roomId || roomQueueRef.current[index] !== candidate.id) return
+      beginPlayback(roomId, ids, index, playable)
+    })
+  }
+
+  function addTrackToRoomQueue(room, trackId) {
+    const ids = (room.trackIds || []).includes(trackId) ? room.trackIds : [...(room.trackIds || []), trackId]
+    if (ids.length !== (room.trackIds || []).length) commitRoomQueue(room, ids)
+    return { room: { ...room, trackIds: ids }, ids, index: ids.indexOf(trackId) }
+  }
+
+  function removeRoomQueueTrack(index) {
+    const room = activeRoom
+    if (!room) return
+    if (!canControlRoom) {
+      lockToast()
+      return
+    }
+    if (viewRef.current === 'room') syncRoomClockFromPlayback()
+    const ids = [...room.trackIds]
+    const bounded = Math.max(0, Math.min(Number(index) || 0, ids.length - 1))
+    if (bounded < 0 || bounded >= ids.length) return
+    const clock = roomClockRef.current
+    const current = Math.max(0, Math.min(Number(clock.index) || 0, ids.length - 1))
+    const removingCurrent = bounded === current
+    const wasPlaying = Boolean(clock.isPlaying)
+    const nextIds = ids.filter((_, itemIndex) => itemIndex !== bounded)
+    let nextIndex = current
+    if (bounded < current) nextIndex = current - 1
+    else if (removingCurrent) nextIndex = Math.min(current, Math.max(0, nextIds.length - 1))
+    const nextTime = removingCurrent ? 0 : roomClockTime(clock)
+    commitRoomQueue(room, nextIds)
+    if (removingCurrent) {
+      audioRef.current?.pause()
+      if (viewRef.current === 'room') {
+        setProgress(0)
+        setDuration(Number((libraryRef.current[nextIds[nextIndex]] || SEED_BY_ID[nextIds[nextIndex]])?.duration) || 0)
+      }
+    }
+    placeRoomAt(room.id, nextIds, nextIndex, nextTime, wasPlaying)
+    if (removingCurrent && nextIds.length && wasPlaying) startRoomQueueAt(room.id, nextIds, nextIndex)
+    announce({ index: nextIndex, time: nextTime, isPlaying: Boolean(nextIds.length && wasPlaying) })
+    if (!nextIds.length) {
+      setIsPlaying(false)
+      if (viewRef.current === 'room') {
+        setProgress(0)
+        setDuration(0)
+      }
+      showToast('Room queue cleared')
+    }
+  }
+
+  function clearRoomQueue() {
+    const room = activeRoom
+    if (!room) return
+    if (!canControlRoom) {
+      lockToast()
+      return
+    }
+    commitRoomQueue(room, [])
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    setProgress(0)
+    setDuration(0)
+    placeRoomAt(room.id, [], 0, 0, false)
+    announce({ index: 0, time: 0, isPlaying: false })
+    showToast('Room queue cleared')
+  }
+
+  function importPlaylistToRoom(playlist) {
+    const room = activeRoom
+    if (!room) {
+      showToast('Join a room before adding a playlist.', 'lock')
+      return
+    }
+    if (!canControlRoom) {
+      lockToast()
+      return
+    }
+    const incoming = (playlist?.trackIds || []).filter((id) => libraryRef.current[id] || SEED_BY_ID[id])
+    const base = room.trackIds || []
+    const additions = incoming.filter((id) => !base.includes(id))
+    if (!additions.length) {
+      showToast(`No new tracks to add to ${room.name}`)
+      return
+    }
+    const nextIds = [...base, ...additions]
+    const idle = !roomClockRef.current.isPlaying || !base.length
+    const startIndex = base.length
+    commitRoomQueue(room, nextIds)
+    if (idle) {
+      audioRef.current?.pause()
+      const item = libraryRef.current[nextIds[startIndex]] || SEED_BY_ID[nextIds[startIndex]]
+      placeRoomAt(room.id, nextIds, startIndex, 0, true)
+      if (viewRef.current === 'room') {
+        setProgress(0)
+        setDuration(Number(item?.duration) || 0)
+        setIsPlaying(false)
+      }
+      startRoomQueueAt(room.id, nextIds, startIndex)
+      announce({ index: startIndex, time: 0, isPlaying: true })
+    } else {
+      announce({ heartbeat: true })
+    }
+    showToast(`Added ${additions.length} track${additions.length === 1 ? '' : 's'} to ${room.name}`)
+  }
+
   function addToActiveQueue(candidate) {
     if (!candidate?.id) return { ids: queueIds, index: -1 }
     rememberTrack(candidate)
     if (roomPlaybackActive) {
-      const ids = activeRoom.trackIds.includes(candidate.id)
-        ? activeRoom.trackIds
-        : [...activeRoom.trackIds, candidate.id]
-      const index = ids.indexOf(candidate.id)
-      if (!activeRoom.trackIds.includes(candidate.id)) {
-        const nextRoom = { ...activeRoom, trackIds: ids }
-        setRooms((previous) => previous.map((room) => (room.id === nextRoom.id ? nextRoom : room)))
-        broadcastRoom(nextRoom)
-      }
+      const { ids, index } = addTrackToRoomQueue(activeRoom, candidate.id)
       return { ids, index }
     }
     const ids = soloQueue.includes(candidate.id) ? soloQueue : [...soloQueue, candidate.id]
@@ -8810,78 +9341,99 @@ export default function App() {
     return { ids, index: ids.indexOf(candidate.id) }
   }
 
+  function searchRoomTarget() {
+    const target = searchTargetRef.current
+    if (target.mode !== 'room' || !target.roomId) return null
+    return roomsRef.current.find((room) => room.id === target.roomId) || null
+  }
+
   async function playSearchTrack(candidate, contextTracks = null) {
     if (!candidate) return
-    if (!roomPlaybackActive && requireAuth(
+    const targetRoom = searchRoomTarget()
+    const requestId = playRequestRef.current.seq + 1
+    if (targetRoom) {
+      const targetRole = targetRoom.roles?.[currentUserId]
+      if (targetRole !== 'admin' && targetRole !== 'dj') {
+        lockToast()
+        return
+      }
+    } else if (requireAuth(
       { type: 'playSolo', track: candidate },
       'Sign up to play full-length tracks. Your first listen starts right after.',
       'signup',
     )) return
-    if (roomPlaybackActive && !canControl) {
-      lockToast()
-      return
+    if (playRequestRef.current.id === candidate.id) return
+    playRequestRef.current = { seq: requestId, id: candidate.id }
+    setPendingPlayId(candidate.id)
+    try {
+      const playable = await ensurePlayable(candidate)
+      if (requestId !== playRequestRef.current.seq) return
+      if (!playable) return
+      if (targetRoom) {
+        const room = roomsRef.current.find((item) => item.id === targetRoom.id)
+        if (!room || room.id !== activeRoomRef.current) return
+        const { ids, index } = addTrackToRoomQueue(room, playable.id)
+        beginPlayback(room.id, ids, index, playable)
+        if (viewRef.current !== 'room') {
+          viewRef.current = 'room'
+          setView('room')
+        }
+      } else {
+        const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
+        context.forEach((item) => {
+          if (item.id !== playable.id) rememberTrack(item)
+        })
+        const contextIds = context.map((item) => item.id)
+        const ids = contextIds.includes(playable.id)
+          ? contextIds
+          : soloQueue.includes(playable.id)
+            ? soloQueue
+            : [...soloQueue, playable.id]
+        const index = ids.indexOf(playable.id)
+        setSoloQueue(ids)
+        const nextView = viewRef.current === 'rooms' ? 'home' : viewRef.current
+        viewRef.current = nextView
+        setView(nextView)
+        beginPlayback(SOLO_ROOM_ID, ids, index, playable)
+      }
+      closeSearchExperience()
+      showToast(`Playing "${playable.title}"`)
+    } finally {
+      if (requestId === playRequestRef.current.seq) {
+        playRequestRef.current = { seq: requestId, id: '' }
+        setPendingPlayId('')
+      }
     }
-    const playable = await ensurePlayable(candidate)
-    if (!playable) return
-    if (roomPlaybackActive) {
-      const { ids, index } = addToActiveQueue(playable)
-      beginPlayback(activeRoom.id, ids, index, playable)
-    } else {
-      const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
-      context.forEach((item) => {
-        if (item.id !== playable.id) rememberTrack(item)
-      })
-      const contextIds = context.map((item) => item.id)
-      const ids = contextIds.includes(playable.id)
-        ? contextIds
-        : soloQueue.includes(playable.id)
-          ? soloQueue
-          : [...soloQueue, playable.id]
-      const index = ids.indexOf(playable.id)
-      activeRoomRef.current = null
-      setActiveRoomId(null)
-      setSoloQueue(ids)
-      const nextView = viewRef.current === 'rooms' ? 'home' : viewRef.current
-      viewRef.current = nextView
-      setView(nextView)
-      beginPlayback(SOLO_ROOM_ID, ids, index, playable)
-    }
-    searchRoomRef.current = null
-    setSearchOpen(false)
-    showToast(`Playing “${playable.title}”`)
   }
 
   function queueSearchTrack(candidate) {
     if (!candidate) return
-    if (!roomPlaybackActive && requireAuth(
+    const targetRoom = searchRoomTarget()
+    if (targetRoom) {
+      const targetRole = targetRoom.roles?.[currentUserId]
+      if (targetRole !== 'admin' && targetRole !== 'dj') {
+        lockToast()
+        return
+      }
+    } else if (requireAuth(
       { type: 'queueSolo', track: candidate },
       'Log in to build your queue.',
     )) return
-    if (roomPlaybackActive && !canControl) {
-      lockToast()
-      return
-    }
-    const playable = ensurePlayable(candidate)
-    playable.then((ready) => {
+    const targetRoomId = targetRoom?.id || null
+    ensurePlayable(candidate).then((ready) => {
       if (!ready) return
-      if (roomPlaybackActive) {
-        const ids = activeRoom.trackIds.includes(ready.id)
-          ? activeRoom.trackIds
-          : [...activeRoom.trackIds, ready.id]
-        if (!activeRoom.trackIds.includes(ready.id)) {
-          const nextRoom = { ...activeRoom, trackIds: ids }
-          setRooms((previous) => previous.map((room) => (room.id === nextRoom.id ? nextRoom : room)))
-          broadcastRoom(nextRoom)
-        }
-        showToast(`Added “${ready.title}” to ${activeRoom.name}`)
+      if (targetRoomId) {
+        const room = roomsRef.current.find((item) => item.id === targetRoomId)
+        if (!room || room.id !== activeRoomRef.current) return
+        addTrackToRoomQueue(room, ready.id)
+        showToast(`Added "${ready.title}" to ${room.name}`)
       } else {
         if (!soloQueue.includes(ready.id)) setSoloQueue((previous) => [...previous, ready.id])
-        showToast(`Added “${ready.title}” to your queue`)
+        showToast(`Added "${ready.title}" to your queue`)
       }
     })
     closeSearchExperience()
   }
-
   async function playSoloQueue(ids, startIndex = 0) {
     if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
     const clean = ids.filter(Boolean)
@@ -8889,15 +9441,15 @@ export default function App() {
     const index = Math.max(0, Math.min(startIndex, clean.length - 1))
     const candidate = library[clean[index]] || SEED_BY_ID[clean[index]]
     if (!candidate) return
-    if (activeRoomRef.current) leaveRoomPlayback()
+    const wasRoomView = viewRef.current === 'room'
+    if (wasRoomView) suspendRoomPlayback()
     soloResumeRef.current = null
-    if (viewRef.current === 'room') {
+    if (wasRoomView) {
       setView('home')
       viewRef.current = 'home'
     }
     audioRef.current?.pause()
     setIsPlaying(false)
-    setActiveRoomId(null)
     setSoloQueue(clean)
     setCurrentByRoom((previous) => ({ ...previous, [SOLO_ROOM_ID]: index }))
     setProgress(0)
@@ -8927,16 +9479,15 @@ export default function App() {
         ? soloQueue
         : [...soloQueue, playable.id]
     const index = ids.indexOf(playable.id)
-    if (activeRoomRef.current) leaveRoomPlayback()
+    const wasRoomView = viewRef.current === 'room'
+    if (wasRoomView) suspendRoomPlayback()
     soloResumeRef.current = null
-    if (viewRef.current === 'room') {
+    if (wasRoomView) {
       setView('home')
       viewRef.current = 'home'
     }
     audioRef.current?.pause()
     setIsPlaying(false)
-    activeRoomRef.current = null
-    setActiveRoomId(null)
     setSoloQueue(ids)
     beginPlayback(SOLO_ROOM_ID, ids, index, playable)
   }
@@ -9194,9 +9745,10 @@ export default function App() {
     }
     if (!track?.streamUrl || !audio) return
     if (isPlaying) {
-      const playback = audio.play()
+      const playback = safeAudioPlay(audio)
       if (playback?.then) {
-        playback.catch(() => {
+        playback.catch((error) => {
+          if (error?.name === 'AbortError' || error?.name === 'NotAllowedError') return
           setIsPlaying(false)
           if (!hasInteractedRef.current) {
             setJoinPill({ time: getPlaybackTime(), roomName: activeRoomRef.current })
@@ -9464,6 +10016,30 @@ export default function App() {
       if (data.type === 'room-updated' && data.room) {
         const incoming = normalizeRoom(data.room)
         if (!incoming) return
+        if (incoming.id === activeRoomRef.current) {
+          const clock = roomClockRef.current
+          const currentTrackId = clock.trackId || roomQueueRef.current[clock.index] || null
+          const found = currentTrackId ? incoming.trackIds.indexOf(currentTrackId) : -1
+          const nextIndex = incoming.trackIds.length
+            ? Math.max(0, Math.min(found >= 0 ? found : clock.index, incoming.trackIds.length - 1))
+            : 0
+          roomQueueRef.current = incoming.trackIds
+          setRoomClock({
+            roomId: incoming.id,
+            index: nextIndex,
+            trackId: incoming.trackIds[nextIndex] || null,
+            time: found >= 0 ? roomClockTime(clock) : 0,
+            isPlaying: Boolean(clock.isPlaying && incoming.trackIds.length),
+          })
+          setCurrentByRoom((previous) => ({ ...previous, [incoming.id]: nextIndex }))
+          if (viewRef.current === 'room') {
+            setProgress(found >= 0 ? roomClockTime(clock) : 0)
+            if (!incoming.trackIds.length) {
+              setIsPlaying(false)
+              audioRef.current?.pause()
+            }
+          }
+        }
         setRooms((previous) => previous.map((room) => (room.id === incoming.id ? incoming : room)))
         return
       }
@@ -9651,8 +10227,19 @@ export default function App() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      if (!activeRoomRef.current || !canControlRef.current || !isPlayingRef.current) return
-      announce({ heartbeat: true })
+      const roomId = activeRoomRef.current
+      if (!roomId) return
+      if (viewRef.current === 'room') syncRoomClockFromPlayback()
+      const clock = roomClockRef.current
+      if (!clock.isPlaying) return
+      const duration = roomTrackDuration(clock)
+      const live = roomClockTime(clock)
+      if (duration > 0 && live >= duration - 0.15 && viewRef.current !== 'room') {
+        if (!roomControlRef.current) return
+        advanceRoomClock()
+        return
+      }
+      if (roomControlRef.current) announce({ heartbeat: true })
     }, 1000)
     return () => clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -9952,8 +10539,13 @@ export default function App() {
       'Log in to open your library and saved playlists.',
     )) return
     if (viewRef.current === 'room' && nextView !== 'room') {
-      leaveRoomPlayback()
+      suspendRoomPlayback()
       setFullPlayer(false)
+    }
+    if (nextView === 'room' && activeRoomRef.current) {
+      if (viewRef.current !== 'room') resumeRoomOnEntry(activeRoomRef.current)
+      setFullPlayer(false)
+      return
     }
     if (nextView === 'home') {
       setJoinPill(null)
@@ -10187,6 +10779,7 @@ export default function App() {
                   onRemoveFromPlaylist={removeTrackFromPlaylist}
                   onShufflePlaylist={shufflePlaylist}
                   onOpenPlaylist={openPlaylist}
+                  onImportPlaylist={importPlaylistToRoom}
                 />
               )}
 
@@ -10228,6 +10821,12 @@ export default function App() {
                   onSearch={openSearchExperience}
                   onPlayIndex={playIndex}
                   onOpenFull={() => setFullPlayer(true)}
+                  playlists={playlists}
+                  likedTracks={likedSet.map((id) => library[id]).filter(Boolean)}
+                  canControlRoom={canControlRoom}
+                  onRemoveQueueTrack={removeRoomQueueTrack}
+                  onClearQueue={clearRoomQueue}
+                  onImportPlaylist={importPlaylistToRoom}
                 />
               )}
               </div>
@@ -10355,6 +10954,9 @@ export default function App() {
             onRemoveRecentSearch={removeRecentSearch}
             onClearRecentSearches={clearRecentSearches}
             tasteTracks={searchTasteTracks}
+            context={searchContext}
+            canControlRoom={canControlRoom}
+            pendingTrackId={pendingPlayId}
             onOpenTaste={() => {
               closeSearchExperience()
               setTasteOpen(true)
