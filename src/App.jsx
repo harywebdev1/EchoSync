@@ -99,6 +99,9 @@ const TRANSLATE_KEY = 'echosync_translate.v1'
 const STREAM_CACHE_KEY = 'echosync_stream_cache_v4'
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
 const INVITES_KEY = 'echosync_invites_v1'
+const PUBLIC_LOUNGE_KEY = 'echosync_public_lounge_v1'
+const LOUNGE_MESSAGE_LIMIT = 120
+const LOUNGE_TYPING_MS = 2400
 const DAILY_FEED_PREFIX = 'echosync_daily_feed_v3_'
 const DAILY_FEED_LEGACY_PREFIX = 'echosync_daily_feed_'
 const LOCK_MESSAGE = 'Listener Mode: Only Room Admin or DJ can control playback'
@@ -326,6 +329,65 @@ function loadInvites() {
   return stored.filter((invite) => invite?.id && invite.roomId && invite.toUserId && (invite.createdAt || 0) > cutoff)
 }
 
+function normalizeLoungeMessage(raw) {
+  if (!raw?.id || !raw?.author) return null
+  const isVoice = raw.type === 'voice'
+  const text = safeText(raw.text).slice(0, 1000)
+  const voiceData = typeof raw.voiceData === 'string' && raw.voiceData.startsWith('data:audio/')
+    ? raw.voiceData
+    : ''
+  if (!isVoice && !text) return null
+  if (isVoice && !voiceData) return null
+  const replyTo = raw.replyTo?.id
+    ? {
+        id: safeText(raw.replyTo.id),
+        name: safeText(raw.replyTo.name, 'Listener'),
+        handle: safeText(raw.replyTo.handle, 'listener'),
+        text: safeText(raw.replyTo.text, 'Message').slice(0, 180),
+      }
+    : null
+  const reactions = Array.isArray(raw.reactions)
+    ? raw.reactions
+        .map((reaction) => {
+          const emoji = safeText(reaction?.emoji)
+          if (!emoji) return null
+          const userIds = Array.isArray(reaction?.userIds)
+            ? [...new Set(reaction.userIds.map((id) => safeText(id)).filter(Boolean))]
+            : []
+          const count = Math.max(Number(reaction?.count) || 0, userIds.length)
+          return count > 0 ? { emoji, count, userIds } : null
+        })
+        .filter(Boolean)
+    : []
+  return {
+    id: safeText(raw.id),
+    author: safeText(raw.author),
+    userName: safeText(raw.userName, 'Listener').slice(0, 80),
+    authorHandle: safeText(raw.authorHandle, 'listener').slice(0, 32),
+    type: isVoice ? 'voice' : 'text',
+    text: isVoice ? '' : text,
+    voiceData,
+    duration: Math.max(1, Math.min(45, Number(raw.duration) || 1)),
+    waveform: Array.isArray(raw.waveform)
+      ? raw.waveform.slice(0, 40).map((value) => Math.min(1, Math.max(0.12, Number(value) || 0.2)))
+      : [],
+    time: safeText(raw.time, clockNow()),
+    createdAt: Number(raw.createdAt) || Date.now(),
+    replyTo,
+    reactions,
+    read: raw.read !== false,
+  }
+}
+
+function loadLoungeMessages() {
+  const stored = readStorage(PUBLIC_LOUNGE_KEY, [])
+  if (!Array.isArray(stored)) return []
+  return stored
+    .map(normalizeLoungeMessage)
+    .filter(Boolean)
+    .slice(-LOUNGE_MESSAGE_LIMIT)
+}
+
 function normalizeRoom(room) {
   if (!room?.id) return null
   const members = Array.isArray(room.members)
@@ -538,6 +600,7 @@ const SOFT_BAD_MATCH = /\b(remix|slowed|reverb|8d|8-d|lofi|lo-fi|nightcore|sped 
 
 const LYRIC_EMOJIS = ['❤️', '🔥', '😂', '🎧', '🌙', '✨', '💯', '🫶', '🥹', '🙌', '👀', '🎶', '💫', '😮‍💨']
 const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '🙏']
+const LOUNGE_REACTIONS = ['❤️', '🔥', '👏', '😂', '😮', '😢']
 
 function formatTime(value) {
   const seconds = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
@@ -2788,6 +2851,10 @@ function Sidebar({
   inRoom,
   unreadRoomCounts,
   latestRoomPreview,
+  loungeOpen,
+  unreadLoungeCount,
+  latestLoungePreview,
+  onOpenLounge,
   mobileOpen,
   onMobileClose,
 }) {
@@ -2798,6 +2865,10 @@ function Sidebar({
   }
   const openSearch = () => {
     onSearch()
+    close()
+  }
+  const openLounge = () => {
+    onOpenLounge?.()
     close()
   }
   const openPlaylist = (playlist) => {
@@ -2850,6 +2921,39 @@ function Sidebar({
               <span>Rooms</span>
               <span className="nav-count">{String(rooms.length).padStart(2, '0')}</span>
             </button>
+            <div className={`lounge-nav-wrap ${latestLoungePreview ? 'has-preview' : ''}`}>
+              {latestLoungePreview && (
+                <button
+                  type="button"
+                  className="room-chat-preview lounge-chat-preview"
+                  data-testid="lounge-preview"
+                  onClick={openLounge}
+                  aria-label={`Open Public Lounge: ${latestLoungePreview.text}`}
+                >
+                  <Globe2 size={10} />
+                  <span className="room-chat-preview-copy">
+                    <b>@{latestLoungePreview.sender}</b>
+                    <span>{latestLoungePreview.text}</span>
+                  </span>
+                </button>
+              )}
+              <button
+                className={`nav-item nav-lounge ${loungeOpen ? 'active' : ''}`}
+                onClick={openLounge}
+                data-testid="lounge-nav-btn"
+                aria-pressed={loungeOpen}
+              >
+                <span className="nav-lounge-glyph"><Globe2 /><i className="lounge-online-dot" /></span>
+                <span>Public Lounge</span>
+                {unreadLoungeCount > 0 ? (
+                  <span className="lounge-unread-pill" data-testid="lounge-sidebar-unread">
+                    {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
+                  </span>
+                ) : (
+                  <span className="nav-count lounge-live-label">LIVE</span>
+                )}
+              </button>
+            </div>
             <button className="nav-item" onClick={openSearch}>
               <Search />
               <span>Search</span>
@@ -2983,6 +3087,9 @@ function StageBar({
   onLogin,
   onSignUp,
   onOpenSidebar,
+  loungeOpen,
+  unreadLoungeCount,
+  onToggleLounge,
 }) {
   return (
     <header className="stage-bar">
@@ -3018,6 +3125,22 @@ function StageBar({
         </button>
         <button className="icon-btn" onClick={onSearch} aria-label="Search">
           <Search />
+        </button>
+        <button
+          className={`lounge-header-btn ${loungeOpen ? 'active' : ''}`}
+          onClick={onToggleLounge}
+          aria-label={unreadLoungeCount ? `Open Public Lounge, ${unreadLoungeCount} unread messages` : 'Open Public Lounge'}
+          aria-pressed={loungeOpen}
+          data-testid="lounge-header-btn"
+        >
+          <Globe2 />
+          <span>Lounge</span>
+          <i className="lounge-online-dot" />
+          {unreadLoungeCount > 0 && (
+            <b className="lounge-header-unread" data-testid="lounge-header-unread">
+              {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
+            </b>
+          )}
         </button>
         <button className="icon-btn" onClick={onToggleTheme} aria-label="Toggle theme">
           {theme === 'dark' ? <Sun /> : <Moon />}
@@ -5204,7 +5327,10 @@ function VoiceNoteBubble({ message, isActive, onActivate, onDeactivate }) {
     }
     onActivate()
     const playback = audio.play()
-    playback?.then?.(() => setPlaying(true)).catch(() => setPlaying(false))
+    playback?.then?.(() => setPlaying(true)).catch(() => {
+      setPlaying(false)
+      onDeactivate()
+    })
   }
 
   return (
@@ -5217,6 +5343,10 @@ function VoiceNoteBubble({ message, isActive, onActivate, onDeactivate }) {
         onEnded={() => {
           setPlaying(false)
           setElapsed(0)
+          onDeactivate()
+        }}
+        onError={() => {
+          setPlaying(false)
           onDeactivate()
         }}
       />
@@ -5234,6 +5364,602 @@ function VoiceNoteBubble({ message, isActive, onActivate, onDeactivate }) {
       </div>
       <span className="voice-note-time">{formatTime(playing ? elapsed : duration)}</span>
     </div>
+  )
+}
+
+function LoungeUserCard({ member, currentUser, room, inviting, onClose, onInvite }) {
+  const profile = member?.id ? loadTasteProfile(member.id) : null
+  const taste = useMemo(() => {
+    if (!profile) return []
+    return [...new Set([
+      ...topTasteLabels(profile.artists, 2),
+      ...topTasteLabels(profile.genres, 2),
+      ...topTasteLabels(profile.vibes, 1),
+    ])].slice(0, 3)
+  }, [profile])
+  if (!member) return null
+  const self = member.id === currentUser?.id
+  const alreadyInRoom = Boolean(room?.members?.includes(member.id))
+  const invitesClosed = member.allowInvites === false
+  const disabled = self || alreadyInRoom || invitesClosed || inviting
+  const label = self
+    ? 'This is you'
+    : alreadyInRoom
+      ? 'Already in this room'
+      : invitesClosed
+        ? 'Invites closed'
+        : inviting
+          ? 'Sending invite…'
+          : 'Invite to Private Room'
+  return (
+    <div className="lounge-user-card" data-testid="lounge-user-card">
+      <button className="lounge-user-close" onClick={onClose} aria-label="Close user card"><X /></button>
+      <div className="lounge-user-top">
+        <Avatar member={member} size="lg" online={Boolean(member.online || self)} />
+        <div>
+          <strong>{member.name}</strong>
+          <span>@{member.handle}</span>
+          <small className={member.online || self ? 'online' : ''}>
+            <i /> {member.online || self ? 'Online now' : 'EchoSync listener'}
+          </small>
+        </div>
+      </div>
+      <div className="lounge-user-taste">
+        <span className="lounge-user-label">LISTENING DNA</span>
+        {member.showActivity === false ? (
+          <p>Keeps their listening taste private.</p>
+        ) : taste.length ? (
+          <div>{taste.map((item) => <span key={item}>{item}</span>)}</div>
+        ) : (
+          <p>Taste profile is still warming up.</p>
+        )}
+      </div>
+      <button
+        className="lounge-invite-btn"
+        onClick={() => onInvite?.(member)}
+        disabled={disabled}
+        data-testid="lounge-invite-btn"
+      >
+        <UserPlus /> {label}
+      </button>
+    </div>
+  )
+}
+
+function LoungeDrawer({
+  open,
+  messages,
+  currentUser,
+  members,
+  typingMember,
+  room,
+  inRoom,
+  draft,
+  onDraft,
+  onSend,
+  onSendVoice,
+  onVoiceNotePlay,
+  onReact,
+  onDelete,
+  onReply,
+  replyTo,
+  onCancelReply,
+  onClose,
+  onOpenRoomChat,
+  onInviteUser,
+  invitingId,
+  onLogin,
+}) {
+  const chatRef = useRef(null)
+  const inputRef = useRef(null)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [menuFor, setMenuFor] = useState(null)
+  const [cardFor, setCardFor] = useState(null)
+  const [mention, setMention] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
+  const [voicePlayingId, setVoicePlayingId] = useState(null)
+  const [recording, setRecording] = useState(false)
+  const [recordSeconds, setRecordSeconds] = useState(0)
+  const [recordHint, setRecordHint] = useState('')
+  const highlightTimer = useRef(null)
+  const recorderRef = useRef(null)
+  const recordStreamRef = useRef(null)
+  const recordChunksRef = useRef([])
+  const recordTimerRef = useRef(null)
+  const recordStartedAtRef = useRef(0)
+  const recordCancelledRef = useRef(false)
+  const finishingRef = useRef(false)
+  const voiceFallbackRef = useRef(false)
+  const memberList = useMemo(() => Object.values(members || {}).filter(Boolean), [members])
+  const mentionMatches = mention
+    ? memberList
+      .filter((member) => {
+        const query = mention.query.toLowerCase()
+        if (!query) return true
+        return member.handle?.toLowerCase().includes(query) || member.name?.toLowerCase().includes(query)
+      })
+      .slice(0, 6)
+    : []
+
+  useEffect(() => {
+    if (!open) return
+    const node = chatRef.current
+    if (node) node.scrollTo({ top: node.scrollHeight })
+  }, [open, messages.length, typingMember?.id])
+
+  useEffect(() => {
+    if (!open) return
+    setMenuFor(null)
+    setMention(null)
+    setCardFor(null)
+    setHighlightId(null)
+  }, [open])
+
+  useEffect(() => () => {
+    clearTimeout(highlightTimer.current)
+    recordCancelledRef.current = true
+    clearInterval(recordTimerRef.current)
+    const recorder = recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop() } catch { /* already stopped */ }
+    }
+    recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+    onVoiceNotePlay?.(false)
+  }, [onVoiceNotePlay])
+
+  useEffect(() => {
+    onVoiceNotePlay?.(Boolean(voicePlayingId))
+  }, [voicePlayingId, onVoiceNotePlay])
+
+  const stopRecordingHardware = () => {
+    clearInterval(recordTimerRef.current)
+    recordTimerRef.current = null
+    const recorder = recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop() } catch { /* already stopped */ }
+    }
+    recorderRef.current = null
+    recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
+    recordStreamRef.current = null
+    recordChunksRef.current = []
+  }
+
+  const resetRecording = () => {
+    stopRecordingHardware()
+    recordStartedAtRef.current = 0
+    recordCancelledRef.current = false
+    finishingRef.current = false
+    voiceFallbackRef.current = false
+    setRecording(false)
+    setRecordSeconds(0)
+    setRecordHint('')
+  }
+
+  const cancelRecording = () => {
+    if (!recordStartedAtRef.current && !recording) return
+    recordCancelledRef.current = true
+    resetRecording()
+  }
+
+  const startRecording = async () => {
+    if (!currentUser) {
+      onLogin?.()
+      return
+    }
+    if (recording || finishingRef.current || recordStartedAtRef.current) return
+    finishingRef.current = false
+    recordCancelledRef.current = false
+    voiceFallbackRef.current = false
+    recordChunksRef.current = []
+    recordStartedAtRef.current = Date.now()
+    setRecording(true)
+    setRecordSeconds(0)
+    setRecordHint('')
+    recordTimerRef.current = setInterval(() => {
+      const seconds = Math.floor((Date.now() - recordStartedAtRef.current) / 1000)
+      setRecordSeconds(seconds)
+      if (seconds >= 45) finishRecording(false)
+    }, 250)
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw new Error('MediaRecorder unavailable')
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (recordCancelledRef.current || finishingRef.current || !recordStartedAtRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      recordStreamRef.current = stream
+      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported?.(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) recordChunksRef.current.push(event.data)
+      }
+      recorder.onerror = () => {
+        voiceFallbackRef.current = true
+        setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+      }
+      recorder.start(250)
+      recorderRef.current = recorder
+    } catch {
+      if (!recordStartedAtRef.current || finishingRef.current) return
+      voiceFallbackRef.current = true
+      setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+    }
+  }
+
+  const finishRecording = async (discard = false) => {
+    if (!recordStartedAtRef.current || finishingRef.current) return
+    finishingRef.current = true
+    clearInterval(recordTimerRef.current)
+    recordTimerRef.current = null
+    const duration = Math.max(1, Math.min(45, (Date.now() - recordStartedAtRef.current) / 1000))
+    const recorder = recorderRef.current
+    if (discard) {
+      recordCancelledRef.current = true
+      resetRecording()
+      return
+    }
+    setRecordHint('Sending voice note…')
+    let dataUrl = ''
+    try {
+      if (recorder && recorder.state !== 'inactive' && !voiceFallbackRef.current) {
+        dataUrl = await new Promise((resolve) => {
+          let settled = false
+          const complete = async () => {
+            if (settled) return
+            settled = true
+            try {
+              const blob = new Blob(recordChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+              resolve(blob.size > 120 ? await blobToDataUrl(blob) : '')
+            } catch {
+              resolve('')
+            }
+          }
+          recorder.onstop = complete
+          try { recorder.stop() } catch { complete() }
+          setTimeout(complete, 1500)
+        })
+      }
+    } catch {
+      dataUrl = ''
+    }
+    stopRecordingHardware()
+    let sentDuration = duration
+    if (!dataUrl) {
+      sentDuration = Math.max(1.4, Math.min(8, duration))
+      dataUrl = synthVoiceWav(sentDuration)
+    }
+    const seed = `lounge-${Date.now()}-${dataUrl.length}`
+    onSendVoice?.({
+      dataUrl,
+      duration: Number(sentDuration.toFixed(1)),
+      waveform: makeVoiceWaveform(seed, 32),
+    })
+    recordStartedAtRef.current = 0
+    recordCancelledRef.current = false
+    finishingRef.current = false
+    voiceFallbackRef.current = false
+    setRecording(false)
+    setRecordSeconds(0)
+    setRecordHint('')
+    setVoicePlayingId(null)
+  }
+
+  const handleDraftChange = (event) => {
+    const value = event.target.value
+    const cursor = event.target.selectionStart || value.length
+    onDraft(value)
+    const beforeCursor = value.slice(0, cursor)
+    const match = beforeCursor.match(/(?:^|\s)@([\w.]{0,24})$/)
+    if (match) setMention({ query: match[1], start: beforeCursor.length - match[1].length - 1 })
+    else setMention(null)
+  }
+
+  const insertMention = (member) => {
+    if (!member) return
+    const start = mention ? mention.start : draft.length
+    const end = mention ? mention.start + mention.query.length + 1 : draft.length
+    const next = `${draft.slice(0, start)}@${member.handle} ${draft.slice(end)}`
+    onDraft(next)
+    setMention(null)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  const scrollToLoungeMessage = (id) => {
+    const node = chatRef.current?.querySelector(`[data-lounge-id="${id}"]`)
+    if (!node) return
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightId(id)
+    clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 1800)
+  }
+
+  const submitMessage = () => {
+    setMention(null)
+    setEmojiOpen(false)
+    onSend()
+  }
+
+  const cardMember = cardFor ? members[cardFor] : null
+  const currentLabel = currentUser?.handle || 'guest'
+
+  return (
+    <aside className={`social lounge-drawer ${open ? 'mobile-open' : ''}`} data-testid="lounge-drawer">
+      <div className="social-top">
+        {inRoom ? (
+          <div className="social-tabs">
+            <button className="social-tab" onClick={() => onOpenRoomChat('chat')}>
+              <MessageCircle /> Room chat
+            </button>
+            <button className="social-tab active" data-testid="lounge-active-tab">
+              <Globe2 /> Public Lounge
+            </button>
+            <button className="social-tab" onClick={() => onOpenRoomChat('lyrics')}>
+              <Sparkles /> Lyrics
+            </button>
+          </div>
+        ) : (
+          <div className="lounge-drawer-title">
+            <Globe2 />
+            <span>EchoSync</span>
+          </div>
+        )}
+        <button className="icon-btn social-close" onClick={onClose} aria-label="Close lounge" data-testid="lounge-close-btn">
+          <X />
+        </button>
+      </div>
+
+      <div className="social-head lounge-head">
+        <div className="social-head-copy">
+          <h3>Public Lounge</h3>
+          <p><span className="lounge-online-dot" /> Everyone here · live across tabs</p>
+        </div>
+        <span className="sync-chip"><Wifi /> <b>{messages.length}</b></span>
+      </div>
+
+      <div className="chat-body lounge-body" ref={chatRef}>
+        <div className="chat-day"><span>EchoSync · Public Lounge</span></div>
+        {!messages.length && (
+          <div className="lounge-empty">
+            <span><Globe2 /></span>
+            <strong>The Lounge is quiet.</strong>
+            <p>Say hello, share a voice note, or invite someone you met here into a private room.</p>
+          </div>
+        )}
+        {messages.map((message) => {
+          const author = members[message.author] || {
+            id: message.author,
+            name: message.userName || 'Listener',
+            handle: message.authorHandle || 'listener',
+          }
+          const mine = message.author === currentUser?.id
+          return (
+            <div
+              className={`msg-row lounge-msg ${mine ? 'mine' : ''} ${highlightId === message.id ? 'highlight' : ''}`}
+              key={message.id}
+              data-lounge-id={message.id}
+              data-testid="lounge-message"
+            >
+              {!mine && (
+                <button className="lounge-avatar-btn" onClick={() => setCardFor(author.id)} aria-label={`Open ${author.name}'s profile`}>
+                  <Avatar member={author} size="sm" online={Boolean(author.online)} />
+                </button>
+              )}
+              <div className="msg-main">
+                {!mine && (
+                  <div className="msg-author">
+                    <button className="lounge-author-btn" onClick={() => setCardFor(author.id)}>{author.name}</button>
+                    <span className="msg-handle">@{author.handle}</span>
+                  </div>
+                )}
+                <div className={`bubble lounge-bubble ${message.type === 'voice' ? 'voice' : ''}`}>
+                  {message.replyTo && (
+                    <button className="reply-quote" onClick={() => scrollToLoungeMessage(message.replyTo.id)}>
+                      <strong>{message.replyTo.name || message.replyTo.handle}</strong>
+                      <span>{message.replyTo.text || 'Voice note'}</span>
+                    </button>
+                  )}
+                  {message.type === 'voice' && message.voiceData ? (
+                    <VoiceNoteBubble
+                      message={message}
+                      isActive={voicePlayingId === message.id}
+                      onActivate={() => setVoicePlayingId(message.id)}
+                      onDeactivate={() => setVoicePlayingId((current) => (current === message.id ? null : current))}
+                    />
+                  ) : (
+                    <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
+                  )}
+                  <span className="bubble-meta">{message.time}</span>
+                  <div className="msg-actions">
+                    <button className="msg-action" onClick={() => onReply(message, author)} aria-label="Reply in Public Lounge">
+                      <CornerUpLeft />
+                    </button>
+                    <button
+                      className="msg-action"
+                      onClick={() => setMenuFor((value) => (value === message.id ? null : message.id))}
+                      aria-label="Lounge message options"
+                    >
+                      <MoreHorizontal />
+                    </button>
+                    {menuFor === message.id && (
+                      <div className="msg-menu">
+                        <button onClick={() => { onReply(message, author); setMenuFor(null) }}><CornerUpLeft /> Reply</button>
+                        {!mine && (
+                          <button onClick={() => { setCardFor(author.id); setMenuFor(null) }}>
+                            <UserPlus /> View @{author.handle}
+                          </button>
+                        )}
+                        <div className="msg-menu-emojis">
+                          {LOUNGE_REACTIONS.map((emoji) => (
+                            <button key={emoji} onClick={() => { onReact(message.id, emoji); setMenuFor(null) }}>{emoji}</button>
+                          ))}
+                        </div>
+                        {mine && (
+                          <button className="danger" onClick={() => { onDelete(message.id); setMenuFor(null) }}>
+                            <Trash2 /> Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {message.reactions?.length > 0 && (
+                  <div className="msg-reactions">
+                    {message.reactions.map((reaction) => {
+                      const reacted = (reaction.userIds || []).includes(currentUser?.id)
+                      return (
+                        <button
+                          key={reaction.emoji}
+                          className={`reaction ${reacted ? 'mine' : ''}`}
+                          onClick={() => onReact(message.id, reaction.emoji)}
+                        >
+                          {reaction.emoji} <b>{reaction.count}</b>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+        {typingMember && (
+          <div className="typing-row">
+            <Avatar member={typingMember} size="sm" />
+            <div>
+              <div className="typing-bubble"><i /><i /><i /></div>
+              <span className="typing-label">{typingMember.name.split(' ')[0]} is typing in the Lounge</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {currentUser ? (
+        <div className="chat-composer lounge-composer">
+          {replyTo && (
+            <div className="reply-bar">
+              <span className="reply-bar-accent" />
+              <div>
+                <strong>{replyTo.name} <span>@{replyTo.handle}</span></strong>
+                <p>{replyTo.text}</p>
+              </div>
+              <button className="icon-btn" onClick={onCancelReply} aria-label="Cancel reply"><X /></button>
+            </div>
+          )}
+          {mention && mentionMatches.length > 0 && (
+            <div className="mention-pop">
+              <div className="mention-pop-label">Tag someone in the Lounge</div>
+              {mentionMatches.map((member) => (
+                <button key={member.id} className="mention-option" onClick={() => insertMention(member)}>
+                  <Avatar member={member} size="sm" />
+                  <span>
+                    <strong>{member.name}</strong>
+                    <small>@{member.handle}</small>
+                  </span>
+                  <em>{member.id === currentUser.id ? 'You' : 'Listener'}</em>
+                </button>
+              ))}
+            </div>
+          )}
+          {recording ? (
+            <div className="recording-console" data-testid="lounge-recording-bar">
+              <span className="recording-dot" />
+              <span className="recording-timer">{formatTime(recordSeconds)}</span>
+              <div className="recording-wave" aria-hidden="true">
+                {[0.35, 0.68, 0.94, 0.52, 0.8, 0.42, 0.72, 0.58, 0.88, 0.46, 0.76, 0.62].map((height, index) => (
+                  <i key={index} style={{ height: `${Math.max(3, height * 18)}px`, animationDelay: `${index * 0.08}s` }} />
+                ))}
+              </div>
+              <span className="recording-hint">{recordHint || `Recording · ${formatTime(45 - recordSeconds)} left`}</span>
+              <button className="record-cancel" onClick={cancelRecording}>Cancel</button>
+              <button className="record-send" onClick={() => finishRecording(false)}>
+                <Send /> Send
+              </button>
+            </div>
+          ) : (
+            <>
+              {emojiOpen && (
+                <div className="emoji-pop">
+                  {LYRIC_EMOJIS.slice(0, 12).map((emoji) => (
+                    <button key={emoji} onClick={() => onDraft(draft + emoji)}>{emoji}</button>
+                  ))}
+                </div>
+              )}
+              <button className="emoji-btn" onClick={() => setEmojiOpen((value) => !value)} aria-label="Add emoji">
+                <Smile />
+              </button>
+              <button
+                className="emoji-btn"
+                onClick={() => {
+                  const prefix = draft && !draft.endsWith(' ') ? ' ' : ''
+                  onDraft(`${draft}${prefix}@`)
+                  setMention({ query: '', start: draft.length + prefix.length })
+                  requestAnimationFrame(() => inputRef.current?.focus())
+                }}
+                aria-label="Mention someone in the Lounge"
+              >
+                <AtSign />
+              </button>
+              <div className="composer-input">
+                <input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={handleDraftChange}
+                  onKeyDown={(event) => {
+                    if (mention && mentionMatches.length && event.key === 'Tab') {
+                      event.preventDefault()
+                      insertMention(mentionMatches[0])
+                      return
+                    }
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      submitMessage()
+                    }
+                  }}
+                  placeholder={`Message the Lounge as @${currentLabel}…`}
+                  aria-label="Public Lounge message"
+                  data-testid="lounge-input"
+                />
+                <button
+                  className="voice-note-btn"
+                  onClick={startRecording}
+                  aria-label="Record a Lounge voice note"
+                  title="Record a voice note"
+                  data-testid="lounge-voice-btn"
+                >
+                  <Mic />
+                </button>
+                <button className="send-btn" onClick={submitMessage} aria-label="Send Lounge message" data-testid="lounge-send-btn">
+                  <Send />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="lounge-guest-bar">
+          <Globe2 />
+          <span>You are reading as a guest.</span>
+          <button onClick={onLogin}>Log in to join</button>
+        </div>
+      )}
+
+      {cardMember && (
+        <LoungeUserCard
+          member={cardMember}
+          currentUser={currentUser}
+          room={room}
+          inviting={invitingId === cardMember.id}
+          onClose={() => setCardFor(null)}
+          onInvite={(member) => {
+            onInviteUser?.(member.id)
+            setCardFor(null)
+          }}
+        />
+      )}
+    </aside>
   )
 }
 
@@ -5275,6 +6001,8 @@ function ChatPanel({
   onToggleMic,
   onDuckTest,
   duckLevel,
+  onOpenLounge,
+  unreadLoungeCount = 0,
 }) {
   const members = useMembers()
   const chatRef = useRef(null)
@@ -5537,6 +6265,18 @@ function ChatPanel({
         <div className="social-tabs">
           <button className={`social-tab ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => onTab('chat')}>
             <MessageCircle /> Room chat
+          </button>
+          <button
+            className="social-tab social-tab-lounge"
+            onClick={onOpenLounge}
+            data-testid="lounge-tab-btn"
+          >
+            <Globe2 /> Public Lounge
+            {unreadLoungeCount > 0 && (
+              <b className="social-tab-badge" data-testid="lounge-tab-unread">
+                {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
+              </b>
+            )}
           </button>
           <button className={`social-tab ${activeTab === 'lyrics' ? 'active' : ''}`} onClick={() => onTab('lyrics')}>
             <Sparkles /> Lyrics
@@ -6333,20 +7073,39 @@ function PlayerDock({
   )
 }
 
-function MobileNav({ view, chatOpen, onNavigate, onSearch, onChat, inRoom }) {
+function MobileNav({
+  view,
+  chatOpen,
+  loungeOpen,
+  unreadLoungeCount,
+  onNavigate,
+  onSearch,
+  onChat,
+  onLounge,
+  inRoom,
+}) {
   return (
     <nav className="mobile-nav">
-      <button className={(view === 'home' || (view === 'room' && !inRoom)) && !chatOpen ? 'active' : ''} onClick={() => onNavigate('home')}>
+      <button className={(view === 'home' || (view === 'room' && !inRoom)) && !chatOpen && !loungeOpen ? 'active' : ''} onClick={() => onNavigate('home')}>
         <Home /> Home
       </button>
-      <button className={view === 'rooms' && !chatOpen ? 'active' : ''} onClick={() => onNavigate('rooms')}>
+      <button className={view === 'rooms' && !chatOpen && !loungeOpen ? 'active' : ''} onClick={() => onNavigate('rooms')}>
         <Radio /> Rooms
       </button>
       <button onClick={onSearch}>
         <Search /> Search
       </button>
-      <button className={view === 'library' && !chatOpen ? 'active' : ''} onClick={() => onNavigate('library')}>
+      <button className={view === 'library' && !chatOpen && !loungeOpen ? 'active' : ''} onClick={() => onNavigate('library')}>
         <Library /> Library
+      </button>
+      <button className={`mobile-lounge-btn ${loungeOpen ? 'active' : ''}`} onClick={onLounge} data-testid="lounge-mobile-btn">
+        <span className="mobile-lounge-icon"><Globe2 /><i className="lounge-online-dot" /></span>
+        Lounge
+        {unreadLoungeCount > 0 && (
+          <b className="lounge-mobile-unread" data-testid="lounge-mobile-unread">
+            {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
+          </b>
+        )}
       </button>
       {inRoom && (
         <button className={chatOpen ? 'active' : ''} onClick={onChat}>
@@ -6955,6 +7714,15 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth > 1050))
   const [unreadRoomCounts, setUnreadRoomCounts] = useState({})
   const [latestRoomPreview, setLatestRoomPreview] = useState({})
+  const [loungeMessages, setLoungeMessages] = useState(loadLoungeMessages)
+  const [loungeOpen, setLoungeOpen] = useState(false)
+  const [loungeUnreadCount, setLoungeUnreadCount] = useState(0)
+  const [latestLoungePreview, setLatestLoungePreview] = useState(null)
+  const [loungeDraft, setLoungeDraft] = useState('')
+  const [loungeReplyTo, setLoungeReplyTo] = useState(null)
+  const [loungeTyping, setLoungeTyping] = useState({})
+  const [loungeVoicePlaying, setLoungeVoicePlaying] = useState(false)
+  const [loungeInvitingId, setLoungeInvitingId] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchContext, setSearchContext] = useState({ mode: 'solo', roomId: null, roomName: '' })
   const [pendingPlayId, setPendingPlayId] = useState('')
@@ -7035,6 +7803,14 @@ export default function App() {
   const acceptedInviteRoomsRef = useRef(new Set())
   const roomPreviewTimersRef = useRef({})
   const receivedChatIdsRef = useRef(new Set())
+  const receivedLoungeIdsRef = useRef(new Set(loungeMessages.map((message) => message.id)))
+  const loungeMessagesRef = useRef(loungeMessages)
+  const loungeOpenRef = useRef(loungeOpen)
+  const loungeUnreadRef = useRef(0)
+  const loungePreviewTimerRef = useRef(null)
+  const loungeTypingClearRef = useRef({})
+  const lastLoungeTypingRef = useRef(0)
+  const loungeInviteGuardRef = useRef(new Set())
   const viewRef = useRef(view)
   const chatOpenRef = useRef(chatOpen)
   const soloSnapshotRef = useRef({ track: null, currentTime: 0, isPlaying: false, queue: [], index: 0 })
@@ -7114,7 +7890,12 @@ export default function App() {
     ? invites.find((invite) => invite.toUserId === currentUser.id) || null
     : null
   const shellChatOpen = inRoom && view === 'room' && chatOpen
+  const shellDrawerOpen = shellChatOpen || loungeOpen
   const activeRoomUnread = activeRoomId ? unreadRoomCounts[activeRoomId] || 0 : 0
+  const loungeTypingId = Object.values(loungeTyping)[0] || null
+  const loungeTypingMember = loungeTypingId
+    ? (memberIndex[loungeTypingId] || { id: loungeTypingId, name: 'Someone', handle: 'listener' })
+    : null
   const lyricsKey = track?.id || 'empty'
 
   useEffect(() => {
@@ -7128,6 +7909,40 @@ export default function App() {
   useEffect(() => {
     chatOpenRef.current = chatOpen
   }, [chatOpen])
+
+  useEffect(() => {
+    loungeOpenRef.current = loungeOpen
+    if (!loungeOpen) {
+      setLoungeVoicePlaying(false)
+      return
+    }
+    setLoungeUnreadCount(0)
+    loungeUnreadRef.current = 0
+    setLatestLoungePreview(null)
+    clearTimeout(loungePreviewTimerRef.current)
+  }, [loungeOpen])
+
+  useEffect(() => {
+    loungeMessagesRef.current = loungeMessages
+    writeStorage(PUBLIC_LOUNGE_KEY, loungeMessages)
+  }, [loungeMessages])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible' || !loungeOpenRef.current) return
+      setLoungeUnreadCount(0)
+      loungeUnreadRef.current = 0
+      setLatestLoungePreview(null)
+      clearTimeout(loungePreviewTimerRef.current)
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
+  useEffect(() => () => {
+    clearTimeout(loungePreviewTimerRef.current)
+    Object.values(loungeTypingClearRef.current).forEach((timer) => clearTimeout(timer))
+  }, [])
 
   useEffect(() => {
     if (view !== 'room') setChatOpen(false)
@@ -7843,8 +8658,8 @@ export default function App() {
     return {}
   }
 
-  function createRoom(input) {
-    if (!currentUserId) return
+  function createRoom(input, options = {}) {
+    if (!currentUserId) return null
     const gradient = ROOM_GRADIENTS.find((option) => option.id === input.gradient) || ROOM_GRADIENTS[0]
     let code = roomCode()
     while (rooms.some((room) => room.code === code)) code = roomCode()
@@ -7885,7 +8700,8 @@ export default function App() {
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     channelRef.current?.postMessage({ type: 'room-added', sender: tabIdRef.current, room })
     pushSystemMessage(room.id, `${currentUser?.name || 'You'} created this room · invite code ${room.code}`)
-    showToast(`Room created — invite code ${room.code}`)
+    if (!options.silent) showToast(`Room created — invite code ${room.code}`)
+    return room
   }
 
   function updateRoom(patch) {
@@ -8012,6 +8828,93 @@ export default function App() {
     channelRef.current?.postMessage({ type: 'invite', sender: tabIdRef.current, invite })
     pushSystemMessage(activeRoom.id, `${currentUser?.name || 'An admin'} invited ${target.name}`)
     showToast(`Invite sent to ${target.name}`)
+    return true
+  }
+
+  function inviteLoungeUser(userId) {
+    if (requireAuth(null, 'Log in to invite someone to a private room.')) return false
+    if (!currentUser || !userId) return false
+    const target = accounts[userId] || publicUsers[userId]
+    if (!target) {
+      showToast('That listener is no longer available.', 'lock')
+      return false
+    }
+    if (target.id === currentUserId) {
+      showToast('That is you.')
+      return false
+    }
+    if (target.allowInvites === false) {
+      showToast(`${target.name} is not accepting direct room invites.`, 'lock')
+      return false
+    }
+    if (loungeInviteGuardRef.current.has(target.id)) return false
+    loungeInviteGuardRef.current.add(target.id)
+    setLoungeInvitingId(target.id)
+    const timer = setTimeout(() => {
+      loungeInviteGuardRef.current.delete(target.id)
+      setLoungeInvitingId((current) => (current === target.id ? '' : current))
+    }, 4000)
+    let room = null
+    if (activeRoom && activeRoom.private && role === 'admin' && viewRef.current === 'room') {
+      room = activeRoom
+    } else {
+      const myHandle = currentUser.handle || 'listener'
+      const theirHandle = target.handle || 'listener'
+      room = createRoom({
+        name: `@${myHandle} × @${theirHandle} Lounge`,
+        tagline: 'A private listening room, opened from the Public Lounge.',
+        description: `A private room for @${myHandle} and @${theirHandle}.`,
+        gradient: 'midnight',
+        private: true,
+      }, { silent: true })
+    }
+    if (!room) {
+      clearTimeout(timer)
+      loungeInviteGuardRef.current.delete(target.id)
+      setLoungeInvitingId('')
+      return false
+    }
+    if (room.members.includes(target.id)) {
+      showToast(`${target.name} is already in ${room.name}.`, 'lock')
+      clearTimeout(timer)
+      loungeInviteGuardRef.current.delete(target.id)
+      setLoungeInvitingId('')
+      return false
+    }
+    const duplicate = invitesRef.current.some((invite) => (
+      invite.roomId === room.id && invite.toUserId === target.id
+    ))
+    if (duplicate) {
+      showToast(`${target.name} already has a pending invite to ${room.name}.`, 'lock')
+      clearTimeout(timer)
+      loungeInviteGuardRef.current.delete(target.id)
+      setLoungeInvitingId('')
+      return false
+    }
+    if (room === activeRoom && viewRef.current !== 'room') {
+      setView('room')
+      viewRef.current = 'room'
+    }
+    const invite = {
+      id: uid('invite'),
+      roomId: room.id,
+      roomName: room.name,
+      roomCode: room.code,
+      fromId: currentUserId,
+      fromHandle: currentUser.handle || 'listener',
+      toUserId: target.id,
+      createdAt: Date.now(),
+    }
+    setInvites((previous) => [...previous, invite])
+    channelRef.current?.postMessage({ type: 'room-invite', sender: tabIdRef.current, invite })
+    pushSystemMessage(room.id, `${currentUser.name || 'An admin'} invited ${target.name}`)
+    showToast(`Invited @${target.handle || target.name} to ${room.name}`)
+    closeLounge()
+    clearTimeout(timer)
+    setTimeout(() => {
+      loungeInviteGuardRef.current.delete(target.id)
+      setLoungeInvitingId((current) => (current === target.id ? '' : current))
+    }, 1100)
     return true
   }
 
@@ -8223,6 +9126,215 @@ export default function App() {
       })
       delete roomPreviewTimersRef.current[roomId]
     }, 6000)
+  }
+
+  function rememberLoungeUnread(message) {
+    if (!message || message.author === currentUserRef.current?.id) return
+    if (loungeOpenRef.current && document.visibilityState === 'visible') return
+    const sender = message.authorHandle || 'listener'
+    const rawText = message.type === 'voice' ? '🎙️ Voice note' : String(message.text || 'New message')
+    const text = rawText.replace(/\s+/g, ' ').trim().slice(0, 74)
+    setLoungeUnreadCount((previous) => {
+      const next = Math.min(999, previous + 1)
+      loungeUnreadRef.current = next
+      return next
+    })
+    setLatestLoungePreview({ id: message.id, sender, text })
+    clearTimeout(loungePreviewTimerRef.current)
+    loungePreviewTimerRef.current = setTimeout(() => setLatestLoungePreview(null), 6000)
+  }
+
+  function upsertLoungeMessage(message) {
+    const normalized = normalizeLoungeMessage(message)
+    if (!normalized) return
+    setLoungeMessages((previous) => {
+      const index = previous.findIndex((item) => item.id === normalized.id)
+      const next = index >= 0
+        ? previous.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
+        : [...previous, normalized]
+      return next.slice(-LOUNGE_MESSAGE_LIMIT)
+    })
+  }
+
+  function applyLoungeReaction({ messageId, emoji, userId, userName, active }) {
+    if (!messageId || !emoji || !userId) return
+    setLoungeMessages((previous) => previous.map((message) => {
+      if (message.id !== messageId) return message
+      const reactions = (message.reactions || []).map((reaction) => ({
+        ...reaction,
+        userIds: Array.isArray(reaction.userIds) ? [...reaction.userIds] : [],
+      }))
+      const index = reactions.findIndex((reaction) => reaction.emoji === emoji)
+      if (active) {
+        if (index >= 0) {
+          const reaction = reactions[index]
+          if (!reaction.userIds.includes(userId)) {
+            reaction.userIds.push(userId)
+            reaction.count = Math.max(reaction.count + 1, reaction.userIds.length)
+          }
+        } else {
+          reactions.push({ emoji, count: 1, userIds: [userId], users: userName ? [{ id: userId, name: userName }] : [] })
+        }
+      } else if (index >= 0) {
+        const reaction = reactions[index]
+        const hadUser = reaction.userIds.includes(userId)
+        reaction.userIds = reaction.userIds.filter((id) => id !== userId)
+        if (hadUser) reaction.count = Math.max(reaction.userIds.length, reaction.count - 1)
+        if (!reaction.userIds.length) reactions.splice(index, 1)
+      }
+      return { ...message, reactions }
+    }))
+  }
+
+  function removeLoungeMessage(messageId) {
+    if (!messageId) return
+    setLoungeMessages((previous) => previous.filter((message) => message.id !== messageId))
+  }
+
+  function openLounge() {
+    setLoungeOpen(true)
+    setChatOpen(false)
+    setSidebarOpen(false)
+    setLoungeUnreadCount(0)
+    loungeUnreadRef.current = 0
+    setLatestLoungePreview(null)
+    clearTimeout(loungePreviewTimerRef.current)
+  }
+
+  function closeLounge() {
+    setLoungeOpen(false)
+    setLoungeVoicePlaying(false)
+  }
+
+  function openRoomChat(tab = 'chat') {
+    setLoungeOpen(false)
+    setChatOpen(true)
+    setActiveTab(tab)
+  }
+
+  function handleLoungeDraft(value) {
+    setLoungeDraft(value)
+    if (!currentUserId || !value.trim()) return
+    const now = Date.now()
+    if (now - lastLoungeTypingRef.current < 900) return
+    lastLoungeTypingRef.current = now
+    channelRef.current?.postMessage({
+      type: 'lounge-typing',
+      sender: tabIdRef.current,
+      userId: currentUserId,
+      userName: currentUser?.name || 'Listener',
+      authorHandle: currentUser?.handle || 'listener',
+    })
+  }
+
+  function sendLoungeMessage() {
+    if (!loungeDraft.trim()) return
+    if (requireAuth(null, 'Log in to join the Public Lounge conversation.')) return
+    if (!currentUser) return
+    const replySnapshot = loungeReplyTo
+      ? {
+          id: loungeReplyTo.id,
+          name: loungeReplyTo.name,
+          handle: loungeReplyTo.handle,
+          text: loungeReplyTo.text.slice(0, 180),
+        }
+      : null
+    const message = {
+      id: uid('lounge'),
+      author: currentUserId,
+      userName: currentUser.name || 'Listener',
+      authorHandle: currentUser.handle || 'listener',
+      text: loungeDraft.trim().slice(0, 1000),
+      time: clockNow(),
+      createdAt: Date.now(),
+      reactions: [],
+      read: true,
+      ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+    }
+    upsertLoungeMessage(message)
+    channelRef.current?.postMessage({
+      type: 'lounge-message',
+      sender: tabIdRef.current,
+      message,
+    })
+    setLoungeDraft('')
+    setLoungeReplyTo(null)
+  }
+
+  function sendLoungeVoiceNote({ dataUrl, duration, waveform }) {
+    if (!dataUrl) return
+    if (requireAuth(null, 'Log in to send a voice note in the Public Lounge.')) return
+    if (!currentUser) return
+    const replySnapshot = loungeReplyTo
+      ? {
+          id: loungeReplyTo.id,
+          name: loungeReplyTo.name,
+          handle: loungeReplyTo.handle,
+          text: loungeReplyTo.text || 'Voice note',
+        }
+      : null
+    const message = {
+      id: uid('lounge'),
+      author: currentUserId,
+      userName: currentUser.name || 'Listener',
+      authorHandle: currentUser.handle || 'listener',
+      type: 'voice',
+      text: '',
+      voiceData: dataUrl,
+      duration: Math.max(1, Math.min(45, Number(duration) || 1)),
+      waveform: Array.isArray(waveform) ? waveform : [],
+      time: clockNow(),
+      createdAt: Date.now(),
+      reactions: [],
+      read: true,
+      ...(replySnapshot ? { replyTo: replySnapshot } : {}),
+    }
+    upsertLoungeMessage(message)
+    channelRef.current?.postMessage({
+      type: 'lounge-message',
+      sender: tabIdRef.current,
+      message,
+    })
+    setLoungeReplyTo(null)
+  }
+
+  function reactToLoungeMessage(messageId, emoji) {
+    if (!emoji) return
+    if (requireAuth(null, 'Log in to react in the Public Lounge.')) return
+    if (!currentUser) return
+    const message = loungeMessagesRef.current.find((item) => item.id === messageId)
+    if (!message) return
+    const reaction = (message.reactions || []).find((item) => item.emoji === emoji)
+    const active = !(reaction?.userIds || []).includes(currentUserId)
+    applyLoungeReaction({
+      messageId,
+      emoji,
+      userId: currentUserId,
+      userName: currentUser.name,
+      active,
+    })
+    channelRef.current?.postMessage({
+      type: 'lounge-reaction',
+      sender: tabIdRef.current,
+      messageId,
+      emoji,
+      userId: currentUserId,
+      userName: currentUser.name || 'Listener',
+      active,
+    })
+  }
+
+  function deleteLoungeMessage(messageId) {
+    if (!currentUser) return
+    const message = loungeMessagesRef.current.find((item) => item.id === messageId)
+    if (!message || message.author !== currentUser.id) return
+    removeLoungeMessage(messageId)
+    channelRef.current?.postMessage({
+      type: 'lounge-delete',
+      sender: tabIdRef.current,
+      messageId,
+    })
+    showToast('Lounge message deleted')
   }
 
   function sendMessage() {
@@ -9799,7 +10911,7 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current
     const duckRatio = Math.max(0.05, Math.min(1, (settings.duckLevel || 20) / 100))
-    const shouldDuck = speaking || remoteSpeaking || voiceNotePlaying
+    const shouldDuck = speaking || remoteSpeaking || voiceNotePlaying || loungeVoicePlaying
     const normalizationGain = settings.normalization ? 0.9 : 1
     const target = muted ? 0 : (shouldDuck ? volume * duckRatio : volume) * normalizationGain * crossfadeGain
     const player = ytPlayerRef.current
@@ -9819,7 +10931,7 @@ export default function App() {
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [speaking, remoteSpeaking, voiceNotePlaying, volume, muted, settings.duckLevel, settings.normalization, crossfadeGain])
+  }, [speaking, remoteSpeaking, voiceNotePlaying, loungeVoicePlaying, volume, muted, settings.duckLevel, settings.normalization, crossfadeGain])
 
   useEffect(() => {
     if (!youtubeActive) return undefined
@@ -9987,7 +11099,7 @@ export default function App() {
       const data = event.data
       if (!data || data.sender === tabIdRef.current) return
 
-      if (data.type === 'invite' && data.invite) {
+      if ((data.type === 'invite' || data.type === 'room-invite') && data.invite) {
         setInvites((previous) => (
           previous.some((invite) => invite.id === data.invite.id)
             ? previous
@@ -9996,6 +11108,50 @@ export default function App() {
         if (data.invite.toUserId === currentUserRef.current?.id) {
           showToast(`@${data.invite.fromHandle || 'a listener'} invited you to ${data.invite.roomName}`)
         }
+        return
+      }
+
+      if (data.type === 'lounge-message' && data.message) {
+        const normalized = normalizeLoungeMessage(data.message)
+        if (!normalized) return
+        const isFreshMessage = !receivedLoungeIdsRef.current.has(normalized.id)
+        if (isFreshMessage) {
+          receivedLoungeIdsRef.current.add(normalized.id)
+          rememberLoungeUnread(normalized)
+        }
+        upsertLoungeMessage(normalized)
+        setLoungeTyping((previous) => {
+          if (!previous[normalized.author]) return previous
+          const next = { ...previous }
+          delete next[normalized.author]
+          return next
+        })
+        return
+      }
+
+      if (data.type === 'lounge-reaction' && data.messageId) {
+        applyLoungeReaction(data)
+        return
+      }
+
+      if (data.type === 'lounge-delete' && data.messageId) {
+        removeLoungeMessage(data.messageId)
+        return
+      }
+
+      if (data.type === 'lounge-typing' && data.userId) {
+        if (data.userId === currentUserRef.current?.id) return
+        setLoungeTyping((previous) => ({ ...previous, [data.userId]: data.userId }))
+        clearTimeout(loungeTypingClearRef.current[data.userId])
+        loungeTypingClearRef.current[data.userId] = setTimeout(() => {
+          setLoungeTyping((previous) => {
+            if (!previous[data.userId]) return previous
+            const next = { ...previous }
+            delete next[data.userId]
+            return next
+          })
+          delete loungeTypingClearRef.current[data.userId]
+        }, LOUNGE_TYPING_MS)
         return
       }
 
@@ -10662,7 +11818,7 @@ export default function App() {
           onError={handleAudioError}
         />
 
-        <div className={`shell ${shellChatOpen ? '' : 'chat-collapsed'}`}>
+        <div className={`shell ${shellDrawerOpen ? '' : 'chat-collapsed'}`}>
           <Sidebar
             room={displayRoom}
             rooms={rooms}
@@ -10684,6 +11840,10 @@ export default function App() {
             onLeaveRoom={leaveRoom}
             unreadRoomCounts={unreadRoomCounts}
             latestRoomPreview={latestRoomPreview}
+            loungeOpen={loungeOpen}
+            unreadLoungeCount={loungeUnreadCount}
+            latestLoungePreview={latestLoungePreview}
+            onOpenLounge={openLounge}
             mobileOpen={sidebarOpen}
             onMobileClose={() => setSidebarOpen(false)}
           />
@@ -10715,6 +11875,9 @@ export default function App() {
               onLogin={() => openAuth('signin')}
               onSignUp={() => openAuth('signup')}
               onOpenSidebar={() => setSidebarOpen(true)}
+              loungeOpen={loungeOpen}
+              unreadLoungeCount={loungeUnreadCount}
+              onToggleLounge={() => (loungeOpen ? closeLounge() : openLounge())}
             />
 
             <ErrorBoundary resetKey={`${view}:${activeRoom?.id || ''}:${activePlaylistId || ''}`}>
@@ -10861,21 +12024,28 @@ export default function App() {
               view={view}
               inRoom={roomPlaybackActive}
               chatOpen={chatOpen}
+              loungeOpen={loungeOpen}
+              unreadLoungeCount={loungeUnreadCount}
               onNavigate={navigateView}
               onSearch={openSearchExperience}
               onChat={() => {
                 setView('room')
+                setLoungeOpen(false)
                 setActiveTab('chat')
                 setChatOpen(true)
               }}
+              onLounge={openLounge}
             />
           </main>
 
-          {inRoom && view === 'room' && (
+          {inRoom && view === 'room' && !loungeOpen && (
             <ChatPanel
               room={activeRoom}
               activeTab={activeTab}
-              onTab={setActiveTab}
+              onTab={(tab) => {
+                setLoungeOpen(false)
+                setActiveTab(tab)
+              }}
               messages={roomMessages}
               typingMemberId={typingMemberId}
               draft={draft}
@@ -10918,9 +12088,52 @@ export default function App() {
               onDuckTest={runDuckTest}
               duckLevel={settings.duckLevel}
               open={chatOpen}
+              onOpenLounge={openLounge}
+              unreadLoungeCount={loungeUnreadCount}
             />
           )}
-          {shellChatOpen && <div className="chat-scrim" onClick={() => setChatOpen(false)} />}
+          {loungeOpen && (
+            <LoungeDrawer
+              open={loungeOpen}
+              messages={loungeMessages}
+              currentUser={currentUser}
+              members={memberIndex}
+              typingMember={loungeTypingMember}
+              room={inRoom && view === 'room' ? activeRoom : null}
+              inRoom={inRoom && view === 'room'}
+              draft={loungeDraft}
+              onDraft={handleLoungeDraft}
+              onSend={sendLoungeMessage}
+              onSendVoice={sendLoungeVoiceNote}
+              onVoiceNotePlay={setLoungeVoicePlaying}
+              onReact={reactToLoungeMessage}
+              onDelete={deleteLoungeMessage}
+              onReply={(message, author) => {
+                setLoungeReplyTo({
+                  id: message.id,
+                  name: author.name || 'Listener',
+                  handle: author.handle || 'listener',
+                  text: message.type === 'voice' ? 'Voice note' : message.text,
+                })
+              }}
+              replyTo={loungeReplyTo}
+              onCancelReply={() => setLoungeReplyTo(null)}
+              onClose={closeLounge}
+              onOpenRoomChat={openRoomChat}
+              onInviteUser={inviteLoungeUser}
+              invitingId={loungeInvitingId}
+              onLogin={() => openAuth('signin', 'Log in to join the Public Lounge conversation.')}
+            />
+          )}
+          {shellDrawerOpen && (
+            <div
+              className="chat-scrim"
+              onClick={() => {
+                if (loungeOpen) closeLounge()
+                if (chatOpen) setChatOpen(false)
+              }}
+            />
+          )}
         </div>
 
         <ErrorBoundary resetKey="overlays">
