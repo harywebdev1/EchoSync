@@ -1,3 +1,7 @@
+import { parseLrc, hasDevanagari, transliterateDevanagari, detectLyricsLanguage, findActiveLyricLine } from './core/lrcParser.js'
+import { getLiveRoomPosition, computeMemberDrift } from './core/roomSyncMath.js'
+import { ARTIST_LANGUAGE, TASTE_VIBES, normalizeTasteProfile, applyTasteSignal, topTasteLabels, buildTasteSuggestions, extractTopVibeTags } from './core/tasteEngine.js'
+import { createStorageAdapter } from './core/storageAdapter.js'
 import { Component, createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Home,
@@ -124,6 +128,10 @@ const DAILY_FEED_PREFIX = 'echosync_daily_feed_v3_'
 const DAILY_FEED_LEGACY_PREFIX = 'echosync_daily_feed_'
 let pendingStorageFailure = false
 let storageFailureQueued = false
+const { read: readStorage, write: writeStorage } = createStorageAdapter({
+  getStorage: () => localStorage,
+  onWriteFailure: notifyStorageFailure,
+})
 const LOCK_MESSAGE = 'Listener Mode: Only Room Admin or DJ can control playback'
 const SOLO_ROOM_ID = 'solo'
 const DAILY_QUERIES = [
@@ -136,24 +144,6 @@ const DAILY_QUERIES = [
   'Nusrat Fateh Ali Khan songs',
   'AR Rahman songs',
 ]
-const ARTIST_LANGUAGE = {
-  'atif aslam': 'Urdu',
-  'arijit singh': 'Hindi',
-  'coke studio': 'Urdu',
-  'the weeknd': 'English',
-  'diljit dosanjh': 'Punjabi',
-  'ap dhillon': 'Punjabi',
-  'talha anjum': 'Urdu',
-  pritam: 'Hindi',
-  'ar rahman': 'Hindi',
-  'a.r. rahman': 'Hindi',
-  coldplay: 'English',
-  'ali sethi': 'Urdu',
-  'kaifi khalil': 'Urdu',
-  'rahat fateh ali khan': 'Urdu',
-  'jubin nautiyal': 'Hindi',
-}
-
 const DEFAULT_SETTINGS = {
   quality: 'high',
   crossfade: false,
@@ -243,19 +233,6 @@ const ROOM_GRADIENTS = [
   { id: 'studio', c1: '#162430', c2: '#2e6582', accent: '#5bbde7', accent2: '#a9d8ee' },
   { id: 'dusk', c1: '#2b1f33', c2: '#6f4b8f', accent: '#b98ce0', accent2: '#dcc2f0' },
   { id: 'sunset', c1: '#33201b', c2: '#b25f3e', accent: '#ef8f5b', accent2: '#f4c191' },
-]
-
-const TASTE_WEIGHTS = { play: 3, like: 5, playlist: 4, search: 2, tune: 6 }
-
-const TASTE_VIBES = [
-  { id: 'pakistani-indie', label: 'Pakistani Indie', query: 'Pakistani indie songs', hint: 'Kaifi Khalil, Talha Anjum, Ali Sethi', c1: '#1d4f42', c2: '#78c59c', language: 'Urdu', genre: 'Indie' },
-  { id: 'coke-studio', label: 'Coke Studio', query: 'Coke Studio Pakistan songs', hint: 'Live sessions with a pulse', c1: '#5a2c17', c2: '#e8a65e', language: 'Urdu', genre: 'Coke Studio' },
-  { id: 'bollywood-romance', label: 'Bollywood Romance', query: 'Bollywood romantic songs', hint: 'Arijit, Pritam, soft endings', c1: '#5a2032', c2: '#ec8da0', language: 'Hindi', genre: 'Bollywood' },
-  { id: 'punjabi-hip-hop', label: 'Punjabi Hip-Hop', query: 'Punjabi hip hop songs', hint: 'AP Dhillon, Diljit, Sidhu', c1: '#183a31', c2: '#57c99a', language: 'Punjabi', genre: 'Hip-Hop' },
-  { id: 'sufi-qawwali', label: 'Sufi & Qawwali', query: 'Sufi qawwali songs', hint: 'Nusrat, Rahat, sacred scale', c1: '#4c3617', c2: '#d8b15f', language: 'Urdu', genre: 'Qawwali' },
-  { id: 'global-pop', label: 'Global Pop', query: 'global pop hits', hint: 'The Weeknd, Post Malone, Coldplay', c1: '#1b3158', c2: '#7ca9ee', language: 'English', genre: 'Pop' },
-  { id: 'lofi-chill', label: 'Lo-Fi Chill', query: 'lofi chill songs', hint: 'Soft focus, late hours', c1: '#292448', c2: '#a795e8', language: 'English', genre: 'Lo-Fi' },
-  { id: 'naat-spiritual', label: 'Naat & Spiritual', query: 'Naat spiritual songs', hint: 'Quiet devotion, open room', c1: '#204338', c2: '#8cd3ad', language: 'Urdu', genre: 'Spiritual' },
 ]
 
 function uid(prefix = 'id') {
@@ -983,89 +960,6 @@ function sanitizePlaylist(raw) {
   }
 }
 
-const DEVANAGARI_VOWELS = {
-  'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 'ऋ': 'ri',
-  'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'ऑ': 'o', 'ॐ': 'om',
-}
-const DEVANAGARI_MATRAS = {
-  'ा': 'a', 'ि': 'i', 'ी': 'i', 'ु': 'u', 'ू': 'u', 'ृ': 'ri', 'े': 'e',
-  'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ॉ': 'o', 'ॅ': 'e',
-}
-const DEVANAGARI_CONSONANTS = {
-  'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
-  'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'n',
-  'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
-  'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
-  'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
-  'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
-  'ष': 'sh', 'स': 's', 'ह': 'h', 'ळ': 'l',
-}
-const DEVANAGARI_NUKTA = { 'क': 'q', 'ख': 'kh', 'ग': 'g', 'ज': 'z', 'ड': 'r', 'ढ': 'rh', 'फ': 'f' }
-const DEVANAGARI_MARKS = { 'ं': 'n', 'ँ': 'n', 'ः': 'h', 'ऽ': '', '्': '' }
-
-function hasDevanagari(value = '') {
-  return /[\u0900-\u097F]/.test(String(value))
-}
-
-function transliterateDevanagari(value = '') {
-  const text = String(value)
-  let output = ''
-  let pendingConsonant = false
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]
-    if (char === '्') {
-      pendingConsonant = false
-      continue
-    }
-    if (DEVANAGARI_CONSONANTS[char]) {
-      if (pendingConsonant && !output.endsWith(' ')) output += 'a'
-      if (text[index + 1] === '़' && DEVANAGARI_NUKTA[char]) {
-        output += DEVANAGARI_NUKTA[char]
-        index += 1
-      } else {
-        output += DEVANAGARI_CONSONANTS[char]
-      }
-      pendingConsonant = true
-      continue
-    }
-    if (DEVANAGARI_MATRAS[char]) {
-      output += DEVANAGARI_MATRAS[char]
-      pendingConsonant = false
-      continue
-    }
-    if (DEVANAGARI_VOWELS[char]) {
-      output += DEVANAGARI_VOWELS[char]
-      pendingConsonant = false
-      continue
-    }
-    if (DEVANAGARI_MARKS[char] !== undefined) {
-      output += DEVANAGARI_MARKS[char]
-      pendingConsonant = false
-      continue
-    }
-    if (char === '।') {
-      output += '.'
-      pendingConsonant = false
-      continue
-    }
-    if (pendingConsonant && !/[\u0900-\u097F]/.test(char)) pendingConsonant = false
-    output += char
-  }
-  return output
-    .replace(/\s+/g, ' ')
-    .replace(/\s+([,.!?;:])/g, '$1')
-    .trim()
-}
-
-function detectLyricsLanguage(value = '') {
-  const text = String(value)
-  if (hasDevanagari(text)) return 'hi'
-  if (/[\u0600-\u06FF]/.test(text)) return 'ur'
-  if (/[\u0400-\u04FF]/.test(text)) return 'other'
-  if (/[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/.test(text)) return 'other'
-  return 'en'
-}
-
 function isPreviewTrack(track) {
   if (!track) return false
   if (track.preview === true) return true
@@ -1074,37 +968,7 @@ function isPreviewTrack(track) {
   return /\/(?:preview|30sec|30s)[/.]/i.test(stream) || /\.m4a\?.*preview/i.test(stream)
 }
 
-function readStorage(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : fallback
-  } catch {
-    return fallback
-  }
-}
-
-function writeStorage(key, value) {
-  const attempt = () => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value))
-      return true
-    } catch {
-      return false
-    }
-  }
-  if (attempt()) return true
-  // Only rebuildable caches are eligible. Never prune accounts or user content.
-  const disposableKeys = new Set([STREAM_CACHE_KEY, LYRIC_CACHE_KEY, TRANSLATE_KEY, TRANSLATION_CACHE_KEY])
-  try {
-    Object.keys(localStorage).forEach((cacheKey) => {
-      if (disposableKeys.has(cacheKey) || cacheKey.startsWith(DAILY_FEED_PREFIX) || cacheKey.startsWith(DAILY_FEED_LEGACY_PREFIX)) {
-        localStorage.removeItem(cacheKey)
-      }
-    })
-  } catch {
-    // Storage may be disabled entirely; the single retry below reports failure.
-  }
-  if (attempt()) return true
+function notifyStorageFailure() {
   pendingStorageFailure = true
   if (!storageFailureQueued && typeof window !== 'undefined') {
     storageFailureQueued = true
@@ -1113,7 +977,6 @@ function writeStorage(key, value) {
       window.dispatchEvent(new Event('echosync-storage-failure'))
     })
   }
-  return false
 }
 
 function loadLibraryCache() {
@@ -1415,179 +1278,8 @@ function tasteSummary(library, liked, recentIds, playlists) {
   }
 }
 
-function emptyTasteProfile() {
-  return {
-    version: 1,
-    artists: {},
-    languages: {},
-    genres: {},
-    vibes: {},
-    searches: [],
-    tuned: [],
-    events: 0,
-    updatedAt: 0,
-  }
-}
-
-function normalizeTasteProfile(raw) {
-  const profile = emptyTasteProfile()
-  if (!raw || typeof raw !== 'object') return profile
-  const copyWeights = (source) => {
-    if (!source || typeof source !== 'object') return {}
-    const entries = Object.entries(source)
-      .map(([key, value]) => {
-        if (value && typeof value === 'object') {
-          return [key, {
-            name: safeText(value.name, key),
-            weight: Math.max(0, Number(value.weight) || 0),
-          }]
-        }
-        return [key, { name: key, weight: Math.max(0, Number(value) || 0) }]
-      })
-      .filter(([key, value]) => key && value.weight > 0)
-      .sort((a, b) => b[1].weight - a[1].weight)
-      .slice(0, 30)
-    return Object.fromEntries(entries)
-  }
-  profile.artists = copyWeights(raw.artists)
-  profile.languages = copyWeights(raw.languages)
-  profile.genres = copyWeights(raw.genres)
-  profile.vibes = copyWeights(raw.vibes)
-  profile.searches = (Array.isArray(raw.searches) ? raw.searches : [])
-    .map((entry) => {
-      if (typeof entry === 'string') return { query: safeText(entry), at: 0 }
-      return { query: safeText(entry?.query), at: Number(entry?.at) || 0 }
-    })
-    .filter((entry) => entry.query)
-    .slice(0, 10)
-  profile.tuned = [...new Set((Array.isArray(raw.tuned) ? raw.tuned : []).filter((id) => TASTE_VIBES.some((vibe) => vibe.id === id)))]
-  profile.events = Math.max(0, Number(raw.events) || 0)
-  profile.updatedAt = Number(raw.updatedAt) || 0
-  return profile
-}
-
 function loadTasteProfile(userId) {
   return normalizeTasteProfile(readUserValue(TASTE_PROFILE_KEY, userId || 'guest', null))
-}
-
-function bumpTasteWeight(map, key, name, amount) {
-  if (!key) return
-  const previous = map[key]
-  const weight = (previous?.weight || 0) + amount
-  map[key] = { name: name || previous?.name || key, weight }
-}
-
-function artistNames(track) {
-  return String(track?.artist || '')
-    .split(/\s*(?:&|,| and | feat\.? | ft\.? )\s*/i)
-    .map((artist) => artist.trim())
-    .filter((artist) => artist && !/unknown/i.test(artist))
-}
-
-function languageForTrack(track) {
-  const language = safeText(track?.language || track?.lang)
-  if (language) return language
-  const artist = normalize(artistNames(track)[0] || '')
-  if (ARTIST_LANGUAGE[artist]) return ARTIST_LANGUAGE[artist]
-  const title = normalize(`${track?.title || ''} ${track?.album || ''}`)
-  if (/\b(naat|qawwali|sufi|hamd|ghazal)\b/.test(title)) return 'Urdu'
-  if (/\b(punjabi|bhangra|jatt)\b/.test(title)) return 'Punjabi'
-  if (/\b(bollywood|filmi|hindi)\b/.test(title)) return 'Hindi'
-  return track?.provider === 'youtube' ? 'Global' : 'Hindi'
-}
-
-function genresForTrack(track) {
-  const text = normalize(`${track?.title || ''} ${track?.album || ''} ${track?.artist || ''}`)
-  const genres = []
-  if (/\b(qawwali|naat|sufi|hamd|ghazal)\b/.test(text)) genres.push(/naat|hamd/.test(text) ? 'Spiritual' : 'Qawwali')
-  if (/\b(coke studio)\b/.test(text)) genres.push('Coke Studio')
-  if (/\b(indie|underground|independent)\b/.test(text)) genres.push('Indie')
-  if (/\b(hip hop|hip-hop|rap|trap|drill)\b/.test(text) || /talha anjum|ap dhillon|diljit|sidhu/.test(text)) genres.push('Hip-Hop')
-  if (/\b(lofi|lo-fi|chill|ambient)\b/.test(text)) genres.push('Lo-Fi')
-  if (/\b(punjabi|bhangra)\b/.test(text)) genres.push('Punjabi')
-  if (/\b(romance|romantic|love|ishq|pyaar)\b/.test(text)) genres.push('Romance')
-  if (!genres.length) {
-    const language = languageForTrack(track)
-    if (language === 'Hindi') genres.push('Bollywood')
-    else if (language === 'Urdu') genres.push('South Asian')
-    else if (language === 'Punjabi') genres.push('Punjabi Pop')
-    else genres.push('Pop')
-  }
-  return [...new Set(genres)].slice(0, 2)
-}
-
-function applyTasteSignal(profile, type, payload = {}) {
-  const weight = TASTE_WEIGHTS[type] || 0
-  if (!weight) return profile
-  const next = normalizeTasteProfile(profile)
-  next.events += 1
-  next.updatedAt = Date.now()
-  if (type === 'tune') {
-    const selected = [...new Set((payload.vibes || []).filter((id) => TASTE_VIBES.some((vibe) => vibe.id === id)))]
-    const previous = new Set(next.tuned)
-    selected.forEach((id) => {
-      const vibe = TASTE_VIBES.find((item) => item.id === id)
-      if (!vibe) return
-      if (!previous.has(id)) {
-        bumpTasteWeight(next.vibes, vibe.id, vibe.label, weight)
-        bumpTasteWeight(next.languages, normalize(vibe.language), vibe.language, weight)
-        bumpTasteWeight(next.genres, normalize(vibe.genre), vibe.genre, weight)
-      }
-    })
-    next.tuned = selected
-    return next
-  }
-  if (type === 'search') {
-    const query = safeText(payload.query).slice(0, 80)
-    if (!query) return next
-    next.searches = [
-      { query, at: Date.now() },
-      ...next.searches.filter((entry) => normalize(entry.query) !== normalize(query)),
-    ].slice(0, 8)
-    return next
-  }
-  const track = payload.track
-  if (!track?.id) return next
-  artistNames(track).forEach((artist) => {
-    bumpTasteWeight(next.artists, normalize(artist), artist, weight)
-  })
-  const language = languageForTrack(track)
-  if (language) bumpTasteWeight(next.languages, normalize(language), language, weight)
-  genresForTrack(track).forEach((genre) => {
-    bumpTasteWeight(next.genres, normalize(genre), genre, weight)
-  })
-  return next
-}
-
-function topTasteLabels(map, limit = 4) {
-  return Object.values(map || {})
-    .sort((a, b) => b.weight - a.weight)
-    .map((entry) => entry.name)
-    .filter(Boolean)
-    .slice(0, limit)
-}
-
-function buildTasteSuggestions(profile, dailyUser, trending) {
-  const suggestions = []
-  const seen = new Set()
-  const add = (label, query) => {
-    const cleanLabel = safeText(label)
-    const cleanQuery = safeText(query)
-    if (!cleanLabel || !cleanQuery || seen.has(normalize(cleanLabel))) return
-    seen.add(normalize(cleanLabel))
-    suggestions.push({ label: cleanLabel, query: cleanQuery })
-  }
-  ;(profile?.tuned || []).forEach((id) => {
-    const vibe = TASTE_VIBES.find((item) => item.id === id)
-    if (vibe) add(vibe.label, vibe.query)
-  })
-  topTasteLabels(profile?.artists, 3).forEach((artist) => add(artist, `${artist} songs`))
-  topTasteLabels(profile?.languages, 2).forEach((language) => add(`${language} picks`, `${language} songs`))
-  topTasteLabels(profile?.genres, 2).forEach((genre) => add(genre, `${genre} songs`))
-  ;(dailyUser?.topArtists || []).forEach((artist) => add(artist, `${artist} songs`))
-  const trendingArtists = [...new Set((trending || []).map((track) => safeText(track?.artist)).filter(Boolean))]
-  trendingArtists.slice(0, 3).forEach((artist) => add(artist, `${artist} songs`))
-  return suggestions.slice(0, 8)
 }
 
 function rotateDaily(items, dayKey, offset = 0) {
@@ -2497,24 +2189,6 @@ async function resolveSeed(seed) {
     resolutionPromises.delete(seed.id)
     throw error
   }
-}
-
-function parseLrc(text) {
-  if (!text) return []
-  const lines = []
-  text.split(/\r?\n/).forEach((rawLine) => {
-    const stamps = [...rawLine.matchAll(/\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g)]
-    if (!stamps.length) return
-    const content = rawLine.replace(/\[[^\]]+\]/g, '').trim()
-    if (!content) return
-    stamps.forEach((stamp) => {
-      const minutes = Number(stamp[1])
-      const seconds = Number(stamp[2])
-      const fraction = stamp[3] ? Number(stamp[3].padEnd(3, '0')) : 0
-      lines.push({ time: minutes * 60 + seconds + fraction / 1000, text: content })
-    })
-  })
-  return lines.sort((a, b) => a.time - b.time)
 }
 
 function prepareLyricsData(data) {
@@ -3566,12 +3240,7 @@ function LyricsPanel({
 
   const activeIndex = useMemo(() => {
     if (lyrics?.status !== 'ready' || lyrics.type !== 'synced' || !lyrics.lines?.length) return -1
-    let active = -1
-    for (let index = 0; index < lyrics.lines.length; index += 1) {
-      if (lyrics.lines[index].time <= progress + 0.12) active = index
-      else break
-    }
-    return active < 0 ? 0 : active
+    return findActiveLyricLine(lyrics.lines, progress)
   }, [lyrics, progress])
 
   useEffect(() => {
@@ -4916,7 +4585,7 @@ function LoungeUserCard({ member, currentUser, room, inviting, onClose, onInvite
     return [...new Set([
       ...topTasteLabels(profile.artists, 2),
       ...topTasteLabels(profile.genres, 2),
-      ...topTasteLabels(profile.vibes, 1),
+      ...extractTopVibeTags(profile, 1),
     ])].slice(0, 3)
   }, [profile])
   if (!member) return null
@@ -6604,7 +6273,7 @@ export default function App() {
     }
     const sample = () => {
       if (document.visibilityState === 'hidden') return
-      recordRoomDrift(Math.abs(getPlaybackTime() - roomClockTime()))
+      recordRoomDrift(computeMemberDrift(getPlaybackTime(), roomClockTime()).seconds)
     }
     sample()
     const timer = setInterval(sample, 1500)
@@ -8353,9 +8022,7 @@ export default function App() {
   }
 
   function roomClockTime(clock = roomClockRef.current) {
-    if (!clock?.roomId) return 0
-    const elapsed = clock.isPlaying ? Math.max(0, Date.now() - (clock.updatedAt || Date.now())) / 1000 : 0
-    return Math.max(0, (Number(clock.time) || 0) + elapsed)
+    return getLiveRoomPosition(clock, Date.now())
   }
 
   function roomTrackDuration(clock = roomClockRef.current) {
@@ -8901,7 +8568,7 @@ export default function App() {
       }
     }
     const target = roomClockTime()
-    const drift = Math.abs(getPlaybackTime() - target)
+    const drift = computeMemberDrift(getPlaybackTime(), target).seconds
     recordRoomDrift(drift)
     const lateJoin = !hasInteractedRef.current && nextPlaying
     if (lateJoin) {

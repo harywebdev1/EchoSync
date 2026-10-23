@@ -53,6 +53,7 @@ let passed = 0
         localStorage.setItem('echosync_messages_v3', JSON.stringify({ sentinel: 'voice-data' }))
         localStorage.setItem('echosync_playlists_v1', JSON.stringify({ sentinel: 'playlist' }))
         localStorage.setItem('echosync_stream_cache_v4', 'disposable')
+        localStorage.setItem('echosync_translate.v1', 'true')
         const original = Storage.prototype.setItem
         Storage.prototype.setItem = function (key, value) {
           if (key === 'echosync.likes.v1') throw new DOMException('full', 'QuotaExceededError')
@@ -61,9 +62,10 @@ let passed = 0
       })
       await page.locator('button[aria-label^="Like "]:visible').first().click()
       await page.getByText("Changes weren't saved (storage full)", { exact: true }).waitFor()
-      const saved = await page.evaluate(() => ({ messages: localStorage.getItem('echosync_messages_v3'), playlists: localStorage.getItem('echosync_playlists_v1') }))
+      const saved = await page.evaluate(() => ({ messages: localStorage.getItem('echosync_messages_v3'), playlists: localStorage.getItem('echosync_playlists_v1'), translationPreference: localStorage.getItem('echosync_translate.v1') }))
       assert.match(saved.messages, /voice-data/)
       assert.match(saved.playlists, /playlist/)
+      assert.equal(saved.translationPreference, 'true')
     })
     await check('storage unavailable at startup reports failure without crashing the app', {}, async page => {
       await page.addInitScript(() => {
