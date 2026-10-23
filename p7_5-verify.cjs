@@ -1,6 +1,7 @@
 const { chromium } = require('playwright')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const path = require('node:path')
 
 const APP_URL = process.env.ECHOSYNC_URL || 'http://127.0.0.1:5173'
 const STATE_PATH = process.env.ECHOSYNC_STATE || 'C:/Users/haryw/AppData/Local/Temp/opencode/p75-state.json'
@@ -256,16 +257,20 @@ async function mobileLayout(browser) {
         })
         .slice(0, 10)
         .map((element) => ({ text: (element.textContent || '').trim().slice(0, 25), size: getComputedStyle(element).fontSize }))
-      return { buttons, headerButtons, smallText, scrollWidth: document.documentElement.scrollWidth }
+      const badges = [...document.querySelectorAll('.mobile-tab-badge')]
+        .filter(element => element.getClientRects().length)
+        .map(element => ({ text: element.textContent, fontSize: parseFloat(getComputedStyle(element).fontSize), height: element.getBoundingClientRect().height }))
+      return { buttons, headerButtons, smallText, badges, scrollWidth: document.documentElement.scrollWidth }
     })
     assert.ok(layout.headerButtons.length >= 2, 'library header actions are missing')
     assert.ok(layout.headerButtons.every((button) => button.right <= 391), 'library header actions are clipped')
     const undersized = layout.buttons.filter((button) => button.width < 36 || button.height < 36)
     assert.deepEqual(undersized, [], `undersized visible controls: ${JSON.stringify(undersized)}`)
     assert.deepEqual(layout.smallText, [], `visible text below 9px: ${JSON.stringify(layout.smallText)}`)
+    assert.ok(layout.badges.length > 0 && layout.badges.every(badge => badge.fontSize >= 11 && badge.height >= 20), `unreadable mobile count badge: ${JSON.stringify(layout.badges)}`)
     assert.ok(layout.scrollWidth <= 390, `library overflowed to ${layout.scrollWidth}px`)
     assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('; ')}`)
-    return `no overflow; ${queueMetrics.rows} queue rows; ${layout.buttons.length} touch controls OK`
+    return `no overflow; ${queueMetrics.rows} queue rows; ${layout.buttons.length} touch controls OK; mobile badges ${layout.badges.map(badge => `${badge.fontSize}px/${badge.height}px`).join(', ')}`
   } finally {
     await context.close()
   }
@@ -293,43 +298,244 @@ async function tabletLayout(browser) {
   }
 }
 
+function summarizeInteractionProfile(windowData, trace, profile, phaseMetrics) {
+  const round = value => Math.round(value * 10) / 10
+  const overlap = (start, duration, from, to) => Math.max(0, Math.min(start + duration, to) - Math.max(start, from))
+  const phases = windowData.phases.map(phase => {
+    const tasks = windowData.tasks.filter(task => overlap(task.startTime, task.duration, phase.startTime, phase.endTime))
+    return {
+      ...phase,
+      durationMs: round(phase.endTime - phase.startTime),
+      dispatchDelayMs: phase.dispatchTime == null ? null : round(phase.dispatchTime - phase.startTime),
+      longTaskCount: tasks.length,
+      longTaskOverlapMs: round(tasks.reduce((total, task) => total + overlap(task.startTime, task.duration, phase.startTime, phase.endTime), 0)),
+      longestTaskMs: round(Math.max(0, ...tasks.map(task => task.duration))),
+      browserMetrics: phaseMetrics[phase.name],
+    }
+  })
+  const events = trace.traceEvents || []
+  const traceMark = name => events.find(event => event.name === `echosync:cpu:${name}` && event.cat?.includes('user_timing'))
+  const startMark = traceMark('window:start')
+  const endMark = traceMark('window:end')
+  const mainThread = event => startMark && event.pid === startMark.pid && event.tid === startMark.tid
+  const inWindow = event => startMark && endMark && overlap(event.ts, event.dur || 0, startMark.ts, endMark.ts)
+  const taskEvents = events.filter(event => mainThread(event) && event.ph === 'X' && /(?:^RunTask$|ThreadControllerImpl::RunTask)/.test(event.name) && inWindow(event))
+  const nodeById = new Map(profile.nodes.map(node => [node.id, node]))
+  const parentById = new Map(profile.nodes.flatMap(node => (node.children || []).map(id => [id, node.id])))
+  const phaseFrames = Object.fromEntries(phases.map(phase => [phase.name, new Map()]))
+  const phaseBounds = phases.map(phase => ({ name: phase.name, start: traceMark(`${phase.name}:start`)?.ts, end: traceMark(`${phase.name}:end`)?.ts }))
+  const samples = []
+  let sampleTime = profile.startTime
+  for (let index = 0; index < (profile.samples || []).length; index++) {
+    sampleTime += profile.timeDeltas[index]
+    samples.push({ time: sampleTime, nodeId: profile.samples[index] })
+    const phase = phaseBounds.find(bound => sampleTime >= bound.start && sampleTime <= bound.end)
+    if (!phase) continue
+    // CPU samples are estimates, not exact function durations. Count both leaf
+    // samples and inclusive ancestry so App/React callers remain visible.
+    let id = profile.samples[index]
+    let leaf = true
+    const visited = new Set()
+    while (id != null && !visited.has(id)) {
+      visited.add(id)
+      const frame = nodeById.get(id)?.callFrame
+      if (frame) {
+        const key = JSON.stringify(frame)
+        const entry = phaseFrames[phase.name].get(key) || { ...frame, selfSamples: 0, inclusiveSamples: 0 }
+        entry.inclusiveSamples++
+        if (leaf) entry.selfSamples++
+        phaseFrames[phase.name].set(key, entry)
+      }
+      leaf = false
+      id = parentById.get(id)
+    }
+  }
+  for (const phase of phases) {
+    const frames = [...phaseFrames[phase.name].values()]
+    phase.topSelfFrames = frames.sort((a, b) => b.selfSamples - a.selfSamples).slice(0, 12)
+    phase.topApplicationFrames = frames.filter(frame => /\/src\//.test(frame.url)).sort((a, b) => b.inclusiveSamples - a.inclusiveSamples).slice(0, 12)
+  }
+  const longestMainThreadTasks = taskEvents.sort((a, b) => b.dur - a.dur).slice(0, 5).map(task => {
+    const children = events.filter(event => mainThread(event) && event.ph === 'X' && event !== task && event.ts >= task.ts && event.ts + (event.dur || 0) <= task.ts + task.dur)
+    const stacks = new Map()
+    for (const sample of samples) {
+      if (sample.time < task.ts || sample.time > task.ts + task.dur) continue
+      const stack = []
+      let id = sample.nodeId
+      const visited = new Set()
+      while (id != null && !visited.has(id)) {
+        visited.add(id)
+        const frame = nodeById.get(id)?.callFrame
+        stack.push(frame?.functionName || '<anonymous>')
+        id = parentById.get(id)
+      }
+      const key = stack.slice(0, 16).join(' <- ')
+      stacks.set(key, (stacks.get(key) || 0) + 1)
+    }
+    return {
+      durationMs: round(task.dur / 1000),
+      startTimeMs: round((task.ts - startMark.ts) / 1000),
+      phaseOverlaps: phaseBounds.filter(bound => overlap(task.ts, task.dur, bound.start, bound.end)).map(bound => bound.name),
+      topSampledStacks: [...stacks].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([stack, sampleCount]) => ({ stack, sampleCount })),
+      // Nested spans overlap: these are diagnostic spans, not additive totals.
+      longestSpans: children.sort((a, b) => (b.dur || 0) - (a.dur || 0)).slice(0, 12).map(event => ({ name: event.name, durationMs: round((event.dur || 0) / 1000), data: event.args?.data })),
+    }
+  })
+  return {
+    environment: { url: APP_URL, fixture: FIXTURE, viewport: '1280x820', cpuThrottling: 4, browser: profile.browserVersion },
+    notes: ['Phase elapsed time includes Playwright actionability waits and settling; dispatchDelayMs identifies pre-click delay.', 'Phase overlap is correlation. CPU stacks and nested trace spans are needed for causal attribution.', 'CPU sampling and tracing add overhead. The original 750ms/3500ms budgets are unchanged.'],
+    window: { startTime: windowData.startTime, endTime: windowData.endTime },
+    phases,
+    longTasks: windowData.tasks,
+    measures: windowData.measures,
+    longestMainThreadTasks,
+    scriptTimingSupported: windowData.scriptTimingSupported,
+    animationFrames: windowData.animationFrames.filter(frame => overlap(frame.startTime, frame.duration, windowData.startTime, windowData.endTime)),
+    metrics: {
+      count: windowData.tasks.length,
+      total: Math.round(windowData.tasks.reduce((sum, task) => sum + task.duration, 0)),
+      max: Math.round(Math.max(0, ...windowData.tasks.map(task => task.duration))),
+    },
+  }
+}
+
 async function performance4x(browser) {
   const { context, page, pageErrors } = await newPage(browser, { width: 1280, height: 820 })
+  const cdp = await context.newCDPSession(page)
+  let tracing = false
+  let profiling = false
   try {
-    const cdp = await context.newCDPSession(page)
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
     await openApp(page)
     await page.getByRole('button', { name: 'Play Chaleya' }).first().click()
     await waitForPlayback(page, 45000)
     await page.waitForTimeout(1200)
+    // *.local is already ignored, and captures survive subsequent Vite builds.
+    const outputDir = path.resolve(process.env.ECHOSYNC_PERF_DIR || path.join('performance-results.local', new Date().toISOString().replace(/[:.]/g, '-')))
+    fs.mkdirSync(outputDir, { recursive: true })
+    await cdp.send('Performance.enable')
+    await cdp.send('Profiler.enable')
+    await cdp.send('Profiler.setSamplingInterval', { interval: 1000 })
+    await cdp.send('Tracing.start', { categories: 'devtools.timeline,v8.execute,blink.user_timing,disabled-by-default-devtools.timeline', transferMode: 'ReturnAsStream' })
+    tracing = true
+    await cdp.send('Profiler.start')
+    profiling = true
     await page.evaluate(() => {
-      window.__longTasks = []
-      window.__longTaskObserver = new PerformanceObserver((list) => {
-        list.getEntries().forEach((entry) => window.__longTasks.push({ duration: entry.duration }))
-      })
-      window.__longTaskObserver.observe({ entryTypes: ['longtask'] })
-    })
-    await page.locator('[data-testid=queue-btn]').click()
-    await page.waitForTimeout(250)
-    await page.locator('[data-testid=queue-btn]').click()
-    await page.waitForTimeout(150)
-    await page.locator('[data-testid=shuffle-btn]').click()
-    await page.waitForTimeout(150)
-    await page.locator('[data-testid=repeat-btn]').click()
-    await page.waitForTimeout(900)
-    const metrics = await page.evaluate(() => {
-      const entries = window.__longTasks || []
-      return {
-        count: entries.length,
-        total: Math.round(entries.reduce((sum, entry) => sum + entry.duration, 0)),
-        max: Math.round(Math.max(0, ...entries.map((entry) => entry.duration))),
+      const state = window.__cpuProfile = { tasks: [], phases: [], animationFrames: [], current: null }
+      state.collectTasks = entries => entries.forEach(entry => state.tasks.push({ startTime: entry.startTime, duration: entry.duration, attribution: entry.attribution?.map(item => ({ name: item.name, containerType: item.containerType })) }))
+      state.observer = new PerformanceObserver(list => state.collectTasks(list.getEntries()))
+      state.observer.observe({ type: 'longtask' })
+      state.scriptTimingSupported = PerformanceObserver.supportedEntryTypes.includes('long-animation-frame')
+      if (state.scriptTimingSupported) {
+        state.collectFrames = entries => entries.forEach(entry => state.animationFrames.push({ startTime: entry.startTime, duration: entry.duration, blockingDuration: entry.blockingDuration, renderStart: entry.renderStart, styleAndLayoutStart: entry.styleAndLayoutStart, scripts: entry.scripts?.map(script => ({ duration: script.duration, executionStart: script.executionStart, forcedStyleAndLayoutDuration: script.forcedStyleAndLayoutDuration, invoker: script.invoker, sourceURL: script.sourceURL, sourceFunctionName: script.sourceFunctionName, sourceCharPosition: script.sourceCharPosition })) }))
+        state.frameObserver = new PerformanceObserver(list => state.collectFrames(list.getEntries()))
+        state.frameObserver.observe({ type: 'long-animation-frame' })
       }
+      state.onClick = event => {
+        if (!state.current || !event.target.closest(state.current.selector)) return
+        state.current.dispatchTime = performance.now()
+        performance.mark(`echosync:cpu:${state.current.name}:dispatch`)
+      }
+      document.addEventListener('click', state.onClick, true)
+      state.startTime = performance.now()
+      performance.mark('echosync:cpu:window:start')
     })
+    const phaseMetrics = {}
+    const metricsSnapshot = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(metric => [metric.name, metric.value]))
+    async function interaction(name, selector, settleMs, ready) {
+      const before = await metricsSnapshot()
+      await page.evaluate(({ name, selector }) => {
+        const state = window.__cpuProfile
+        state.current = { name, selector, startTime: performance.now() }
+        state.phases.push(state.current)
+        performance.mark(`echosync:cpu:${name}:start`)
+      }, { name, selector })
+      try {
+        await page.locator(selector).click()
+        await ready()
+        await page.waitForTimeout(settleMs)
+      } finally {
+        await page.evaluate(() => {
+          const state = window.__cpuProfile
+          state.current.endTime = performance.now()
+          performance.mark(`echosync:cpu:${state.current.name}:end`)
+          performance.measure(`echosync:cpu:${state.current.name}`, `echosync:cpu:${state.current.name}:start`, `echosync:cpu:${state.current.name}:end`)
+          state.current = null
+        })
+      }
+      const after = await metricsSnapshot()
+      phaseMetrics[name] = Object.fromEntries(['TaskDuration', 'ScriptDuration', 'LayoutDuration', 'RecalcStyleDuration'].map(key => [key.replace('Duration', 'Ms'), Math.round((after[key] - before[key]) * 10000) / 10]))
+    }
+    let interactionError
+    try {
+      await interaction('queue-open', '[data-testid=queue-btn]', 250, () => page.locator('[data-testid=solo-queue-drawer]').waitFor({ state: 'visible' }))
+      await interaction('queue-close', '[data-testid=queue-btn]', 150, () => page.locator('[data-testid=solo-queue-drawer]').waitFor({ state: 'hidden' }))
+      const shuffleLabel = await page.locator('[data-testid=shuffle-btn]').getAttribute('aria-label') === 'Shuffle: Off' ? 'Shuffle: On' : 'Shuffle: Off'
+      const labelReady = (selector, label) => page.waitForFunction(({ selector, label }) => document.querySelector(selector)?.getAttribute('aria-label') === label, { selector, label })
+      await interaction('shuffle', '[data-testid=shuffle-btn]', 150, () => labelReady('[data-testid=shuffle-btn]', shuffleLabel))
+      const repeatLabel = { 'Repeat: Off': 'Repeat: Queue', 'Repeat: Queue': 'Repeat: Current Track', 'Repeat: Current Track': 'Repeat: Off' }[await page.locator('[data-testid=repeat-btn]').getAttribute('aria-label')]
+      await interaction('repeat', '[data-testid=repeat-btn]', 900, () => labelReady('[data-testid=repeat-btn]', repeatLabel))
+    } catch (error) {
+      interactionError = error
+    }
+    const windowData = await page.evaluate(() => {
+      const state = window.__cpuProfile
+      state.endTime = performance.now()
+      performance.mark('echosync:cpu:window:end')
+      performance.measure('echosync:cpu:window', 'echosync:cpu:window:start', 'echosync:cpu:window:end')
+      state.collectTasks(state.observer.takeRecords())
+      state.observer.disconnect()
+      if (state.frameObserver) {
+        state.collectFrames(state.frameObserver.takeRecords())
+        state.frameObserver.disconnect()
+      }
+      document.removeEventListener('click', state.onClick, true)
+      return { startTime: state.startTime, endTime: state.endTime, tasks: state.tasks, phases: state.phases, animationFrames: state.animationFrames, scriptTimingSupported: state.scriptTimingSupported, measures: performance.getEntriesByType('measure').filter(entry => entry.name.startsWith('echosync:cpu:')).map(entry => ({ name: entry.name, startTime: entry.startTime, duration: entry.duration })) }
+    })
+    const { profile } = await cdp.send('Profiler.stop')
+    profiling = false
+    profile.browserVersion = browser.version()
+    const completed = new Promise((resolve, reject) => {
+      const done = event => { clearTimeout(timeout); resolve(event) }
+      const timeout = setTimeout(() => {
+        cdp.off('Tracing.tracingComplete', done)
+        reject(new Error('Chromium trace did not finish within 30 seconds'))
+      }, 30000)
+      cdp.once('Tracing.tracingComplete', done)
+    })
+    await cdp.send('Tracing.end')
+    const { stream } = await completed
+    tracing = false
+    const chunks = []
+    try {
+      for (;;) {
+        const chunk = await cdp.send('IO.read', { handle: stream })
+        chunks.push(Buffer.from(chunk.data, chunk.base64Encoded ? 'base64' : 'utf8'))
+        if (chunk.eof) break
+      }
+    } finally {
+      await cdp.send('IO.close', { handle: stream })
+    }
+    const trace = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    const report = summarizeInteractionProfile(windowData, trace, profile, phaseMetrics)
+    fs.writeFileSync(path.join(outputDir, 'browser-trace.json'), JSON.stringify(trace))
+    fs.writeFileSync(path.join(outputDir, 'interaction.cpuprofile'), JSON.stringify(profile))
+    fs.writeFileSync(path.join(outputDir, 'summary.json'), JSON.stringify(report, null, 2))
+    console.log('CPU interaction breakdown:', JSON.stringify(report.phases.map(phase => ({ phase: phase.name, elapsedMs: phase.durationMs, dispatchDelayMs: phase.dispatchDelayMs, longTaskOverlapMs: phase.longTaskOverlapMs, longestTaskMs: phase.longestTaskMs, ...phase.browserMetrics })), null, 2))
+    console.log('Longest main-thread tasks:', JSON.stringify(report.longestMainThreadTasks, null, 2))
+    console.log(`Performance artifacts: ${outputDir}`)
+    assert.ok(report.phases.every(phase => phase.dispatchTime != null), 'missing an interaction click-dispatch marker')
+    assert.ok(report.longestMainThreadTasks.length && profile.samples?.length, 'missing main-thread trace or CPU samples')
+    if (interactionError) throw interactionError
+    const metrics = report.metrics
     assert.ok(metrics.max < 750, `longest task ${metrics.max}ms at 4x CPU (limit 750ms)`)
     assert.ok(metrics.total < 3500, `total long-task time ${metrics.total}ms at 4x CPU (limit 3500ms)`)
     assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('; ')}`)
     return `${metrics.count} long tasks, ${metrics.total}ms total, ${metrics.max}ms max`
   } finally {
+    if (profiling) await cdp.send('Profiler.stop').catch(() => {})
+    if (tracing) await cdp.send('Tracing.end').catch(() => {})
+    await cdp.detach()
     await context.close()
   }
 }
