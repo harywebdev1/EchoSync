@@ -1,0 +1,150 @@
+:root {
+  --font-display: "Bricolage Grotesque Variable", "Figtree Variable", sans-serif;
+  --font-body: "Figtree Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", monospace;
+  --font-serif: "Newsreader Variable", Georgia, serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+  cursor: pointer;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+.app {
+  --bg: #090a0d;
+  --bg-2: #0d0f14;
+  --surface: rgba(21, 23, 30, 0.68);
+  --surface-solid: #14161d;
+  --surface-2: rgba(255, 255, 255, 0.055);
+  --surface-3: rgba(255, 255, 255, 0.09);
+  --line: rgba(255, 255, 255, 0.085);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --text: #f5f3ee;
+  --text-2: #b9bac2;
+  --muted: #a1a1aa;
+  --accent: #f16b73;
+  --accent-2: #f3b58d;
+  --accent-contrast: #180709;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  --wa-canvas: #0b141a;
+  --wa-in: #202c33;
+  --wa-out: #005c4b;
+  --wa-text: #e9edef;
+  --wa-meta: #8ea1ab;
+  --wa-tick: #53bdeb;
+  --wa-line: rgba(255, 255, 255, 0.055);
+  --scrollbar: rgba(255, 255, 255, 0.13);
+
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg);
+  transition: background 0.35s ease, color 0.35s ease;
+}
+
+.app.light {
+  --bg: #f2efe9;
+  --bg-2: #e9e5dc;
+  --surface: rgba(255, 255, 255, 0.68);
+  --surface-solid: #fbfaf6;
+  --surface-2: rgba(21, 22, 26, 0.045);
+  --surface-3: rgba(21, 22, 26, 0.075);
+  --line: rgba(21, 22, 26, 0.09);
+  --line-strong: rgba(21, 22, 26, 0.16);
+  --text: #17181c;
+  --text-2: #595751;
+  --muted: #6f6b63;
+  --accent: #c62f3c;
+  --accent-2: #a94f2b;
+  --accent-contrast: #fff8f5;
+  --shadow: 0 30px 80px rgba(69, 58, 42, 0.16);
+  --wa-canvas: #efeae2;
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-text: #111b21;
+  --wa-meta: #667781;
+  --wa-tick: #34a4d1;
+  --wa-line: rgba(20, 30, 35, 0.055);
+  --scrollbar: rgba(20, 22, 26, 0.16);
+}
+
+.ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 50% at 78% -12%, color-mix(in srgb, var(--song-accent, var(--accent)) 24%, transparent), transparent 70%),
+    radial-gradient(48% 38% at 10% 108%, color-mix(in srgb, var(--song-accent-2, var(--accent-2)) 13%, transparent), transparent 72%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+  transition: background 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ambient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.22) 0.6px, transparent 0.6px);
+  background-size: 5px 5px;
+  mask-image: radial-gradient(70% 60% at 70% 20%, #000 0%, transparent 100%);
+}
+
+.app.light .ambient::before {
+  background-image: radial-gradient(rgba(30, 30, 30, 0.22) 0.6px, transparent 0.6px);
+  opacity: 0.14;
+}
+
+.ambient::after {
+  content: "";
+  position: absolute;
+  width: 46vw;
+  aspect-ratio: 1;
+  right: -12vw;
+  top: 18vh;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--song-accent, var(--accent)) 13%, transparent), transparent 67%);
+  filter: blur(40px);
+  animation: drift 22s ease-in-out infinite alternate;
+  transition: background 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-4vw, -6vh, 0) scale(1.16); }
+}

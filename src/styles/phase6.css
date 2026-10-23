@@ -1,0 +1,180 @@
+/* ---- Phase 6: readable typography across primary surfaces ---- */
+
+.home-card-copy strong,
+.home-tile strong,
+.queue-copy strong,
+.search-copy strong,
+.library-row .queue-copy strong,
+.playlist-search-row .queue-copy strong,
+.dock-copy strong,
+.playlist-card > strong,
+.add-playlist-row strong,
+.invite-search-row strong,
+.member-copy strong,
+.track-chip strong,
+.request-row-copy strong,
+.request-banner-copy strong,
+.pending-row strong,
+.live-invite-banner strong,
+.role-request-popup strong,
+.fp-head-copy strong {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.now-artist,
+.fp-artist,
+.profile-top span,
+.playlist-detail-copy > p {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.home-tile > span,
+.home-card-copy span,
+.queue-copy span,
+.search-copy span,
+.library-row .queue-copy span,
+.playlist-search-row .queue-copy span,
+.dock-copy span,
+.playlist-card > span,
+.playlist-create-card span,
+.library-empty p,
+.playlist-search-note,
+.settings-section-head p,
+.side-empty,
+.request-banner-copy p,
+.request-row-copy small,
+.invite-search-row small,
+.add-playlist-row small,
+.setting-toggle-row span,
+.switch-row small,
+.google-block p,
+.join-hint,
+.role-request-popup > div span,
+.live-invite-banner > div span,
+.search-idle p,
+.search-loading,
+.no-results,
+.profile-top small,
+.invite-link-btn small,
+.fp-head-copy span,
+.fp-empty,
+.section-head p,
+.page-sub {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.queue-dur,
+.library-row .dur,
+.library-row .album,
+.dock-time,
+.time-row,
+.queue-index,
+.search-foot,
+.invite-code small,
+.invite-code em,
+.track-chip small,
+.member-copy small,
+.cache-grid span,
+.msync-meta {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.quality-badge,
+.source-badge,
+.search-caption,
+.now-kicker,
+.fp-kicker,
+.chat-day span,
+.library-row .num {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.text-btn {
+  font-size: 12px;
+}
+
+.primary-btn {
+  font-size: 13px;
+}
+
+.text-btn,
+.primary-btn,
+.suggestion-chips button,
+.search-add,
+.search-play,
+.mobile-nav button {
+  line-height: 1.2;
+}
+
+.suggestion-chips button {
+  font-size: 12px;
+}
+
+.dock-sync,
+.sync-chip,
+.now-foot,
+.fp-sync,
+.invite-search-row em,
+.added-tag,
+.switch-hint,
+.switch-current {
+  font-size: 11px;
+}
+
+.msg-author {
+  font-size: 11.5px;
+}
+
+.bubble {
+  font-size: 13px;
+}
+
+.bubble-meta,
+.msg-handle,
+.chat-day span {
+  font-size: 10.5px;
+}
+
+.msg-system,
+.reply-quote strong,
+.reply-quote span,
+.reply-bar strong {
+  font-size: 12px;
+}
+
+.mention-option strong,
+.mention-option small,
+.msg-menu > button {
+  font-size: 12px;
+}
+
+.lyric-line .lyric-time,
+.lyrics-foot,
+.lyric-language {
+  font-size: 11px;
+}
+
+.toast {
+  font-size: 12.5px;
+}
+
+.modal-head .eyebrow {
+  font-size: 10.5px;
+}
+
+@media (max-width: 560px) {
+  .mobile-nav button { font-size: 11px; }
+  .queue-copy strong { font-size: 14px; }
+  .queue-copy span { font-size: 12px; }
+  .dock-copy strong { font-size: 14px; }
+  .dock-copy span { font-size: 12px; }
+  .library-row .dur { font-size: 12px; }
+  .toast { font-size: 12px; }
+}

@@ -1,4 +1,4 @@
-import {   Component, createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Component, createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Home,
   Radio,
@@ -73,13 +73,30 @@ import {
   Save,
   Menu,
 } from 'lucide-react'
+import { Avatar } from './components/Avatar'
+import { ArtworkContext, Cover } from './components/Cover'
+import { HomeView } from './components/HomeView'
+import { MessageText } from './components/MessageText'
+import { MobileBottomBar, MobileMiniPlayer } from './components/MobileBottomBar'
+import { PlayerDock } from './components/PlayerDock'
+import { PublicLoungeDrawer } from './components/PublicLoungeDrawer'
+import { QueueDrawer } from './components/QueueDrawer'
+import { SearchOverlay } from './components/SearchOverlay'
+import { TelemetryPill } from './components/TelemetryPill'
+import { VoiceNoteBubble } from './components/VoiceNoteBubble'
+import { LOUNGE_REACTIONS, LYRIC_EMOJIS, REACTION_EMOJIS } from './lib/chat'
+import { formatTime } from './lib/time'
+import { initials, normalizeArtworkUrl } from './lib/media'
+import { blobToDataUrl, makeVoiceWaveform, synthVoiceWav } from './lib/voice'
+import { getActiveStreamQuality, recordRoomDrift, setPreferredStreamQuality, startNetworkMonitor } from './services/networkMonitor'
+import { clearPreloadSession, preloadCandidateAt, preloadQueueWindow } from './services/preloadManager'
+import { playbackProgressStore, resetRoomTelemetry, setLiveTelemetry, usePlaybackProgress } from './state/playbackStore'
 
 const DEV_API = import.meta.env.DEV
 const SAAVN_BASES = DEV_API
   ? ['/api/saavn', 'https://saavn.sumit.co']
   : ['https://saavn.sumit.co']
 let saavnBackoffUntil = 0
-let streamQuality = 'high'
 const ITUNES_BASE = 'https://itunes.apple.com/search'
 const LRCLIB_BASE = 'https://lrclib.net/api'
 const LIBRARY_CACHE_KEY = 'echosync.library.v1'
@@ -157,33 +174,6 @@ const MAX_PALETTE_ENTRIES = 150
 const RESUME_RELOAD_TIMEOUT = 1500
 const RESUME_ADVANCE_TIMEOUT = 1800
 const BUFFER_RECOVERY_TIMEOUT = 1800
-
-const playbackProgressStore = (() => {
-  let value = 0
-  const listeners = new Set()
-  const notify = () => listeners.forEach((listener) => listener())
-  return {
-    get: () => value,
-    set(next) {
-      const safe = Number.isFinite(Number(next)) ? Math.max(0, Number(next)) : 0
-      if (Object.is(safe, value)) return
-      value = safe
-      notify()
-    },
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-  }
-})()
-
-function usePlaybackProgress() {
-  return useSyncExternalStore(
-    playbackProgressStore.subscribe,
-    playbackProgressStore.get,
-    playbackProgressStore.get,
-  )
-}
 
 function rememberBoundedId(set, id, limit = MAX_SESSION_IDS) {
   if (!set || !id) return false
@@ -264,17 +254,6 @@ const TASTE_VIBES = [
   { id: 'global-pop', label: 'Global Pop', query: 'global pop hits', hint: 'The Weeknd, Post Malone, Coldplay', c1: '#1b3158', c2: '#7ca9ee', language: 'English', genre: 'Pop' },
   { id: 'lofi-chill', label: 'Lo-Fi Chill', query: 'lofi chill songs', hint: 'Soft focus, late hours', c1: '#292448', c2: '#a795e8', language: 'English', genre: 'Lo-Fi' },
   { id: 'naat-spiritual', label: 'Naat & Spiritual', query: 'Naat spiritual songs', hint: 'Quiet devotion, open room', c1: '#204338', c2: '#8cd3ad', language: 'Urdu', genre: 'Spiritual' },
-]
-
-const SEARCH_CATEGORIES = [
-  { id: 'coke-studio-indie', label: 'Coke Studio & Indie', query: 'Coke Studio indie songs', hint: 'Live, left-field, alive', c1: '#633317', c2: '#e9a665' },
-  { id: 'sufi-qawwali', label: 'Sufi & Qawwali', query: 'Sufi qawwali songs', hint: 'Devotional depth', c1: '#4a3516', c2: '#d4ad58' },
-  { id: 'punjabi-hits', label: 'Punjabi Hits', query: 'Punjabi hits', hint: 'Moonlit anthems', c1: '#173c31', c2: '#54c897' },
-  { id: 'bollywood-fresh', label: 'Bollywood Fresh', query: 'new Bollywood songs', hint: 'The newest chorus', c1: '#4a1f31', c2: '#e78c9f' },
-  { id: 'late-night-lofi', label: 'Late Night Lo-Fi', query: 'late night lofi songs', hint: '2am, no rush', c1: '#282547', c2: '#a395e4' },
-  { id: 'global-charts', label: 'Global Charts', query: 'global chart hits', hint: 'Worldwide right now', c1: '#19325b', c2: '#75a6ee' },
-  { id: 'workout-energy', label: 'Workout Energy', query: 'workout energy songs', hint: 'Louder every mile', c1: '#541f20', c2: '#ec7f73' },
-  { id: 'spiritual-naat', label: 'Spiritual & Naat', query: 'Naat spiritual songs', hint: 'Centred and still', c1: '#1d4339', c2: '#86d1ab' },
 ]
 
 function uid(prefix = 'id') {
@@ -644,28 +623,8 @@ function randomAvatarPreset(seed = '') {
 const HARD_BAD_MATCH = /\b(karaoke|instrumental|8-bit|8bit|ringtone|tribute|made famous|in the style of|originally performed|workout)\b/i
 const SOFT_BAD_MATCH = /\b(remix|slowed|reverb|8d|8-d|lofi|lo-fi|nightcore|sped up|sped-up|mashup|dj mix|flip|dance mix)\b/i
 
-const LYRIC_EMOJIS = ['❤️', '🔥', '😂', '🎧', '🌙', '✨', '💯', '🫶', '🥹', '🙌', '👀', '🎶', '💫', '😮‍💨']
-const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '🙏']
-const LOUNGE_REACTIONS = ['❤️', '🔥', '👏', '😂', '😮', '😢']
-
-function formatTime(value) {
-  const seconds = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
-
 function clockNow() {
   return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
-
-function initials(value = '') {
-  return value
-    .replace(/[^\w\s]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
 }
 
 function decodeEntities(value = '') {
@@ -696,26 +655,6 @@ function safeText(value, fallback = '') {
   if (typeof value === 'string') return value.trim() || fallback
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   return fallback
-}
-
-function normalizeArtworkUrl(value) {
-  if (Array.isArray(value)) {
-    const found = value.map((entry) => normalizeArtworkUrl(entry)).filter(Boolean)
-    return found[found.length - 1] || null
-  }
-  if (value && typeof value === 'object') {
-    const keys = ['url', 'link', 'src', 'image', 'images', 'cover', 'artwork', 'thumbnail', 'thumbnails']
-    for (const key of keys) {
-      const found = normalizeArtworkUrl(value[key])
-      if (found) return found
-    }
-    return null
-  }
-  let text = decodeEntities(safeText(value)).trim()
-  if (!text) return null
-  if (text.startsWith('//')) text = `https:${text}`
-  if (/^http:\/\//i.test(text)) text = text.replace(/^http:/i, 'https:')
-  return /^(https:\/\/|data:image\/|blob:|\/(?!\/))/i.test(text) ? text : null
 }
 
 function safeMediaUrl(value) {
@@ -1763,9 +1702,10 @@ async function fetchJson(url, options = {}) {
 }
 
 function pickSaavnDownload(downloads = []) {
-  const order = streamQuality === 'saver'
+  const activeQuality = getActiveStreamQuality()
+  const order = activeQuality === 'saver'
     ? ['96kbps', '160kbps', '320kbps']
-    : streamQuality === 'normal'
+    : activeQuality === 'normal'
       ? ['160kbps', '320kbps', '96kbps']
       : ['320kbps', '160kbps', '96kbps']
   for (const quality of order) {
@@ -2789,22 +2729,7 @@ function Logo() {
         <span className="bars"><i /><i /><i /><i /></span>
       </div>
       <span className="brand-name">Echo<span>Sync</span></span>
-      <span className="brand-beta">BETA</span>
     </div>
-  )
-}
-
-function Avatar({ member, size = '', online = false, className = '' }) {
-  if (!member) return null
-  return (
-    <span
-      className={`avatar ${size} ${className}`}
-      style={{ '--av1': member.av1, '--av2': member.av2 }}
-      title={member.name ? `${member.name} @${member.handle || ''}` : undefined}
-    >
-      {member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : member.initials}
-      {online && <i className="avatar-online" />}
-    </span>
   )
 }
 
@@ -2815,68 +2740,6 @@ function AvatarStack({ ids = [], size = 'xs', max = 4 }) {
       {ids.slice(0, max).map((id) => (
         <Avatar key={id} member={members[id]} size={size} />
       ))}
-    </div>
-  )
-}
-
-const ArtworkContext = createContext(() => {})
-
-function artworkThumbUrl(url) {
-  if (!url || /^(data:|blob:)/i.test(url)) return url
-  return url
-    .replace(/\/\d+x\d+bb\.(jpg|jpeg|png|webp)$/i, '/160x160bb.$1')
-    .replace(/-\d+x\d+\.(jpg|jpeg|png|webp)$/i, '-160x160.$1')
-    .replace(/\/(?:hq|sd|maxres)default\.(jpg|jpeg|png|webp)$/i, '/mqdefault.$1')
-}
-
-function Cover({ track, size = 'cover-size-sm', className = '', showQuality = false, playing = false }) {
-  const healArtwork = useContext(ArtworkContext)
-  const [imageSrc, setImageSrc] = useState(() => normalizeArtworkUrl(track?.cover))
-  const attemptedRef = useRef('')
-
-  useEffect(() => {
-    setImageSrc(normalizeArtworkUrl(track?.cover))
-  }, [track?.id, track?.cover])
-
-  useEffect(() => {
-    if (imageSrc || !track?.id || attemptedRef.current === track.id) return undefined
-    attemptedRef.current = track.id
-    let cancelled = false
-    fetchArtworkFallback(track)
-      .then((cover) => {
-        if (cancelled || !cover) return
-        setImageSrc(cover)
-        healArtwork(track.id, cover)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [imageSrc, track, healArtwork])
-
-  return (
-    <div
-      className={`cover ${size} ${playing ? 'playing' : ''} ${className}`}
-      style={{ '--c1': track?.c1 || '#26303a', '--c2': track?.c2 || '#a65845' }}
-    >
-      {imageSrc && (
-        <img
-          src={size === 'cover-size-sm' || size === 'cover-size-md' ? artworkThumbUrl(imageSrc) : imageSrc}
-          alt=""
-          loading={size === 'cover-size-hero' ? 'eager' : 'lazy'}
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={() => setImageSrc(null)}
-        />
-      )}
-      {!imageSrc && (
-        <div className="cover-fallback">
-          <span className="cover-glyph">{initials(track?.title || 'Echo')}</span>
-        </div>
-      )}
-      {showQuality && track?.quality && (
-        <span className="quality-badge"><AudioLines /> {track.quality}</span>
-      )}
     </div>
   )
 }
@@ -3120,7 +2983,7 @@ function Sidebar({
             <Avatar member={currentUser} online />
             <span className="profile-meta">
               <strong>{currentUser?.name || 'Sign in'}</strong>
-              <span>@{currentUser?.handle || 'guest'} - {inRoom ? <><Crown size={10} /> {role}</> : 'Solo listening'}</span>
+              <span>@{currentUser?.handle || 'guest'}{inRoom && <> · <Crown size={10} /> {role}</>}</span>
             </span>
             <MoreHorizontal size={15} />
           </button>
@@ -3163,12 +3026,8 @@ function StageBar({
       </div>
 
       <div className="stage-crumb">
-        {inRoom ? (
-          <span className="live-pill"><span className="live-dot" /> LIVE</span>
-        ) : (
-          <span className="live-pill solo-pill"><Headphones size={9} /> SOLO</span>
-        )}
-        <ChevronRight />
+        {inRoom && <span className="live-pill"><span className="live-dot" /> LIVE</span>}
+        {inRoom && <ChevronRight />}
         <strong>{view === 'rooms' ? 'All rooms' : view === 'library' ? 'Your library' : view === 'room' && inRoom ? room.name : 'Home'}</strong>
       </div>
 
@@ -3319,323 +3178,6 @@ function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoinCode }
           )
         })}
       </div>
-    </div>
-  )
-}
-
-function HomeRail({ children }) {
-  const railRef = useRef(null)
-  const [edges, setEdges] = useState({ overflow: false, canPrev: false, canNext: false })
-  const childCount = Array.isArray(children) ? children.length : 0
-
-  useEffect(() => {
-    const rail = railRef.current
-    if (!rail) return undefined
-    let frame = 0
-    const measure = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const max = rail.scrollWidth - rail.clientWidth
-        setEdges({
-          overflow: max > 2,
-          canPrev: rail.scrollLeft > 2,
-          canNext: rail.scrollLeft < max - 2,
-        })
-      })
-    }
-    measure()
-    rail.addEventListener('scroll', measure, { passive: true })
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    observer?.observe(rail)
-    window.addEventListener('resize', measure)
-    return () => {
-      cancelAnimationFrame(frame)
-      rail.removeEventListener('scroll', measure)
-      observer?.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [childCount])
-
-  const scroll = (direction) => {
-    const rail = railRef.current
-    if (!rail) return
-    rail.scrollBy({ left: direction * Math.min(520, Math.max(260, rail.clientWidth * 0.72)), behavior: 'smooth' })
-  }
-
-  return (
-    <div className={`home-rail-shell ${edges.overflow ? 'has-overflow' : ''}`}>
-      <div
-        ref={railRef}
-        className="home-rail shelf-row h-scroll recent-row cards-rail"
-        data-testid="home-rail"
-      >
-        {children}
-      </div>
-      <button
-        type="button"
-        className="rail-arrow rail-arrow-prev"
-        onClick={() => scroll(-1)}
-        disabled={!edges.canPrev}
-        aria-label="Scroll left"
-        title="Scroll left"
-      >
-        <ChevronLeft />
-      </button>
-      <button
-        type="button"
-        className="rail-arrow rail-arrow-next"
-        onClick={() => scroll(1)}
-        disabled={!edges.canNext}
-        aria-label="Scroll right"
-        title="Scroll right"
-      >
-        <ChevronRight />
-      </button>
-    </div>
-  )
-}
-
-function HomeView({
-  currentUser,
-  library,
-  liked,
-  recentIds,
-  playlists,
-  dailyFeed,
-  dailyStatus,
-  tasteProfile,
-  onOpenTaste,
-  onRefreshDaily,
-  onPlayTrack,
-  onPlayPlaylist,
-  onLike,
-  onAddToPlaylist,
-  onSearch,
-  onCreatePlaylist,
-  onOpenPlaylist,
-  onCreateRoom,
-  onJoinCode,
-  roomCount,
-}) {
-  const recent = recentIds.map((id) => library[id]).filter(Boolean).slice(0, 8)
-  const likedCount = liked.filter((id) => library[id]).length
-  const dailyUser = dailyFeed?.users?.[currentUser?.id || 'guest'] || {}
-  const madeForYou = Array.isArray(dailyUser.madeForYou) ? dailyUser.madeForYou : []
-  const basedOnRecent = Array.isArray(dailyUser.basedOnRecent) ? dailyUser.basedOnRecent : []
-  const trending = Array.isArray(dailyFeed?.trending) ? dailyFeed.trending : []
-  const heroTracks = madeForYou.length ? madeForYou : trending.length ? trending : recent
-  const greeting = (() => {
-    const hour = new Date().getHours()
-    if (hour < 12) return 'Good morning'
-    if (hour < 18) return 'Good afternoon'
-    return 'Good evening'
-  })()
-  const heroCovers = heroTracks.slice(0, 4)
-  const isLoading = dailyStatus === 'loading'
-  const todayLabel = new Date(`${dailyFeed?.dayKey || new Date().toISOString().slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  })
-
-  const renderCards = (tracks) => (
-    <div className="home-grid">
-      {tracks.map((track) => (
-        <div key={track.id} className="home-card">
-          <button className="home-card-art" onClick={() => onPlayTrack(track, tracks)} aria-label={`Play ${track.title}`}>
-            <Cover track={track} size="" />
-            <span className="home-card-play"><Play /></span>
-          </button>
-          <div className="home-card-copy">
-            <strong>{track.title}</strong>
-            <span>{track.artist}</span>
-          </div>
-          <button
-            className="card-add"
-            onClick={() => onAddToPlaylist(track)}
-            aria-label="Add to playlist"
-            title="Add to playlist"
-          >
-            <ListPlus />
-          </button>
-          <button
-            className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`}
-            onClick={() => onLike(track)}
-            aria-label="Like track"
-          >
-            <Heart />
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-
-  return (
-    <div className="home-view">
-      <section className="solo-hero">
-        <div className="solo-hero-copy">
-          <div className="eyebrow">
-            <span className="live-pill solo-pill"><Headphones size={9} /> SOLO LISTENING</span>
-            <span className="seg" />
-            <span>FULL CONTROL</span>
-          </div>
-          <h1 className="page-title">{greeting}, <em>{currentUser?.name?.split(' ')[0] || 'listener'}.</em></h1>
-          <p className="page-sub">Your music, your rules. Press play, build a playlist, or open the door to a live room whenever you want company.</p>
-          <div className="solo-actions">
-            <button className="primary-btn" onClick={() => heroTracks[0] && onPlayTrack(heroTracks[0], heroTracks)} disabled={!heroTracks.length}><Play /> Play something</button>
-            <button
-              className="text-btn"
-              onClick={() => {
-                if (!heroTracks.length) return
-                const shuffled = [...heroTracks].sort(() => Math.random() - 0.5)
-                onPlayTrack(shuffled[0], shuffled)
-              }}
-              disabled={!heroTracks.length}
-            >
-              <Shuffle size={13} /> Shuffle
-            </button>
-            <button className="text-btn" onClick={onCreateRoom}><Radio size={13} /> Create room</button>
-            <button className="text-btn" onClick={onJoinCode}><KeyRound size={13} /> Join with code</button>
-          </div>
-          <div className="solo-stats">
-            <span><b>{likedCount}</b> liked songs</span>
-            <span><b>{playlists.length}</b> playlists</span>
-            <span><b>{roomCount}</b> live rooms</span>
-          </div>
-        </div>
-        <div className="solo-hero-art">
-          {heroCovers.map((track, index) => (
-            <Cover key={track.id} track={track} size="" className={`hero-tile tile-${index}`} playing={index === 0} />
-          ))}
-          <span className="hero-orbit" />
-          <span className="hero-orbit second" />
-        </div>
-      </section>
-
-      {(!tasteProfile || tasteProfile.events === 0) && (
-        <section className="home-section taste-invite-section">
-          <button className="taste-invite-card" onClick={onOpenTaste}>
-            <span className="taste-invite-glyph"><Sparkles /></span>
-            <span className="taste-invite-copy">
-              <strong>Tune Your Taste</strong>
-              <span>Pick a few vibes and make Search, daily mixes, and suggestions sound more like you.</span>
-            </span>
-            <span className="taste-invite-action">Open <ChevronRight size={13} /></span>
-          </button>
-        </section>
-      )}
-
-      {recent.length > 0 && (
-        <section className="home-section">
-          <div className="section-head">
-            <div><h3>Recently played</h3><p>Pick up right where you left off.</p></div>
-            <span className="source-badge">{recent.length} tracks</span>
-          </div>
-          <HomeRail>
-            {recent.map((track) => (
-              <div key={track.id} className="home-tile-wrap">
-                <button className="home-tile" onClick={() => onPlayTrack(track, recent)}>
-                  <Cover track={track} size="" playing />
-                  <strong>{track.title}</strong>
-                  <span>{track.artist}</span>
-                </button>
-                <button className="tile-add" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist">
-                  <ListPlus />
-                </button>
-              </div>
-            ))}
-          </HomeRail>
-        </section>
-      )}
-
-      {madeForYou.length > 0 && (
-        <section className="home-section daily-section">
-          <div className="section-head">
-            <div>
-              <h3>Made For You <span className="daily-dot">-</span> Daily Mix</h3>
-              <p>Built from your artists{dailyUser.topLanguages?.length ? ` and ${dailyUser.topLanguages[0]} listening` : ''}. Refreshes every day.</p>
-            </div>
-            <span className="source-badge">{todayLabel}</span>
-          </div>
-          {renderCards(madeForYou)}
-        </section>
-      )}
-
-      {basedOnRecent.length > 0 && (
-        <section className="home-section daily-section">
-          <div className="section-head">
-            <div><h3>Based on Your Recent Listening</h3><p>A few more lanes from the songs you keep returning to.</p></div>
-            <span className="source-badge">{basedOnRecent.length} tracks</span>
-          </div>
-          {renderCards(basedOnRecent)}
-        </section>
-      )}
-
-      <section className="home-section daily-section">
-        <div className="section-head">
-          <div><h3>Trending Today <span className="daily-dot">-</span> {todayLabel}</h3><p>A daily rotation, not a fixed shelf.</p></div>
-          <div className="head-actions">
-            <button className="text-btn" onClick={onRefreshDaily} disabled={isLoading}>
-              <RefreshCw className={isLoading ? 'spin' : ''} size={13} /> Refresh Mix
-            </button>
-            <button className="text-btn" onClick={onSearch}><Search /> Search catalogue</button>
-          </div>
-        </div>
-        {isLoading && !trending.length ? (
-          <div className="library-empty discovery-empty">
-            <span className="empty-icon"><RefreshCw className="spin" /></span>
-            <h4>Tuning today's mix</h4>
-            <p>Checking the catalogue so every track is ready to play.</p>
-          </div>
-        ) : dailyStatus === 'error' && !trending.length ? (
-          <div className="library-empty discovery-empty">
-            <span className="empty-icon"><AlertCircle /></span>
-            <h4>Discovery missed a beat</h4>
-            <p>The catalogue did not answer. Try refreshing the mix.</p>
-            <button className="primary-btn" onClick={onRefreshDaily}><RefreshCw size={12} /> Try again</button>
-          </div>
-        ) : trending.length === 0 ? (
-          <div className="library-empty discovery-empty">
-            <span className="empty-icon"><Music2 /></span>
-            <h4>No daily tracks yet</h4>
-            <p>Refresh the mix or search for something new.</p>
-            <button className="text-btn" onClick={onSearch}><Search size={12} /> Search catalogue</button>
-          </div>
-        ) : renderCards(trending)}
-      </section>
-
-      <section className="home-section">
-        <div className="section-head">
-          <div><h3>Your playlists</h3><p>Collections for every version of you.</p></div>
-          <div className="head-actions"><button className="text-btn" onClick={onCreatePlaylist}><Plus /> New playlist</button></div>
-        </div>
-        {playlists.length === 0 ? (
-          <button className="playlist-create-card" onClick={onCreatePlaylist}>
-            <ListPlus />
-            <strong>Make your first playlist</strong>
-            <span>Name it, add songs, make it yours.</span>
-          </button>
-        ) : (
-          <div className="playlist-grid">
-            {playlists.map((playlist) => {
-              const covers = playlist.trackIds.map((id) => library[id]).filter(Boolean).slice(0, 4)
-              return (
-                <button key={playlist.id} className="playlist-card" onClick={() => onOpenPlaylist(playlist)}>
-                  <div className="playlist-mosaic">
-                    {covers.length ? covers.map((cover) => (
-                      <span key={cover.id} style={cover.cover ? { backgroundImage: `url(${cover.cover})` } : { background: `linear-gradient(135deg, ${cover.c1}, ${cover.c2})` }} />
-                    )) : <span className="mosaic-empty"><Music2 /></span>}
-                  </div>
-                  <strong>{playlist.name}</strong>
-                  <span>{playlist.trackIds.length} track{playlist.trackIds.length === 1 ? '' : 's'}</span>
-                  <em onClick={(event) => { event.stopPropagation(); onPlayPlaylist(playlist) }} role="button" tabIndex={0}>
-                    <Play size={11} /> Play
-                  </em>
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </section>
     </div>
   )
 }
@@ -4651,7 +4193,7 @@ function SettingsModal({
             <div className="settings-section">
               <div className="settings-section-head">
                 <h3>Audio & playback</h3>
-                <p>Built for full-length streams, not 30-second compromises.</p>
+                <p>Choose the stream quality that fits your connection.</p>
               </div>
               <label className="field">
                 <span>Streaming quality</span>
@@ -4822,7 +4364,7 @@ function SettingsModal({
                 <div><AudioLines /><strong>{cacheInfo.streams}</strong><span>Cached streams</span></div>
                 <div><Languages /><strong>{cacheInfo.translations}</strong><span>Translated tracks</span></div>
               </div>
-              <p className="settings-note">Clearing the cache also resets the stream backoff timer, so the next play tries the full-length engine immediately.</p>
+              <p className="settings-note">Clearing the cache removes saved stream and lyric data. The next play starts fresh.</p>
               <div className="settings-actions-row">
                 <button className="text-btn danger-btn" onClick={onClearCache}><Trash2 size={12} /> Clear stream & lyrics cache</button>
                 <span className="grow" />
@@ -5163,6 +4705,7 @@ function MembersModal({
                     {member?.online && member?.showActivity !== false && (
                       <em className="member-live"><span className="live-dot" /> Listening</em>
                     )}
+                    <TelemetryPill compact className="member-sync-pill" />
                   </small>
                 </span>
                 {canModerate && !isSelf ? (
@@ -5338,166 +4881,6 @@ function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
   )
 }
 
-function MessageText({ text, members, currentUserId, onTag }) {
-  const parts = String(text).split(/(@[\w.]+)/g)
-  return (
-    <>
-      {parts.map((part, index) => {
-        if (!part.startsWith('@')) return <span key={`${part}-${index}`}>{part}</span>
-        const handle = part.slice(1).toLowerCase()
-        const member = Object.values(members).find((candidate) => candidate?.handle === handle)
-        const mine = member?.id === currentUserId
-        return (
-          <button
-            key={`${part}-${index}`}
-            className={`mention-pill ${mine ? 'mine' : ''}`}
-            onClick={() => member && onTag(member)}
-          >
-            {part}
-          </button>
-        )
-      })}
-    </>
-  )
-}
-
-function bufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  }
-  return btoa(binary)
-}
-
-function synthVoiceWav(seconds = 3) {
-  const sampleRate = 8000
-  const duration = Math.max(0.8, Math.min(45, Number(seconds) || 3))
-  const total = Math.floor(sampleRate * duration)
-  const buffer = new ArrayBuffer(44 + total * 2)
-  const view = new DataView(buffer)
-  const write = (offset, text) => {
-    for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index))
-  }
-  write(0, 'RIFF')
-  view.setUint32(4, 36 + total * 2, true)
-  write(8, 'WAVE')
-  write(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  write(36, 'data')
-  view.setUint32(40, total * 2, true)
-  for (let index = 0; index < total; index += 1) {
-    const t = index / sampleRate
-    const envelope = Math.min(1, t * 7) * Math.min(1, (duration - t) * 5)
-    const syllable = 0.55 + 0.45 * Math.sin(2 * Math.PI * 3.1 * t)
-    const voice = Math.sin(2 * Math.PI * (180 + 40 * Math.sin(2 * Math.PI * 0.7 * t)) * t)
-    const shimmer = 0.16 * Math.sin(2 * Math.PI * 720 * t)
-    view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, (voice * syllable + shimmer) * envelope * 0.45)) * 0x7fff, true)
-  }
-  return `data:audio/wav;base64,${bufferToBase64(buffer)}`
-}
-
-function makeVoiceWaveform(seed = '', bars = 28) {
-  const source = String(seed)
-  let hash = 0
-  for (let index = 0; index < source.length; index += 1) hash = (hash * 31 + source.charCodeAt(index)) % 100000
-  return Array.from({ length: bars }, (_, index) => {
-    const phase = Math.sin((hash + index * 37) * 0.017) * 0.5 + 0.5
-    const wave = Math.sin((index + 1) * 0.83 + (hash % 17)) * 0.22
-    return Math.min(1, Math.max(0.16, 0.3 + phase * 0.58 + wave))
-  })
-}
-
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = () => reject(new Error('Could not read voice note'))
-    reader.readAsDataURL(blob)
-  })
-}
-
-function VoiceNoteBubble({ message, isActive, onActivate, onDeactivate }) {
-  const audioRef = useRef(null)
-  const [playing, setPlaying] = useState(false)
-  const [elapsed, setElapsed] = useState(0)
-  const duration = Math.max(1, Number(message.duration) || 1)
-  const waveform = Array.isArray(message.waveform) && message.waveform.length
-    ? message.waveform
-    : makeVoiceWaveform(message.id)
-  const pct = Math.min(1, elapsed / duration)
-
-  useEffect(() => {
-    if (isActive) return
-    const audio = audioRef.current
-    if (audio && !audio.paused) {
-      audio.pause()
-      setPlaying(false)
-    }
-  }, [isActive])
-
-  useEffect(() => () => {
-    const audio = audioRef.current
-    if (audio) audio.pause()
-  }, [])
-
-  const toggle = () => {
-    const audio = audioRef.current
-    if (!audio) return
-    if (playing) {
-      audio.pause()
-      setPlaying(false)
-      onDeactivate()
-      return
-    }
-    onActivate()
-    const playback = audio.play()
-    playback?.then?.(() => setPlaying(true)).catch(() => {
-      setPlaying(false)
-      onDeactivate()
-    })
-  }
-
-  return (
-    <div className={`voice-note-bubble ${playing ? 'playing' : ''}`} data-testid="voice-note-bubble">
-      <audio
-        ref={audioRef}
-        src={message.voiceData}
-        preload="metadata"
-        onTimeUpdate={(event) => setElapsed(event.currentTarget.currentTime || 0)}
-        onEnded={() => {
-          setPlaying(false)
-          setElapsed(0)
-          onDeactivate()
-        }}
-        onError={() => {
-          setPlaying(false)
-          onDeactivate()
-        }}
-      />
-      <button className="voice-note-play" onClick={toggle} aria-label={playing ? 'Pause voice note' : 'Play voice note'}>
-        {playing ? <Pause /> : <Play />}
-      </button>
-      <div className="voice-note-wave" aria-hidden="true">
-        {waveform.map((height, index) => (
-          <i
-            key={index}
-            className={index / waveform.length <= pct ? 'played' : ''}
-            style={{ height: `${Math.max(3, height * 22)}px` }}
-          />
-        ))}
-      </div>
-      <span className="voice-note-time">{formatTime(playing ? elapsed : duration)}</span>
-    </div>
-  )
-}
-
 function LoungeUserCard({ member, currentUser, room, inviting, onClose, onInvite }) {
   const profile = member?.id ? loadTasteProfile(member.id) : null
   const taste = useMemo(() => {
@@ -5554,543 +4937,6 @@ function LoungeUserCard({ member, currentUser, room, inviting, onClose, onInvite
         <UserPlus /> {label}
       </button>
     </div>
-  )
-}
-
-function LoungeDrawer({
-  open,
-  messages,
-  currentUser,
-  members,
-  typingMember,
-  room,
-  inRoom,
-  draft,
-  onDraft,
-  onSend,
-  onSendVoice,
-  onVoiceNotePlay,
-  onReact,
-  onDelete,
-  onReply,
-  replyTo,
-  onCancelReply,
-  onClose,
-  onOpenRoomChat,
-  onInviteUser,
-  invitingId,
-  onLogin,
-}) {
-  const chatRef = useRef(null)
-  const inputRef = useRef(null)
-  const [emojiOpen, setEmojiOpen] = useState(false)
-  const [menuFor, setMenuFor] = useState(null)
-  const [cardFor, setCardFor] = useState(null)
-  const [mention, setMention] = useState(null)
-  const [highlightId, setHighlightId] = useState(null)
-  const [voicePlayingId, setVoicePlayingId] = useState(null)
-  const [recording, setRecording] = useState(false)
-  const [recordSeconds, setRecordSeconds] = useState(0)
-  const [recordHint, setRecordHint] = useState('')
-  const highlightTimer = useRef(null)
-  const recorderRef = useRef(null)
-  const recordStreamRef = useRef(null)
-  const recordChunksRef = useRef([])
-  const recordTimerRef = useRef(null)
-  const recordStartedAtRef = useRef(0)
-  const recordCancelledRef = useRef(false)
-  const finishingRef = useRef(false)
-  const voiceFallbackRef = useRef(false)
-  const memberList = useMemo(() => Object.values(members || {}).filter(Boolean), [members])
-  const mentionMatches = mention
-    ? memberList
-      .filter((member) => {
-        const query = mention.query.toLowerCase()
-        if (!query) return true
-        return member.handle?.toLowerCase().includes(query) || member.name?.toLowerCase().includes(query)
-      })
-      .slice(0, 6)
-    : []
-
-  useEffect(() => {
-    if (!open) return
-    const node = chatRef.current
-    if (node) node.scrollTo({ top: node.scrollHeight })
-  }, [open, messages.length, typingMember?.id])
-
-  useEffect(() => {
-    if (!open) return
-    setMenuFor(null)
-    setMention(null)
-    setCardFor(null)
-    setHighlightId(null)
-  }, [open])
-
-  useEffect(() => () => {
-    clearTimeout(highlightTimer.current)
-    recordCancelledRef.current = true
-    clearInterval(recordTimerRef.current)
-    const recorder = recorderRef.current
-    if (recorder && recorder.state !== 'inactive') {
-      try { recorder.stop() } catch { /* already stopped */ }
-    }
-    recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
-    onVoiceNotePlay?.(false)
-  }, [onVoiceNotePlay])
-
-  useEffect(() => {
-    onVoiceNotePlay?.(Boolean(voicePlayingId))
-  }, [voicePlayingId, onVoiceNotePlay])
-
-  const stopRecordingHardware = () => {
-    clearInterval(recordTimerRef.current)
-    recordTimerRef.current = null
-    const recorder = recorderRef.current
-    if (recorder && recorder.state !== 'inactive') {
-      try { recorder.stop() } catch { /* already stopped */ }
-    }
-    recorderRef.current = null
-    recordStreamRef.current?.getTracks?.().forEach((track) => track.stop())
-    recordStreamRef.current = null
-    recordChunksRef.current = []
-  }
-
-  const resetRecording = () => {
-    stopRecordingHardware()
-    recordStartedAtRef.current = 0
-    recordCancelledRef.current = false
-    finishingRef.current = false
-    voiceFallbackRef.current = false
-    setRecording(false)
-    setRecordSeconds(0)
-    setRecordHint('')
-  }
-
-  const cancelRecording = () => {
-    if (!recordStartedAtRef.current && !recording) return
-    recordCancelledRef.current = true
-    resetRecording()
-  }
-
-  const startRecording = async () => {
-    if (!currentUser) {
-      onLogin?.()
-      return
-    }
-    if (recording || finishingRef.current || recordStartedAtRef.current) return
-    finishingRef.current = false
-    recordCancelledRef.current = false
-    voiceFallbackRef.current = false
-    recordChunksRef.current = []
-    recordStartedAtRef.current = Date.now()
-    setRecording(true)
-    setRecordSeconds(0)
-    setRecordHint('')
-    recordTimerRef.current = setInterval(() => {
-      const seconds = Math.floor((Date.now() - recordStartedAtRef.current) / 1000)
-      setRecordSeconds(seconds)
-      if (seconds >= 45) finishRecording(false)
-    }, 250)
-    try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-        throw new Error('MediaRecorder unavailable')
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (recordCancelledRef.current || finishingRef.current || !recordStartedAtRef.current) {
-        stream.getTracks().forEach((track) => track.stop())
-        return
-      }
-      recordStreamRef.current = stream
-      const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
-      const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported?.(type))
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
-      recorder.ondataavailable = (event) => {
-        if (event.data?.size) recordChunksRef.current.push(event.data)
-      }
-      recorder.onerror = () => {
-        voiceFallbackRef.current = true
-        setRecordHint('Mic unavailable — a demo voice clip will be sent.')
-      }
-      recorder.start(250)
-      recorderRef.current = recorder
-    } catch {
-      if (!recordStartedAtRef.current || finishingRef.current) return
-      voiceFallbackRef.current = true
-      setRecordHint('Mic unavailable — a demo voice clip will be sent.')
-    }
-  }
-
-  const finishRecording = async (discard = false) => {
-    if (!recordStartedAtRef.current || finishingRef.current) return
-    finishingRef.current = true
-    clearInterval(recordTimerRef.current)
-    recordTimerRef.current = null
-    const duration = Math.max(1, Math.min(45, (Date.now() - recordStartedAtRef.current) / 1000))
-    const recorder = recorderRef.current
-    if (discard) {
-      recordCancelledRef.current = true
-      resetRecording()
-      return
-    }
-    setRecordHint('Sending voice note…')
-    let dataUrl = ''
-    try {
-      if (recorder && recorder.state !== 'inactive' && !voiceFallbackRef.current) {
-        dataUrl = await new Promise((resolve) => {
-          let settled = false
-          const complete = async () => {
-            if (settled) return
-            settled = true
-            try {
-              const blob = new Blob(recordChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-              resolve(blob.size > 120 ? await blobToDataUrl(blob) : '')
-            } catch {
-              resolve('')
-            }
-          }
-          recorder.onstop = complete
-          try { recorder.stop() } catch { complete() }
-          setTimeout(complete, 1500)
-        })
-      }
-    } catch {
-      dataUrl = ''
-    }
-    stopRecordingHardware()
-    let sentDuration = duration
-    if (!dataUrl) {
-      sentDuration = Math.max(1.4, Math.min(8, duration))
-      dataUrl = synthVoiceWav(sentDuration)
-    }
-    const seed = `lounge-${Date.now()}-${dataUrl.length}`
-    onSendVoice?.({
-      dataUrl,
-      duration: Number(sentDuration.toFixed(1)),
-      waveform: makeVoiceWaveform(seed, 32),
-    })
-    recordStartedAtRef.current = 0
-    recordCancelledRef.current = false
-    finishingRef.current = false
-    voiceFallbackRef.current = false
-    setRecording(false)
-    setRecordSeconds(0)
-    setRecordHint('')
-    setVoicePlayingId(null)
-  }
-
-  const handleDraftChange = (event) => {
-    const value = event.target.value
-    const cursor = event.target.selectionStart || value.length
-    onDraft(value)
-    const beforeCursor = value.slice(0, cursor)
-    const match = beforeCursor.match(/(?:^|\s)@([\w.]{0,24})$/)
-    if (match) setMention({ query: match[1], start: beforeCursor.length - match[1].length - 1 })
-    else setMention(null)
-  }
-
-  const insertMention = (member) => {
-    if (!member) return
-    const start = mention ? mention.start : draft.length
-    const end = mention ? mention.start + mention.query.length + 1 : draft.length
-    const next = `${draft.slice(0, start)}@${member.handle} ${draft.slice(end)}`
-    onDraft(next)
-    setMention(null)
-    requestAnimationFrame(() => inputRef.current?.focus())
-  }
-
-  const scrollToLoungeMessage = (id) => {
-    const node = chatRef.current?.querySelector(`[data-lounge-id="${id}"]`)
-    if (!node) return
-    node.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    setHighlightId(id)
-    clearTimeout(highlightTimer.current)
-    highlightTimer.current = setTimeout(() => setHighlightId(null), 1800)
-  }
-
-  const submitMessage = () => {
-    setMention(null)
-    setEmojiOpen(false)
-    onSend()
-  }
-
-  const cardMember = cardFor ? members[cardFor] : null
-  const currentLabel = currentUser?.handle || 'guest'
-
-  return (
-    <aside className={`social lounge-drawer ${open ? 'mobile-open' : ''}`} data-testid="lounge-drawer">
-      <div className="social-top">
-        {inRoom ? (
-          <div className="social-tabs">
-            <button className="social-tab" onClick={() => onOpenRoomChat('chat')}>
-              <MessageCircle /> Room chat
-            </button>
-            <button className="social-tab active" data-testid="lounge-active-tab">
-              <Globe2 /> Public Lounge
-            </button>
-            <button className="social-tab" onClick={() => onOpenRoomChat('lyrics')}>
-              <Sparkles /> Lyrics
-            </button>
-          </div>
-        ) : (
-          <div className="lounge-drawer-title">
-            <Globe2 />
-            <span>EchoSync</span>
-          </div>
-        )}
-        <button className="icon-btn social-close" onClick={onClose} aria-label="Close lounge" data-testid="lounge-close-btn">
-          <X />
-        </button>
-      </div>
-
-      <div className="social-head lounge-head">
-        <div className="social-head-copy">
-          <h3>Public Lounge</h3>
-          <p><span className="lounge-online-dot" /> Everyone here · live across tabs</p>
-        </div>
-        <span className="sync-chip"><Wifi /> <b>{messages.length}</b></span>
-      </div>
-
-      <div className="chat-body lounge-body" ref={chatRef}>
-        <div className="chat-day"><span>EchoSync · Public Lounge</span></div>
-        {!messages.length && (
-          <div className="lounge-empty">
-            <span><Globe2 /></span>
-            <strong>The Lounge is quiet.</strong>
-            <p>Say hello, share a voice note, or invite someone you met here into a private room.</p>
-          </div>
-        )}
-        {messages.map((message) => {
-          const author = members[message.author] || {
-            id: message.author,
-            name: message.userName || 'Listener',
-            handle: message.authorHandle || 'listener',
-          }
-          const mine = message.author === currentUser?.id
-          return (
-            <div
-              className={`msg-row lounge-msg ${mine ? 'mine' : ''} ${highlightId === message.id ? 'highlight' : ''}`}
-              key={message.id}
-              data-lounge-id={message.id}
-              data-testid="lounge-message"
-            >
-              {!mine && (
-                <button className="lounge-avatar-btn" onClick={() => setCardFor(author.id)} aria-label={`Open ${author.name}'s profile`}>
-                  <Avatar member={author} size="sm" online={Boolean(author.online)} />
-                </button>
-              )}
-              <div className="msg-main">
-                {!mine && (
-                  <div className="msg-author">
-                    <button className="lounge-author-btn" onClick={() => setCardFor(author.id)}>{author.name}</button>
-                    <span className="msg-handle">@{author.handle}</span>
-                  </div>
-                )}
-                <div className={`bubble lounge-bubble ${message.type === 'voice' ? 'voice' : ''}`}>
-                  {message.replyTo && (
-                    <button className="reply-quote" onClick={() => scrollToLoungeMessage(message.replyTo.id)}>
-                      <strong>{message.replyTo.name || message.replyTo.handle}</strong>
-                      <span>{message.replyTo.text || 'Voice note'}</span>
-                    </button>
-                  )}
-                  {message.type === 'voice' && message.voiceData ? (
-                    <VoiceNoteBubble
-                      message={message}
-                      isActive={voicePlayingId === message.id}
-                      onActivate={() => setVoicePlayingId(message.id)}
-                      onDeactivate={() => setVoicePlayingId((current) => (current === message.id ? null : current))}
-                    />
-                  ) : (
-                    <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
-                  )}
-                  <span className="bubble-meta">{message.time}</span>
-                  <div className="msg-actions">
-                    <button className="msg-action" onClick={() => onReply(message, author)} aria-label="Reply in Public Lounge">
-                      <CornerUpLeft />
-                    </button>
-                    <button
-                      className="msg-action"
-                      onClick={() => setMenuFor((value) => (value === message.id ? null : message.id))}
-                      aria-label="Lounge message options"
-                    >
-                      <MoreHorizontal />
-                    </button>
-                    {menuFor === message.id && (
-                      <div className="msg-menu">
-                        <button onClick={() => { onReply(message, author); setMenuFor(null) }}><CornerUpLeft /> Reply</button>
-                        {!mine && (
-                          <button onClick={() => { setCardFor(author.id); setMenuFor(null) }}>
-                            <UserPlus /> View @{author.handle}
-                          </button>
-                        )}
-                        <div className="msg-menu-emojis">
-                          {LOUNGE_REACTIONS.map((emoji) => (
-                            <button key={emoji} onClick={() => { onReact(message.id, emoji); setMenuFor(null) }}>{emoji}</button>
-                          ))}
-                        </div>
-                        {mine && (
-                          <button className="danger" onClick={() => { onDelete(message.id); setMenuFor(null) }}>
-                            <Trash2 /> Delete
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {message.reactions?.length > 0 && (
-                  <div className="msg-reactions">
-                    {message.reactions.map((reaction) => {
-                      const reacted = (reaction.userIds || []).includes(currentUser?.id)
-                      return (
-                        <button
-                          key={reaction.emoji}
-                          className={`reaction ${reacted ? 'mine' : ''}`}
-                          onClick={() => onReact(message.id, reaction.emoji)}
-                        >
-                          {reaction.emoji} <b>{reaction.count}</b>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
-        {typingMember && (
-          <div className="typing-row">
-            <Avatar member={typingMember} size="sm" />
-            <div>
-              <div className="typing-bubble"><i /><i /><i /></div>
-              <span className="typing-label">{typingMember.name.split(' ')[0]} is typing in the Lounge</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {currentUser ? (
-        <div className="chat-composer lounge-composer">
-          {replyTo && (
-            <div className="reply-bar">
-              <span className="reply-bar-accent" />
-              <div>
-                <strong>{replyTo.name} <span>@{replyTo.handle}</span></strong>
-                <p>{replyTo.text}</p>
-              </div>
-              <button className="icon-btn" onClick={onCancelReply} aria-label="Cancel reply"><X /></button>
-            </div>
-          )}
-          {mention && mentionMatches.length > 0 && (
-            <div className="mention-pop">
-              <div className="mention-pop-label">Tag someone in the Lounge</div>
-              {mentionMatches.map((member) => (
-                <button key={member.id} className="mention-option" onClick={() => insertMention(member)}>
-                  <Avatar member={member} size="sm" />
-                  <span>
-                    <strong>{member.name}</strong>
-                    <small>@{member.handle}</small>
-                  </span>
-                  <em>{member.id === currentUser.id ? 'You' : 'Listener'}</em>
-                </button>
-              ))}
-            </div>
-          )}
-          {recording ? (
-            <div className="recording-console" data-testid="lounge-recording-bar">
-              <span className="recording-dot" />
-              <span className="recording-timer">{formatTime(recordSeconds)}</span>
-              <div className="recording-wave" aria-hidden="true">
-                {[0.35, 0.68, 0.94, 0.52, 0.8, 0.42, 0.72, 0.58, 0.88, 0.46, 0.76, 0.62].map((height, index) => (
-                  <i key={index} style={{ height: `${Math.max(3, height * 18)}px`, animationDelay: `${index * 0.08}s` }} />
-                ))}
-              </div>
-              <span className="recording-hint">{recordHint || `Recording · ${formatTime(45 - recordSeconds)} left`}</span>
-              <button className="record-cancel" onClick={cancelRecording}>Cancel</button>
-              <button className="record-send" onClick={() => finishRecording(false)}>
-                <Send /> Send
-              </button>
-            </div>
-          ) : (
-            <>
-              {emojiOpen && (
-                <div className="emoji-pop">
-                  {LYRIC_EMOJIS.slice(0, 12).map((emoji) => (
-                    <button key={emoji} onClick={() => onDraft(draft + emoji)}>{emoji}</button>
-                  ))}
-                </div>
-              )}
-              <button className="emoji-btn" onClick={() => setEmojiOpen((value) => !value)} aria-label="Add emoji">
-                <Smile />
-              </button>
-              <button
-                className="emoji-btn"
-                onClick={() => {
-                  const prefix = draft && !draft.endsWith(' ') ? ' ' : ''
-                  onDraft(`${draft}${prefix}@`)
-                  setMention({ query: '', start: draft.length + prefix.length })
-                  requestAnimationFrame(() => inputRef.current?.focus())
-                }}
-                aria-label="Mention someone in the Lounge"
-              >
-                <AtSign />
-              </button>
-              <div className="composer-input">
-                <input
-                  ref={inputRef}
-                  value={draft}
-                  onChange={handleDraftChange}
-                  onKeyDown={(event) => {
-                    if (mention && mentionMatches.length && event.key === 'Tab') {
-                      event.preventDefault()
-                      insertMention(mentionMatches[0])
-                      return
-                    }
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault()
-                      submitMessage()
-                    }
-                  }}
-                  placeholder={`Message the Lounge as @${currentLabel}…`}
-                  aria-label="Public Lounge message"
-                  data-testid="lounge-input"
-                />
-                <button
-                  className="voice-note-btn"
-                  onClick={startRecording}
-                  aria-label="Record a Lounge voice note"
-                  title="Record a voice note"
-                  data-testid="lounge-voice-btn"
-                >
-                  <Mic />
-                </button>
-                <button className="send-btn" onClick={submitMessage} aria-label="Send Lounge message" data-testid="lounge-send-btn">
-                  <Send />
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="lounge-guest-bar">
-          <Globe2 />
-          <span>You are reading as a guest.</span>
-          <button onClick={onLogin}>Log in to join</button>
-        </div>
-      )}
-
-      {cardMember && (
-        <LoungeUserCard
-          member={cardMember}
-          currentUser={currentUser}
-          room={room}
-          inviting={invitingId === cardMember.id}
-          onClose={() => setCardFor(null)}
-          onInvite={(member) => {
-            onInviteUser?.(member.id)
-            setCardFor(null)
-          }}
-        />
-      )}
-    </aside>
   )
 }
 
@@ -6284,14 +5130,14 @@ function ChatPanel({
       }
       recorder.onerror = () => {
         voiceFallbackRef.current = true
-        setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+        setRecordHint('Microphone unavailable. Check your browser permissions.')
       }
       recorder.start(250)
       recorderRef.current = recorder
     } catch {
       if (!recordStartedAtRef.current || finishingRef.current) return
       voiceFallbackRef.current = true
-      setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+      setRecordHint('Microphone unavailable. Check your browser permissions.')
     }
   }
 
@@ -6455,7 +5301,7 @@ function ChatPanel({
       {activeTab === 'chat' ? (
         <>
           <div className="chat-body" ref={chatRef}>
-            <div className="chat-day"><span>Tonight · {room.name}</span></div>
+            <div className="chat-day"><span>Today · {room.name}</span></div>
             {messages.map((message) => {
               if (message.system) {
                 return (
@@ -6750,7 +5596,6 @@ function RoomView({
   duration,
   canControl,
   role,
-  syncMs,
   volume,
   muted,
   liked,
@@ -6815,6 +5660,7 @@ function RoomView({
         <div className="room-meta">
           <AvatarStack ids={room.members} size="sm" max={4} />
           <span className="meta-listeners"><b>{room.members.length}</b> in the room</span>
+          <TelemetryPill className="room-head-sync" />
           <div className="meta-divider" />
           <span className="role-chip static">
             <RoleIcon />
@@ -6925,9 +5771,7 @@ function RoomView({
                 <SkipForward />
               </button>
             </div>
-            <span className="sync-chip" title="Estimated drift between listeners">
-              <Wifi /> In sync · <b>{syncMs} ms</b>
-            </span>
+            <TelemetryPill className="room-transport-sync" />
             <div className="volume-box">
               <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
                 {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
@@ -7115,584 +5959,6 @@ function SoloQueueBadge({ count }) {
   return <b className="queue-count-badge">{count > 99 ? '99+' : count}</b>
 }
 
-function PlayerDock({
-  track,
-  isPlaying,
-  buffering,
-  duration,
-  liked,
-  syncMs,
-  volume,
-  muted,
-  onTogglePlay,
-  onPrev,
-  onNext,
-  onLike,
-  onAddToPlaylist,
-  onVolume,
-  onToggleMute,
-  onSeek,
-  onOpenFull,
-  onToggleQueue,
-  onCycleRepeat,
-  onToggleShuffle,
-  repeatMode = 'off',
-  shuffleEnabled = false,
-  queueCount = 0,
-  queueOpen = false,
-  inRoom,
-  canSeek = true,
-}) {
-  const liveProgress = usePlaybackProgress()
-  const total = duration || track?.duration || 0
-  const pct = total ? Math.min(100, Math.max(0, (liveProgress / total) * 100)) : 0
-  const repeatLabel = repeatMode === 'one'
-    ? 'Repeat: Current Track'
-    : repeatMode === 'all'
-      ? 'Repeat: Queue'
-      : 'Repeat: Off'
-  return (
-    <div className="player-dock" data-testid="player-dock">
-      <div className="dock-track">
-        <button type="button" className="dock-cover" onClick={onOpenFull} aria-label="Open full player">
-          <Cover track={track} size="cover-size-md" playing={isPlaying} />
-        </button>
-        <button type="button" className="dock-copy" onClick={onOpenFull}>
-          <strong title={track?.title || 'Nothing playing'}>{track?.title || 'Nothing playing'}</strong>
-          <span>{track?.artist || 'EchoSync'}</span>
-        </button>
-        <div className="dock-quick-actions">
-          <button
-            className={`like-btn dock-like ${liked.includes(track?.id) ? 'liked' : ''}`}
-            onClick={() => onLike(track)}
-            aria-label="Like track"
-          >
-            <Heart />
-          </button>
-          <button
-            className="icon-btn dock-add"
-            onClick={() => onAddToPlaylist(track)}
-            aria-label="Add to playlist"
-            title="Add to playlist"
-          >
-            <ListPlus />
-          </button>
-        </div>
-      </div>
-      <div className="dock-center">
-        <div className="dock-buttons">
-          <button
-            className={`icon-btn dock-mode ${shuffleEnabled ? 'active' : ''}`}
-            onClick={onToggleShuffle}
-            aria-label={`Shuffle: ${shuffleEnabled ? 'On' : 'Off'}`}
-            aria-pressed={shuffleEnabled}
-            title={`Shuffle: ${shuffleEnabled ? 'On' : 'Off'}`}
-            data-testid="shuffle-btn"
-            disabled={inRoom}
-          >
-            <Shuffle />
-          </button>
-          <button className="icon-btn dock-skip" onClick={onPrev} aria-label="Previous track"><SkipBack /></button>
-          <button className="dock-play" onClick={onTogglePlay} aria-label={buffering ? 'Buffering' : isPlaying ? 'Pause' : 'Play'}>
-            {buffering ? <RefreshCw className="spin" /> : isPlaying ? <Pause /> : <Play />}
-          </button>
-          <button className="icon-btn dock-skip" onClick={onNext} aria-label="Next track"><SkipForward /></button>
-          <button
-            className={`icon-btn dock-mode ${repeatMode !== 'off' ? 'active' : ''}`}
-            onClick={onCycleRepeat}
-            aria-label={repeatLabel}
-            title={repeatLabel}
-            data-testid="repeat-btn"
-            disabled={inRoom}
-          >
-            {repeatMode === 'one' ? <Repeat1 /> : <Repeat />}
-          </button>
-          <button
-            className={`icon-btn dock-mode dock-queue ${queueOpen ? 'active' : ''}`}
-            onClick={onToggleQueue}
-            aria-label={`Up Next queue, ${queueCount} tracks`}
-            title={inRoom ? 'Solo queue is available outside rooms' : 'Up Next queue'}
-            data-testid="queue-btn"
-            disabled={inRoom}
-          >
-            <ListMusic />
-            {queueCount > 0 && <SoloQueueBadge count={queueCount} />}
-          </button>
-        </div>
-        <div className="dock-time">
-          <span>{formatTime(liveProgress)}</span>
-          <input
-            className="dock-seek"
-            data-testid="dock-seek"
-            style={{ '--seek-pct': `${pct}%` }}
-            type="range"
-            min="0"
-            max={total || 1}
-            step="0.1"
-            value={Math.min(liveProgress, total || liveProgress)}
-            onChange={(event) => onSeek(Number(event.target.value))}
-            disabled={!canSeek || !total}
-            aria-label="Seek playback"
-          />
-          <span>{formatTime(total)}</span>
-        </div>
-      </div>
-      <div className="dock-actions">
-        <span className={`dock-sync ${inRoom ? 'live' : 'solo'}`}>
-          {inRoom ? <Wifi /> : <Headphones />}
-          <b>{inRoom ? `${syncMs} ms` : 'Solo'}</b>
-        </span>
-        <div className="dock-volume">
-          <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
-            {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
-          </button>
-          <input
-            className="volume-slider"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={muted ? 0 : volume}
-            onChange={(event) => onVolume(Number(event.target.value))}
-            aria-label="Volume"
-          />
-        </div>
-        <button className="icon-btn dock-expand" onClick={onOpenFull} aria-label="Expand player"><Maximize2 /></button>
-      </div>
-    </div>
-  )
-}
-
-function SoloQueueDrawer({
-  queue,
-  currentIndex,
-  track,
-  isPlaying,
-  onClose,
-  onPlayIndex,
-  onMove,
-  onRemove,
-  onClear,
-  onShuffle,
-}) {
-  const upcoming = queue
-    .map((item, index) => ({ item, index }))
-    .filter((entry) => entry.index > currentIndex)
-  return (
-    <aside className="social solo-queue-drawer mobile-open" data-testid="solo-queue-drawer" aria-label="Up Next queue">
-      <div className="social-top">
-        <div className="social-tabs">
-          <span className="social-tab active"><ListMusic /> Up Next</span>
-        </div>
-        <button className="icon-btn social-close" onClick={onClose} aria-label="Close queue">
-          <X />
-        </button>
-      </div>
-      <div className="queue-drawer-head">
-        <div>
-          <span className="eyebrow"><span className="seg" /> SOLO QUEUE</span>
-          <h3>Up Next</h3>
-          <p>{queue.length ? `${queue.length} track${queue.length === 1 ? '' : 's'} in your listening session` : 'Your queue is empty'}</p>
-        </div>
-        <div className="queue-drawer-actions">
-          <button className="text-btn" onClick={onShuffle} disabled={!queue.length}>
-            <Shuffle size={12} /> Shuffle Queue
-          </button>
-          <button className="text-btn queue-clear-btn" onClick={onClear} disabled={!queue.length}>
-            <Trash2 size={12} /> Clear Queue
-          </button>
-        </div>
-      </div>
-
-      <div className="queue-now-card" data-testid="queue-now-playing">
-        <Cover track={track} size="cover-size-sm" playing={isPlaying} />
-        <div>
-          <span className="queue-now-label"><AudioLines /> Now Playing</span>
-          <strong>{track?.title || 'Nothing playing'}</strong>
-          <small>{track?.artist || 'EchoSync'}</small>
-        </div>
-      </div>
-
-      <div className="queue-drawer-list">
-        <div className="queue-drawer-list-head">
-          <span>Up Next in Queue</span>
-          <b>{upcoming.length}</b>
-        </div>
-        {upcoming.length === 0 ? (
-          <div className="queue-empty queue-drawer-empty">
-            <span className="empty-icon"><ListMusic /></span>
-            <strong>No tracks waiting</strong>
-            <p>Use Search’s <b>+ Queue</b> in Solo mode to build your next listen.</p>
-          </div>
-        ) : upcoming.map(({ item, index }) => (
-          <div className="queue-drawer-row" key={`${item?.id || 'track'}-${index}`} data-testid="queue-drawer-row">
-            <button
-              type="button"
-              className="queue-drawer-main"
-              onClick={() => onPlayIndex(index)}
-              aria-label={`Play ${item?.title || 'track'} now`}
-            >
-              <span className="queue-index">{String(index + 1).padStart(2, '0')}</span>
-              <Cover track={item} size="cover-size-sm" />
-              <span className="queue-copy">
-                <strong>{item?.title || 'Untitled track'}</strong>
-                <small>{item?.artist || 'EchoSync'}</small>
-              </span>
-            </button>
-            <div className="queue-drawer-row-actions">
-              <button
-                className="icon-btn"
-                onClick={() => onMove(index, -1)}
-                disabled={index <= currentIndex + 1}
-                aria-label={`Move ${item?.title || 'track'} up`}
-                title="Move up"
-              >
-                <ChevronUp />
-              </button>
-              <button
-                className="icon-btn"
-                onClick={() => onMove(index, 1)}
-                disabled={index >= queue.length - 1}
-                aria-label={`Move ${item?.title || 'track'} down`}
-                title="Move down"
-              >
-                <ChevronDown />
-              </button>
-              <button
-                className="icon-btn queue-drawer-remove"
-                onClick={() => onRemove(index)}
-                aria-label={`Remove ${item?.title || 'track'} from queue`}
-                title="Remove from queue"
-              >
-                <X />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </aside>
-  )
-}
-
-function MobileNav({
-  view,
-  chatOpen,
-  loungeOpen,
-  unreadLoungeCount,
-  onNavigate,
-  onSearch,
-  onChat,
-  onLounge,
-  inRoom,
-}) {
-  return (
-    <nav className="mobile-nav">
-      <button className={(view === 'home' || (view === 'room' && !inRoom)) && !chatOpen && !loungeOpen ? 'active' : ''} onClick={() => onNavigate('home')}>
-        <Home /> Home
-      </button>
-      <button className={view === 'rooms' && !chatOpen && !loungeOpen ? 'active' : ''} onClick={() => onNavigate('rooms')}>
-        <Radio /> Rooms
-      </button>
-      <button onClick={onSearch}>
-        <Search /> Search
-      </button>
-      <button className={view === 'library' && !chatOpen && !loungeOpen ? 'active' : ''} onClick={() => onNavigate('library')}>
-        <Library /> Library
-      </button>
-      <button className={`mobile-lounge-btn ${loungeOpen ? 'active' : ''}`} onClick={onLounge} data-testid="lounge-mobile-btn">
-        <span className="mobile-lounge-icon"><Globe2 /><i className="lounge-online-dot" /></span>
-        Lounge
-        {unreadLoungeCount > 0 && (
-          <b className="lounge-mobile-unread" data-testid="lounge-mobile-unread">
-            {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
-          </b>
-        )}
-      </button>
-      {inRoom && (
-        <button className={chatOpen ? 'active' : ''} onClick={onChat}>
-          <MessageCircle /> Chat
-        </button>
-      )}
-    </nav>
-  )
-}
-
-function SearchOverlay({
-  onClose,
-  onPlay,
-  onQueue,
-  onAddToPlaylist,
-  suggestions = [],
-  recentSearches = [],
-  onSearchCommit,
-  onRemoveRecentSearch,
-  onClearRecentSearches,
-  tasteTracks = [],
-  onOpenTaste,
-  context = { mode: 'solo', roomName: '' },
-  canControlRoom = false,
-  pendingTrackId = '',
-}) {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [status, setStatus] = useState('idle')
-  const inputRef = useRef(null)
-  const latestQuery = useRef('')
-
-  useEffect(() => {
-    inputRef.current?.focus()
-    const onKey = (event) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (trimmed.length < 2) {
-      setStatus('idle')
-      setResults([])
-      return undefined
-    }
-    latestQuery.current = trimmed
-    setStatus('loading')
-    const timer = setTimeout(async () => {
-      onSearchCommit?.(trimmed)
-      try {
-        const found = await searchEverything(trimmed)
-        if (latestQuery.current !== trimmed) return
-        setResults(found)
-        setStatus('ready')
-      } catch {
-        if (latestQuery.current === trimmed) setStatus('error')
-      }
-    }, 380)
-    return () => clearTimeout(timer)
-  }, [query])
-
-  const runQuery = (value) => {
-    const next = safeText(value)
-    if (!next) return
-    setQuery(next)
-  }
-
-  const fallbackSuggestions = suggestions.length
-    ? suggestions
-    : [...new Set(tasteTracks.map((track) => track.artist).filter(Boolean))]
-      .slice(0, 4)
-      .map((artist) => ({ label: artist, query: `${artist} songs` }))
-  const recent = recentSearches.filter(Boolean).slice(0, 6)
-  const picks = tasteTracks.slice(0, 5)
-
-  return (
-    <div className="modal-scrim" onMouseDown={onClose}>
-      <div className="search-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="search-top">
-          <Search />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search a song, an artist, a mood…"
-          />
-          <span className="esc-key">ESC</span>
-          <button className="icon-btn" onClick={onClose} aria-label="Close search"><X /></button>
-        </div>
-
-        <div className={`search-context-pill ${context.mode}`} data-testid="search-context">
-          {context.mode === 'room' ? (
-            <>
-              <Radio size={12} />
-              <span>Adding &amp; Playing in Room: {context.roomName || 'Room'}</span>
-              {!canControlRoom && <b>Admin/DJ only</b>}
-            </>
-          ) : (
-            <>
-              <Headphones size={12} />
-              <span>Playing in Solo Mode</span>
-            </>
-          )}
-        </div>
-
-        <div className="search-results">
-          {status === 'idle' && (
-            <div className="search-idle">
-              <div className="search-idle-head">
-                <div>
-                  <h4>What does tonight sound like?</h4>
-                  <p>Your taste shapes the shortcuts. Every result resolves to a real, playable stream.</p>
-                </div>
-                <button className="text-btn search-tune-btn" onClick={onOpenTaste}>
-                  <Sparkles size={12} /> Tune your taste
-                </button>
-              </div>
-
-              {recent.length > 0 && (
-                <section className="search-block search-recent" data-testid="search-recent">
-                  <div className="search-caption">
-                    <span>Recent searches</span>
-                    <button className="text-btn" onClick={onClearRecentSearches}>Clear all</button>
-                  </div>
-                  <div className="recent-search-list">
-                    {recent.map((item) => (
-                      <span key={item} className="recent-search-chip">
-                        <button className="recent-search-go" onClick={() => runQuery(item)}>
-                          <Clock3 size={11} /> {item}
-                        </button>
-                        <button
-                          className="recent-search-remove"
-                          onClick={() => onRemoveRecentSearch?.(item)}
-                          aria-label={`Remove ${item} from recent searches`}
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              <section className="search-block" data-testid="search-suggestions">
-                <div className="search-caption">
-                  <span>Suggested for your taste</span>
-                  <b>{fallbackSuggestions.length ? 'personalised' : 'start with a vibe'}</b>
-                </div>
-                {fallbackSuggestions.length ? (
-                  <div className="suggestion-chips">
-                    {fallbackSuggestions.map((suggestion) => (
-                      <button key={suggestion.label} onClick={() => runQuery(suggestion.query)}>{suggestion.label}</button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="search-idle-note">Tune a few vibes and this space will start shaping itself around you.</p>
-                )}
-              </section>
-
-              {picks.length > 0 && (
-                <section className="search-block">
-                  <div className="search-caption"><span>Picked for you</span><b>{picks.length} tracks</b></div>
-                  <div className="search-mini-grid">
-                    {picks.map((track) => (
-                      <button key={track.id} className="search-mini-card" onClick={() => onPlay(track, picks)}>
-                        <Cover track={track} size="" />
-                        <span className="search-mini-play"><Play /></span>
-                        <strong>{track.title}</strong>
-                        <span>{track.artist}</span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              <section className="search-block search-browse">
-                <div className="search-caption"><span>Browse vibes</span><b>{SEARCH_CATEGORIES.length} moods</b></div>
-                <div className="browse-vibe-grid">
-                  {SEARCH_CATEGORIES.map((category) => {
-                    const palette = paletteFromHue(hashHue(category.label))
-                    return (
-                      <button
-                        key={category.id}
-                        className="browse-vibe-card"
-                        style={{ '--vibe-1': palette.accent, '--vibe-2': palette.accent2 }}
-                        onClick={() => runQuery(category.query)}
-                      >
-                        <span>{category.label}</span>
-                        <Search size={13} />
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            </div>
-          )}
-
-          {status === 'loading' && (
-            <div className="search-loading"><span className="spinner" /> Listening to the catalogue…</div>
-          )}
-
-          {status === 'ready' && results.length === 0 && (
-            <div className="no-results">
-              <span>No streams found for “{query}”. Try another spelling or artist.</span>
-              <button className="text-btn" onClick={onOpenTaste}><Sparkles size={12} /> Refine your taste</button>
-            </div>
-          )}
-
-          {status === 'error' && (
-            <div className="no-results">Search is unavailable right now. Try again in a moment.</div>
-          )}
-
-          {status === 'ready' && results.length > 0 && (
-            <>
-              <div className="search-caption"><span>Top results</span><b>{results.length} streams</b></div>
-              {results.map((track) => (
-                <div
-                  key={track.id}
-                  className="search-result"
-                  role="button"
-                  tabIndex={0}
-                  data-provider={track.provider}
-                  data-track-id={track.id}
-                  onClick={() => onPlay(track, results)}
-                  onKeyDown={(event) => event.key === 'Enter' && onPlay(track, results)}
-                >
-                  <Cover track={track} size="cover-size-sm" />
-                  <div className="search-copy">
-                    <strong>{track.title}</strong>
-                    <span>{track.artist}{track.preview ? ' · preview' : ''}</span>
-                    {pendingTrackId === track.id && <span className="search-pending-copy">Loading stream...</span>}
-                  </div>
-                  <button
-                    className="search-play"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onPlay(track, results)
-                    }}
-                    aria-label={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
-                    title={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
-                  >
-                    {pendingTrackId === track.id ? <span className="spinner" /> : <Play />}
-                  </button>
-                  <button
-                    className="search-save"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onAddToPlaylist(track)
-                    }}
-                    aria-label="Add to playlist"
-                    title="Add to playlist"
-                  >
-                    <ListPlus />
-                  </button>
-                  <button
-                    className="search-add"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onQueue(track)
-                    }}
-                    aria-label={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
-                    title={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
-                    disabled={context.mode === 'room' && !canControlRoom}
-                  >
-                    <Plus />
-                    <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-
-        <div className="search-foot">
-          <AudioLines />
-          <span>Full-length catalogue · lyrics · artwork</span>
-          <span className="right">Universal stream engine</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
   const progress = usePlaybackProgress()
   const pct = total ? Math.min(100, Math.max(0, (progress / total) * 100)) : 0
@@ -7747,7 +6013,6 @@ function FullPlayer({
   isPlaying,
   buffering,
   duration,
-  syncMs,
   volume,
   muted,
   liked,
@@ -7784,8 +6049,8 @@ function FullPlayer({
         <header className="fp-head">
           <button className="icon-btn" onClick={onClose} aria-label="Close full player"><ChevronDown /></button>
           <div className="fp-head-copy">
-            <span>{inRoom ? `Playing in ${room.name}` : 'Solo listening'}</span>
-            <strong>{inRoom ? `${queue.length} tracks in the room queue · ${room.members.length} listeners` : `${queue.length} tracks in your queue · full control`}</strong>
+            <span>{inRoom ? `Playing in ${room.name}` : 'Your listening session'}</span>
+            <strong>{inRoom ? `${queue.length} tracks in the room queue · ${room.members.length} listeners` : `${queue.length} tracks in your queue`}</strong>
           </div>
           <div className="head-spacer" />
         </header>
@@ -7798,7 +6063,7 @@ function FullPlayer({
             <div className="fp-info">
               <div className="fp-kicker">
                 <span className="live-dot" style={{ color: room.accent }} />
-                <span>{isPlaying ? 'Playing now' : 'Paused in room'}</span>
+                <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}</span>
               </div>
               <h2 className="fp-title">{track?.title}</h2>
               <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
@@ -7839,7 +6104,7 @@ function FullPlayer({
                   className="icon-btn fp-queue-btn"
                   onClick={onToggleQueue}
                   aria-label={`Up Next queue, ${queueCount} tracks`}
-                  title={inRoom ? 'Solo queue is available outside rooms' : 'Up Next queue'}
+                  title={inRoom ? 'Queue is available outside rooms' : 'Playback queue'}
                   disabled={inRoom}
                 >
                   <ListMusic />
@@ -7865,7 +6130,7 @@ function FullPlayer({
                     aria-label="Volume"
                   />
                 </div>
-                <span className="fp-sync"><Wifi /> <b>{syncMs} ms</b> drift</span>
+                {inRoom ? <TelemetryPill detail className="fp-sync-pill" /> : null}
               </div>
             </div>
           </div>
@@ -7874,7 +6139,15 @@ function FullPlayer({
             <div className="social-head">
               <div className="social-head-copy">
                 <h3>Live lyrics</h3>
-                <p><Sparkles size={10} /> {lyrics?.status === 'ready' && lyrics.type === 'synced' ? 'Following the room, line by line' : lyrics?.status === 'ready' && lyrics.type === 'plain' ? 'Read along with the room' : 'Time-synced with playback'}</p>
+                <p>
+                  <Sparkles size={10} />
+                  {' '}
+                  {lyrics?.status === 'ready' && lyrics.type === 'synced'
+                    ? (inRoom ? 'Following the room, line by line' : 'Following along, line by line')
+                    : lyrics?.status === 'ready' && lyrics.type === 'plain'
+                      ? (inRoom ? 'Read along with the room' : 'Read along with playback')
+                      : 'Time-synced with playback'}
+                </p>
               </div>
               <span className="source-badge">LRCLIB</span>
             </div>
@@ -8088,7 +6361,6 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [lyrics, setLyrics] = useState({ status: 'idle' })
   const [lyricsRefresh, setLyricsRefresh] = useState(0)
-  const [syncMs, setSyncMs] = useState(14)
   const [seekSignal, setSeekSignal] = useState(0)
   const [recoverySignal, setRecoverySignal] = useState(0)
   const [joinPill, setJoinPill] = useState(null)
@@ -8151,7 +6423,6 @@ export default function App() {
   const recoveryRef = useRef({ id: '', at: 0, active: false })
   const crossfadeGainRef = useRef(1)
   const crossfadeLockRef = useRef(false)
-  const preloadRef = useRef({ id: '', audio: null })
   const fadeFrameRef = useRef(null)
   const remoteVoiceTimersRef = useRef({})
   const remoteAudioQueueRef = useRef({ entries: {} })
@@ -8227,7 +6498,7 @@ export default function App() {
   const likedSet = Array.isArray(liked) ? liked : []
   const displayRoom = roomPlaybackActive && activeRoom ? activeRoom : {
     id: SOLO_ROOM_ID,
-    name: 'Solo listening',
+    name: 'Your listening session',
     accent: '#f16b73',
     accent2: '#f2b38e',
     members: [],
@@ -8267,6 +6538,32 @@ export default function App() {
     ? (memberIndex[loungeTypingId] || { id: loungeTypingId, name: 'Someone', handle: 'listener' })
     : null
   const lyricsKey = track?.id || 'empty'
+
+  useEffect(() => {
+    startNetworkMonitor()
+  }, [])
+
+  useEffect(() => {
+    if (!roomPlaybackActive) {
+      resetRoomTelemetry()
+      return undefined
+    }
+    const sample = () => {
+      if (document.visibilityState === 'hidden') return
+      recordRoomDrift(Math.abs(getPlaybackTime() - roomClockTime()))
+    }
+    sample()
+    const timer = setInterval(sample, 1500)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') sample()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomPlaybackActive, activeRoomId])
 
   useEffect(() => {
     activeRoomRef.current = activeRoomId
@@ -8505,7 +6802,7 @@ export default function App() {
   useEffect(() => {
     if (!currentUserId) return
     writeUserValue(SETTINGS_KEY, currentUserId, settings)
-    streamQuality = settings.quality || 'high'
+    setPreferredStreamQuality(settings.quality || 'high')
   }, [currentUserId, settings])
 
   useEffect(() => {
@@ -8730,7 +7027,7 @@ export default function App() {
     setTasteProfile(loadTasteProfile(id))
     setSettings(userSettings)
     setTranslateOn(Boolean(userSettings.autoTranslate))
-    streamQuality = userSettings.quality || 'high'
+    setPreferredStreamQuality(userSettings.quality || 'high')
     setActiveRoomId(null)
     setSoloQueue([])
     setSoloPlayOrder([])
@@ -8827,6 +7124,7 @@ export default function App() {
 
   function signOut() {
     clearActiveSession()
+    clearPreloadSession()
     setIsPlaying(false)
     audioRef.current?.pause()
     stopMic()
@@ -10494,9 +8792,9 @@ export default function App() {
         ensurePlayable(candidate)
       }
     }
-    setSyncMs(Math.max(2, Math.min(399, Math.round(Date.now() - stamp))))
     const target = roomClockTime()
     const drift = Math.abs(getPlaybackTime() - target)
+    recordRoomDrift(drift)
     const lateJoin = !hasInteractedRef.current && nextPlaying
     if (lateJoin) {
       pendingSeekRef.current = target
@@ -10545,6 +8843,15 @@ export default function App() {
       addRecent(candidate.id)
       recordTasteSignal('play', { track: candidate })
     }
+    const preloadQueue = ids
+      .map((id) => libraryRef.current[id] || SEED_BY_ID[id])
+      .filter(Boolean)
+    preloadQueueWindow({
+      queue: preloadQueue,
+      currentIndex: index,
+      repeatMode,
+      resolve: ensurePlayable,
+    })
   }
 
   async function ensurePlayable(rawCandidate, options = {}) {
@@ -10853,22 +9160,16 @@ export default function App() {
   }
 
   function maybePreloadNext(audio) {
-    if (!settings.gapless || !audio || !queueIds.length) return
-    if (repeatMode === 'one') return
+    if (!audio || !queueIds.length || repeatMode === 'one') return
     const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration
-    if (!total || total - audio.currentTime > 15) return
+    if (!total || audio.currentTime / total < 0.55) return
     let nextIndex = currentIndex + 1
     if (nextIndex >= queueIds.length) {
       if (repeatMode !== 'all') return
       nextIndex = 0
     }
     const candidate = queue[nextIndex] || library[queueIds[nextIndex]]
-    if (!candidate?.streamUrl || candidate.youtubeVideoId || preloadRef.current.id === candidate.id) return
-    const preload = new Audio()
-    preload.preload = 'auto'
-    preload.src = candidate.streamUrl
-    preload.load()
-    preloadRef.current = { id: candidate.id, audio: preload }
+    if (candidate) preloadCandidateAt([candidate], 0, ensurePlayable)
   }
 
   function maybeCrossfade(audio) {
@@ -11471,12 +9772,6 @@ export default function App() {
     crossfadeLockRef.current = false
     crossfadeGainRef.current = 1
     setCrossfadeGain(1)
-    const preload = preloadRef.current.audio
-    if (preload) {
-      preload.src = ''
-      preload.load()
-    }
-    preloadRef.current = { id: '', audio: null }
   }, [track?.id])
 
   useEffect(() => {
@@ -11559,7 +9854,7 @@ export default function App() {
             },
             onError: () => {
               if (cancelled) return
-              showToast('The video engine failed — finding another source.', 'lock')
+              showToast('Playback hit a snag — trying another source.', 'lock')
               if (isPlayingRef.current) recoverCurrentStream('video')
             },
           },
@@ -12198,7 +10493,7 @@ export default function App() {
   function saveUserSettings(next) {
     const merged = { ...settings, ...next }
     setSettings(merged)
-    streamQuality = merged.quality || 'high'
+    setPreferredStreamQuality(merged.quality || 'high')
     if (next.autoTranslate !== undefined) setTranslateOn(Boolean(next.autoTranslate))
     showToast('Listening preferences saved')
   }
@@ -12211,6 +10506,7 @@ export default function App() {
 
   function clearAllCaches() {
     clearPlaybackCaches()
+    clearPreloadSession()
     setLibrary(() => mergeLikedTracks(
       buildInitialLibrary(),
       readUserValue(LIKES_KEY, currentUserId, []),
@@ -12526,6 +10822,11 @@ export default function App() {
     })
   }, [])
 
+  const artworkContextValue = useMemo(() => ({
+    heal: healArtwork,
+    fallback: fetchArtworkFallback,
+  }), [healArtwork])
+
   const searchDailyUser = dailyFeed?.users?.[currentUserId || 'guest'] || {}
   const searchSuggestions = buildTasteSuggestions(tasteProfile, searchDailyUser, dailyFeed?.trending)
   const searchTasteTracks = (searchDailyUser.madeForYou?.length ? searchDailyUser.madeForYou : dailyFeed?.trending) || []
@@ -12543,7 +10844,7 @@ export default function App() {
   }
 
   return (
-    <ArtworkContext.Provider value={healArtwork}>
+    <ArtworkContext.Provider value={artworkContextValue}>
     <MembersContext.Provider value={memberIndex}>
       <div className={`app ${theme}`} style={rootStyle}>
         <div className="ambient" />
@@ -12556,6 +10857,10 @@ export default function App() {
             const time = audio.currentTime || 0
             progressRef.current = time
             playbackProgressStore.set(time)
+            if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.buffered.length) {
+              const end = audio.buffered.end(audio.buffered.length - 1)
+              setLiveTelemetry({ bufferedPct: Math.min(100, Math.round((end / audio.duration) * 100)) })
+            }
             maybePreloadNext(audio)
             maybeCrossfade(audio)
           }}
@@ -12717,7 +11022,6 @@ export default function App() {
                   duration={duration}
                   canControl={canControl}
                   role={role}
-                  syncMs={syncMs}
                   volume={volume}
                   muted={muted}
                   liked={likedSet}
@@ -12763,7 +11067,6 @@ export default function App() {
                 buffering={buffering || streamRecovering}
                 duration={duration}
                 liked={likedSet}
-                syncMs={syncMs}
                 volume={volume}
                 muted={muted}
                 onTogglePlay={togglePlay}
@@ -12786,20 +11089,26 @@ export default function App() {
               />
             </ErrorBoundary>
 
-            <MobileNav
+            <MobileMiniPlayer
+              track={track}
+              isPlaying={isPlaying}
+              buffering={buffering || streamRecovering}
+              duration={duration}
+              liked={likedSet}
+              onTogglePlay={togglePlay}
+              onLike={toggleLike}
+              onOpenFull={() => setFullPlayer(true)}
+            />
+            <MobileBottomBar
               view={view}
               inRoom={roomPlaybackActive}
               chatOpen={chatOpen}
               loungeOpen={loungeOpen}
               unreadLoungeCount={loungeUnreadCount}
+              unreadRoomCount={activeRoomUnread}
+              likedCount={likedSet.length}
               onNavigate={navigateView}
               onSearch={openSearchExperience}
-              onChat={() => {
-                setView('room')
-                setLoungeOpen(false)
-                setActiveTab('chat')
-                setChatOpen(true)
-              }}
               onLounge={openLounge}
             />
           </main>
@@ -12858,7 +11167,7 @@ export default function App() {
             />
           )}
           {shellQueueOpen && (
-            <SoloQueueDrawer
+            <QueueDrawer
               queue={queue}
               currentIndex={currentIndex}
               track={track}
@@ -12872,7 +11181,7 @@ export default function App() {
             />
           )}
           {loungeOpen && (
-            <LoungeDrawer
+            <PublicLoungeDrawer
               open={loungeOpen}
               messages={loungeMessages}
               currentUser={currentUser}
@@ -12902,6 +11211,7 @@ export default function App() {
               onInviteUser={inviteLoungeUser}
               invitingId={loungeInvitingId}
               onLogin={() => openAuth('signin', 'Log in to join the Public Lounge conversation.')}
+              UserCard={LoungeUserCard}
             />
           )}
           {shellDrawerOpen && (
@@ -12941,6 +11251,7 @@ export default function App() {
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
             onAddToPlaylist={requestAddToPlaylist}
+            onSearch={searchEverything}
             suggestions={searchSuggestions}
             recentSearches={recentSearches}
             onSearchCommit={recordSearchQuery}
@@ -12966,7 +11277,6 @@ export default function App() {
             isPlaying={isPlaying}
             buffering={buffering || streamRecovering}
             duration={duration}
-            syncMs={syncMs}
             volume={volume}
             muted={muted}
             liked={likedSet}
