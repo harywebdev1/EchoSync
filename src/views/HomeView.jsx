@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, ListPlus, Music2, Play, Plus, Radio, RefreshCw, Search, Sparkles } from 'lucide-react'
-import { Cover } from './Cover'
-import { SkeletonShelf, TrackCard } from './TrackCard'
+import { Cover } from '../components/Cover'
+import { SkeletonShelf, TrackCard } from '../components/TrackCard'
 
 const FILTERS = [
   { id: 'all', label: 'All' },

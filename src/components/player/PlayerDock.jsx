@@ -15,10 +15,10 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { Cover } from './Cover'
-import { TelemetryPill } from './TelemetryPill'
-import { formatTime } from '../lib/time'
-import { usePlaybackProgress } from '../state/playbackStore'
+import { Cover } from '../Cover'
+import { TelemetryPill } from '../TelemetryPill'
+import { formatTime } from '../../lib/time'
+import { usePlaybackProgress } from '../../state/playbackStore'
 
 function QueueBadge({ count }) {
   return <b className="queue-count-badge">{count > 99 ? '99+' : count}</b>

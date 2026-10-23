@@ -83,6 +83,7 @@ let passed = 0
           navigator.mediaDevices.getUserMedia = (...args) => window.__allowMic ? getUserMedia(...args) : Promise.reject(new DOMException('denied', 'NotAllowedError'))
         })
         await open(page)
+        const rootAudio = await page.locator('[data-testid=root-audio]').elementHandle()
         if (room) {
           await page.getByRole('button', { name: /Integrity Room/ }).first().click()
           if (!await page.getByRole('button', { name: 'Record voice note', exact: true }).isVisible()) await page.getByRole('button', { name: /Toggle room chat/ }).click()
@@ -101,6 +102,72 @@ let passed = 0
         await panel.getByRole('button', { name: 'Send', exact: true }).click()
         await panel.locator('.bubble.voice').waitFor()
         assert.equal(await panel.getByRole('alert').count(), 0)
+        assert.equal(await page.locator('[data-testid=root-audio]').evaluate((audio, original) => audio === original, rootAudio), true)
+      })
+    }
+    await check('extracted Library searches and adds songs through its injected resolver', {}, async page => {
+      await open(page)
+      await page.getByRole('button', { name: /^Your library/ }).click()
+      await page.getByRole('button', { name: /New playlist/ }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.getByLabel('Playlist name').fill('Extraction verification')
+      await dialog.getByRole('button', { name: 'Create playlist', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Search songs to add to playlist' }).fill('Kesariya')
+      const result = page.locator('.playlist-search-row').filter({ hasText: 'Kesariya' }).first()
+      await result.getByRole('button', { name: 'Add to this playlist', exact: true }).click()
+      await page.locator('.playlist-detail .library-row').filter({ hasText: 'Kesariya' }).waitFor()
+    })
+    for (const mobile of [false, true]) {
+      await check(`${mobile ? 'Mobile' : 'Desktop'}: navigation and player drawers preserve the playing root audio node`, {}, async page => {
+        if (mobile) await page.setViewportSize({ width: 390, height: 844 })
+        await open(page)
+        await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+        await page.waitForFunction(() => {
+          const audio = document.querySelector('[data-testid=root-audio]')
+          return audio && !audio.paused && audio.currentTime > 0.3
+        })
+        await page.evaluate(() => {
+          const audio = document.querySelector('[data-testid=root-audio]')
+          window.__audioContinuity = { node: audio, source: audio.currentSrc, time: audio.currentTime, interruptions: [], removals: 0 }
+          for (const event of ['emptied', 'loadstart', 'abort', 'pause']) {
+            audio.addEventListener(event, () => window.__audioContinuity.interruptions.push(event))
+          }
+          new MutationObserver(records => {
+            for (const record of records) for (const node of record.removedNodes) {
+              if (node === audio || node.contains?.(audio)) window.__audioContinuity.removals++
+            }
+          }).observe(document.querySelector('.app'), { childList: true, subtree: true })
+        })
+        const nav = page.locator(mobile ? '.mobile-bottom-bar' : '.sidebar')
+        await nav.getByRole('button', { name: mobile ? /^Library/ : /^Your library/ }).click()
+        await page.locator('.library-view').waitFor()
+        await page.getByRole('button', { name: /Liked songs/i }).click()
+        await nav.getByRole('button', { name: /^Rooms/ }).click()
+        await page.locator('.rooms-view').waitFor()
+        await nav.getByRole('button', { name: 'Home', exact: true }).click()
+        await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().waitFor()
+        await page.getByRole('button', { name: 'Open full player', exact: true }).filter({ visible: true }).click()
+        await page.locator('.full-player').waitFor()
+        await page.getByRole('button', { name: 'Close full player', exact: true }).click()
+        await page.locator('.full-player').waitFor({ state: 'detached' })
+        if (!mobile) {
+          await page.locator('[data-testid=queue-btn]').click()
+          await page.locator('[data-testid=solo-queue-drawer]').waitFor()
+          await page.getByRole('button', { name: 'Close queue', exact: true }).click()
+        }
+        await page.locator(mobile ? '[data-testid=lounge-mobile-btn]' : '[data-testid=lounge-nav-btn]').click()
+        await page.locator('[data-testid=lounge-drawer]').waitFor()
+        await page.getByRole('button', { name: 'Close lounge', exact: true }).click()
+        await page.waitForFunction(() => {
+          const saved = window.__audioContinuity
+          return saved.node.currentTime > saved.time + 0.2
+        })
+        assert.deepEqual(await page.evaluate(() => {
+          const saved = window.__audioContinuity
+          return { sameNode: saved.node === document.querySelector('[data-testid=root-audio]'), connected: saved.node.isConnected,
+            sameSource: saved.source === saved.node.currentSrc, paused: saved.node.paused,
+            removals: saved.removals, interruptions: saved.interruptions }
+        }), { sameNode: true, connected: true, sameSource: true, paused: false, removals: 0, interruptions: [] })
       })
     }
     console.log(`Application browser integrity: ${passed} checks passed`)

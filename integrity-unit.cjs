@@ -85,7 +85,7 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     assert.equal(failures[0].key, 'echosync.likes.v1')
     assert.match(failures[0].error.message, /Quota/)
   })
-  for (const file of ['src/App.jsx', 'src/components/PublicLoungeDrawer.jsx']) {
+  for (const file of ['src/components/social/ChatDrawer.jsx', 'src/components/social/PublicLoungeDrawer.jsx']) {
     await check(`${file}: denied mic, recorder error and empty blob send nothing; retry can record`, async () => {
       let sends = 0, hint = '', allow = false, usable = false, currentRecorder, stopped = 0
       class Recorder {
