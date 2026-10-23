@@ -12,7 +12,8 @@ let channel = null
 let preferredQuality = 'high'
 let apiLatencyMs = 0
 let echoLatencyMs = 0
-let lastLatencyMs = 0
+let lastLatencyMs = null
+let jitterMs = 0
 let connection = null
 
 function readConnection() {
@@ -50,7 +51,7 @@ function publishTelemetry() {
   const quality = qualityFromNetwork()
   setLiveTelemetry({
     networkLatencyMs: Math.max(0, Math.round(Math.max(apiLatencyMs, echoLatencyMs))),
-    jitterMs: Math.max(0, Math.round(Math.abs(Math.max(apiLatencyMs, echoLatencyMs) - lastLatencyMs))),
+    jitterMs: Math.round(jitterMs),
     quality,
   })
 }
@@ -61,21 +62,23 @@ async function pingProxy() {
   const timeout = setTimeout(() => controller.abort(), 4000)
   const startedAt = performance.now()
   try {
-    await fetch(`/api/saavn/?_ping=${Date.now()}`, {
+    const response = await fetch(`/api/saavn/?_ping=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal,
     })
+    if (!response.ok) throw new Error('Telemetry endpoint unavailable')
+    apiLatencyMs = performance.now() - startedAt
+    const currentRtt = apiLatencyMs
+    jitterMs = lastLatencyMs == null ? 0 : Math.abs(currentRtt - lastLatencyMs)
+    lastLatencyMs = currentRtt
   } catch {
     const info = connection || readConnection()
     const reported = Number(info?.rtt)
     apiLatencyMs = Number.isFinite(reported) && reported > 0 ? reported : Math.max(apiLatencyMs, 900)
   } finally {
     clearTimeout(timeout)
-    const elapsed = performance.now() - startedAt
-    if (elapsed > 0 && elapsed < 4000) apiLatencyMs = elapsed
     connection = connection || readConnection()
-    lastLatencyMs = Math.max(apiLatencyMs, echoLatencyMs)
     publishTelemetry()
   }
 }
@@ -143,9 +146,5 @@ export function getNetworkSnapshot() {
 
 export function recordRoomDrift(driftSeconds) {
   const drift = Math.max(0, Number(driftSeconds) || 0) * 1000
-  const { jitterMs = 0, networkLatencyMs = 0 } = getNetworkSnapshot()
-  const networkJitter = Math.min(140, jitterMs * 0.7 + networkLatencyMs * 0.06)
-  setLiveTelemetry({
-    roomDriftMs: Math.max(2, Math.min(999, Math.round(drift + networkJitter))),
-  })
+  setLiveTelemetry({ roomDriftMs: Math.round(drift) })
 }

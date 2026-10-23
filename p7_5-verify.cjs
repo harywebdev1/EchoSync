@@ -6,6 +6,9 @@ const APP_URL = process.env.ECHOSYNC_URL || 'http://127.0.0.1:5173'
 const STATE_PATH = process.env.ECHOSYNC_STATE || 'C:/Users/haryw/AppData/Local/Temp/opencode/p75-state.json'
 const CHROME_PATH = process.env.CHROME_PATH || 'C:/Users/haryw/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe'
 
+const { fixtureState, installFixtures } = require('./integrity-fixtures.cjs')
+const FIXTURE = process.env.ECHOSYNC_FIXTURE === '1'
+const diagnostics = new WeakMap()
 const results = []
 
 function intersectionArea(a, b) {
@@ -15,19 +18,44 @@ function intersectionArea(a, b) {
   return Math.round(width * height)
 }
 
+async function openApp(page, reload = false) {
+  if (reload) await page.reload({ waitUntil: 'domcontentloaded' })
+  else await page.goto(APP_URL, { waitUntil: 'domcontentloaded' })
+  await page.locator('.app .stage').waitFor({ state: 'visible', timeout: 30000 })
+  await page.getByRole('button', { name: /^Play / }).first().waitFor({ state: 'visible' })
+}
+
 async function waitForPlayback(page, timeout = 30000) {
-  await page.waitForFunction(() => {
-    const audio = document.querySelector('audio')
-    return audio && !audio.paused && audio.currentTime > 1.5
-  }, null, { timeout })
+  try {
+    await page.waitForFunction(() => {
+      const audio = document.querySelector('audio')
+      return audio && !audio.paused && audio.currentTime > 1.5
+    }, null, { timeout })
+  } catch (error) {
+    const media = await page.locator('audio').first().evaluate(audio => ({ paused: audio.paused, duration: audio.duration, readyState: audio.readyState, error: audio.error?.code, source: audio.currentSrc.split('?')[0] }))
+    const upstream = diagnostics.get(page) || []
+    error.message += '\nPlayback diagnostics: ' + JSON.stringify({ media, upstream: upstream.slice(-12) })
+    error.category = !FIXTURE && upstream.length ? 'UPSTREAM_OBSERVED_PLAYBACK_UNVERIFIED' : 'APPLICATION'
+    throw error
+  }
 }
 
 async function newPage(browser, viewport, options = {}) {
   const context = await browser.newContext({
     viewport,
-    storageState: STATE_PATH,
+    storageState: FIXTURE ? fixtureState() : STATE_PATH,
   })
+  if (FIXTURE) await installFixtures(context)
   const page = await context.newPage()
+  const upstream = []
+  diagnostics.set(page, upstream)
+  const provider = url => /\/api\/|saavn|googlevideo|piped|invidious/.test(url)
+  page.on('response', response => {
+    if (provider(response.url()) && response.status() >= 400) upstream.push({ url: response.url().split('?')[0], status: response.status() })
+  })
+  page.on('requestfailed', request => {
+    if (provider(request.url()) && request.failure()?.errorText !== 'net::ERR_ABORTED') upstream.push({ url: request.url().split('?')[0], error: request.failure()?.errorText })
+  })
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
   if (options.initScript) await page.addInitScript(options.initScript)
@@ -35,34 +63,42 @@ async function newPage(browser, viewport, options = {}) {
 }
 
 async function runCase(name, fn) {
+  if (process.env.ECHOSYNC_CASE && !name.includes(process.env.ECHOSYNC_CASE)) return
   const startedAt = Date.now()
   try {
     const detail = await fn()
     results.push({ name, ok: true, ms: Date.now() - startedAt, detail })
     console.log(`PASS ${name} (${Date.now() - startedAt}ms)`, detail || '')
   } catch (error) {
-    results.push({ name, ok: false, ms: Date.now() - startedAt, detail: error.message })
-    console.error(`FAIL ${name} (${Date.now() - startedAt}ms): ${error.message}`)
+    results.push({ name, ok: false, category: error.category || 'APPLICATION', ms: Date.now() - startedAt, detail: error.message })
+    console.error(`FAIL [${error.category || 'APPLICATION'}] ${name} (${Date.now() - startedAt}ms): ${error.message}`)
   }
 }
 
 async function recovery410(browser) {
   const { context, page, pageErrors } = await newPage(browser, { width: 1280, height: 820 })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.getByRole('button', { name: 'Play Chaleya' }).first().click()
     await waitForPlayback(page)
     await page.locator('[data-testid=player-dock] .dock-play').click()
     await page.waitForTimeout(200)
+    const expiringSource = await page.locator('audio').first().evaluate(audio => audio.currentSrc.split('#')[0])
     let served410 = false
     await page.route('**/aac.saavncdn.com/**', async (route) => {
-      if (!served410) {
+      if (!served410 && route.request().url() === expiringSource) {
         served410 = true
         return route.fulfill({ status: 410, contentType: 'text/plain', body: 'expired' })
       }
-      return route.continue()
+      return route.fallback()
     })
-    await page.evaluate(() => { document.querySelector('audio').currentTime = 150 })
+    await page.evaluate(() => {
+      const audio = document.querySelector('audio')
+      audio.currentTime = 150
+      const now = Date.now.bind(Date)
+      // Simulate idle time without waiting 46 seconds or altering media APIs.
+      Date.now = () => now() + 46000
+    })
     await page.waitForTimeout(250)
     const startedAt = Date.now()
     await page.locator('[data-testid=player-dock] .dock-play').click()
@@ -75,7 +111,11 @@ async function recovery410(browser) {
       const audio = document.querySelector('audio')
       return { paused: audio.paused, currentTime: audio.currentTime, error: audio.error?.code || null }
     })
-    assert.equal(served410, true, 'the simulated 410 response was not consumed')
+    if (!served410) {
+      const error = new Error('Live playback resumed, but no request consumed the injected 410; expired-stream recovery is unverified in this run.')
+      error.category = 'TEST_SETUP_FAULT_NOT_EXERCISED'
+      throw error
+    }
     assert.equal(audioState.paused, false, 'audio did not resume after the 410')
     assert.equal(audioState.error, null, `audio retained media error ${audioState.error}`)
     assert.ok(resumeMs < 3500, `resume took ${resumeMs}ms (limit 3500ms)`)
@@ -102,7 +142,7 @@ async function abortReconciliation(browser) {
     },
   })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.getByRole('button', { name: 'Play Chaleya' }).first().click()
     await waitForPlayback(page)
     await page.locator('[data-testid=player-dock] .dock-play').click()
@@ -133,9 +173,9 @@ async function abortReconciliation(browser) {
 async function controlsAndQueue(browser) {
   const { context, page, pageErrors } = await newPage(browser, { width: 1440, height: 900 })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.evaluate(() => localStorage.removeItem('echosync_settings_v1'))
-    await page.reload({ waitUntil: 'networkidle' })
+    await openApp(page, true)
     await page.getByRole('button', { name: 'Play Chaleya' }).first().click()
     await waitForPlayback(page)
     const repeat = page.locator('[data-testid=repeat-btn]')
@@ -157,7 +197,7 @@ async function controlsAndQueue(browser) {
     assert.equal(await page.locator('[data-testid=solo-queue-drawer]').isVisible(), true, 'queue drawer did not open')
     assert.ok(await page.locator('[data-testid=queue-drawer-row]').count() > 0, 'queue drawer has no upcoming tracks')
     assert.ok((await page.locator('[data-testid=queue-now-playing]').innerText()).includes(currentTitle), 'queue drawer now-playing track is wrong')
-    await page.reload({ waitUntil: 'networkidle' })
+    await openApp(page, true)
     await page.waitForTimeout(500)
     assert.equal(await page.locator('[data-testid=repeat-btn]').getAttribute('aria-label'), 'Repeat: Queue')
     assert.equal(await page.locator('[data-testid=shuffle-btn]').getAttribute('aria-label'), 'Shuffle: On')
@@ -171,10 +211,11 @@ async function controlsAndQueue(browser) {
 async function mobileLayout(browser) {
   const { context, page, pageErrors } = await newPage(browser, { width: 390, height: 844 })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.getByRole('button', { name: 'Play Excuses' }).first().click()
     await waitForPlayback(page)
-    await page.locator('[data-testid=queue-btn]').click()
+    await page.getByRole('button', { name: 'Open full player', exact: true }).click()
+    await page.locator('.fp-queue-btn').click()
     await page.waitForTimeout(350)
     const queueMetrics = await page.evaluate(() => {
       const drawer = document.querySelector('[data-testid=solo-queue-drawer]')
@@ -190,7 +231,7 @@ async function mobileLayout(browser) {
     assert.ok(queueMetrics.box.x >= -1 && queueMetrics.box.right <= 391, 'queue drawer escaped the viewport')
     assert.ok(queueMetrics.rows > 0, 'queue drawer has no rows')
     await page.getByRole('button', { name: 'Close queue' }).click()
-    await page.locator('.queue-heart:visible').first().click()
+    await page.locator('.mini-like:visible').click()
     await page.getByRole('button', { name: /^Library/ }).click()
     await page.waitForTimeout(250)
     await page.getByRole('button', { name: /Liked songs/i }).click()
@@ -233,7 +274,7 @@ async function mobileLayout(browser) {
 async function tabletLayout(browser) {
   const { context, page, pageErrors } = await newPage(browser, { width: 1024, height: 768 })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.getByRole('button', { name: 'Play Chaleya' }).first().click()
     await waitForPlayback(page)
     await page.locator('[data-testid=queue-btn]').click()
@@ -257,7 +298,7 @@ async function performance4x(browser) {
   try {
     const cdp = await context.newCDPSession(page)
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.getByRole('button', { name: 'Play Chaleya' }).first().click()
     await waitForPlayback(page, 45000)
     await page.waitForTimeout(1200)
@@ -296,7 +337,7 @@ async function performance4x(browser) {
 async function modalAccessibility(browser) {
   const { context, page, pageErrors } = await newPage(browser, { width: 1280, height: 820 })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle' })
+    await openApp(page)
     await page.getByRole('button', { name: /^Your library/ }).click()
     await page.waitForTimeout(250)
     const trigger = page.getByRole('button', { name: /New playlist/i }).first()
@@ -327,7 +368,8 @@ async function modalAccessibility(browser) {
 
 ;(async () => {
   if (!fs.existsSync(CHROME_PATH)) throw new Error(`Chromium not found at ${CHROME_PATH}`)
-  if (!fs.existsSync(STATE_PATH)) throw new Error(`Storage state not found at ${STATE_PATH}`)
+  if (!FIXTURE && !fs.existsSync(STATE_PATH)) throw new Error(`Storage state not found at ${STATE_PATH}`)
+  console.log(FIXTURE ? 'APPLICATION VERIFICATION: controlled provider fixtures' : 'LIVE PROVIDER VERIFICATION: network-dependent')
   const response = await fetch(APP_URL)
   assert.equal(response.ok, true, `app returned HTTP ${response.status}`)
   const browser = await chromium.launch({ headless: true, executablePath: CHROME_PATH })

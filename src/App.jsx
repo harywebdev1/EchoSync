@@ -87,7 +87,7 @@ import { VoiceNoteBubble } from './components/VoiceNoteBubble'
 import { LOUNGE_REACTIONS, LYRIC_EMOJIS, REACTION_EMOJIS } from './lib/chat'
 import { formatTime } from './lib/time'
 import { initials, normalizeArtworkUrl } from './lib/media'
-import { blobToDataUrl, makeVoiceWaveform, synthVoiceWav } from './lib/voice'
+import { blobToDataUrl, makeVoiceWaveform, isUsableVoiceBlob } from './lib/voice'
 import { getActiveStreamQuality, recordRoomDrift, setPreferredStreamQuality, startNetworkMonitor } from './services/networkMonitor'
 import { clearPreloadSession, preloadCandidateAt, preloadQueueWindow } from './services/preloadManager'
 import { playbackProgressStore, resetRoomTelemetry, setLiveTelemetry, usePlaybackProgress } from './state/playbackStore'
@@ -122,6 +122,8 @@ const LOUNGE_MESSAGE_LIMIT = 120
 const LOUNGE_TYPING_MS = 2400
 const DAILY_FEED_PREFIX = 'echosync_daily_feed_v3_'
 const DAILY_FEED_LEGACY_PREFIX = 'echosync_daily_feed_'
+let pendingStorageFailure = false
+let storageFailureQueued = false
 const LOCK_MESSAGE = 'Listener Mode: Only Room Admin or DJ can control playback'
 const SOLO_ROOM_ID = 'solo'
 const DAILY_QUERIES = [
@@ -352,7 +354,7 @@ function writeUserValue(key, userId, value) {
   const stored = readStorage(key, null)
   const map = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
   map[userId] = value
-  writeStorage(key, map)
+  return writeStorage(key, map)
 }
 
 function loadInvites() {
@@ -1082,11 +1084,36 @@ function readStorage(key, fallback) {
 }
 
 function writeStorage(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* storage can be unavailable */
+  const attempt = () => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value))
+      return true
+    } catch {
+      return false
+    }
   }
+  if (attempt()) return true
+  // Only rebuildable caches are eligible. Never prune accounts or user content.
+  const disposableKeys = new Set([STREAM_CACHE_KEY, LYRIC_CACHE_KEY, TRANSLATE_KEY, TRANSLATION_CACHE_KEY])
+  try {
+    Object.keys(localStorage).forEach((cacheKey) => {
+      if (disposableKeys.has(cacheKey) || cacheKey.startsWith(DAILY_FEED_PREFIX) || cacheKey.startsWith(DAILY_FEED_LEGACY_PREFIX)) {
+        localStorage.removeItem(cacheKey)
+      }
+    })
+  } catch {
+    // Storage may be disabled entirely; the single retry below reports failure.
+  }
+  if (attempt()) return true
+  pendingStorageFailure = true
+  if (!storageFailureQueued && typeof window !== 'undefined') {
+    storageFailureQueued = true
+    queueMicrotask(() => {
+      storageFailureQueued = false
+      window.dispatchEvent(new Event('echosync-storage-failure'))
+    })
+  }
+  return false
 }
 
 function loadLibraryCache() {
@@ -2241,7 +2268,8 @@ function isFullLengthTrack(track) {
   if (!track) return false
   if (isPreviewTrack(track)) return false
   const seconds = Number(track.duration) || 0
-  return !seconds || seconds >= 45
+  // Unknown duration stays in the catalog; playback must verify media metadata.
+  return !seconds || (Number.isFinite(seconds) && seconds >= 60)
 }
 
 async function resolveFullTrack(candidate) {
@@ -4996,10 +5024,11 @@ function ChatPanel({
   const recordStreamRef = useRef(null)
   const recordChunksRef = useRef([])
   const recordTimerRef = useRef(null)
+  const recordAttemptRef = useRef(0)
   const recordStartedAtRef = useRef(0)
   const recordCancelledRef = useRef(false)
   const finishingRef = useRef(false)
-  const voiceFallbackRef = useRef(false)
+  const recordFailedRef = useRef(false)
   const typingMember = typingMemberId ? members[typingMemberId] : null
   const mentionMatches = mention
     ? room.members
@@ -5081,11 +5110,12 @@ function ChatPanel({
   }
 
   const resetRecording = () => {
+    recordAttemptRef.current += 1
     stopRecordingHardware()
     recordStartedAtRef.current = 0
     recordCancelledRef.current = false
     finishingRef.current = false
-    voiceFallbackRef.current = false
+    recordFailedRef.current = false
     setRecording(false)
     setRecordSeconds(0)
     setRecordHint('')
@@ -5097,12 +5127,20 @@ function ChatPanel({
     resetRecording()
   }
 
+  const failRecording = () => {
+    resetRecording()
+    recordCancelledRef.current = true
+    recordFailedRef.current = true
+    setRecordHint('Microphone access blocked or no audio captured — voice note was not sent.')
+  }
+
   const startRecording = async () => {
     if (recording || finishingRef.current || recordStartedAtRef.current) return
     finishingRef.current = false
     recordCancelledRef.current = false
-    voiceFallbackRef.current = false
+    recordFailedRef.current = false
     recordChunksRef.current = []
+    const recordingId = ++recordAttemptRef.current
     recordStartedAtRef.current = Date.now()
     setRecording(true)
     setRecordSeconds(0)
@@ -5117,7 +5155,7 @@ function ChatPanel({
         throw new Error('MediaRecorder unavailable')
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (recordCancelledRef.current || finishingRef.current || !recordStartedAtRef.current) {
+      if (recordCancelledRef.current || finishingRef.current || recordAttemptRef.current !== recordingId) {
         stream.getTracks().forEach((track) => track.stop())
         return
       }
@@ -5129,21 +5167,20 @@ function ChatPanel({
         if (event.data?.size) recordChunksRef.current.push(event.data)
       }
       recorder.onerror = () => {
-        voiceFallbackRef.current = true
-        setRecordHint('Microphone unavailable. Check your browser permissions.')
+        if (recordAttemptRef.current === recordingId) failRecording()
       }
-      recorder.start(250)
       recorderRef.current = recorder
+      recorder.start(250)
     } catch {
-      if (!recordStartedAtRef.current || finishingRef.current) return
-      voiceFallbackRef.current = true
-      setRecordHint('Microphone unavailable. Check your browser permissions.')
+      if (recordAttemptRef.current !== recordingId || finishingRef.current) return
+      failRecording()
     }
   }
 
   const finishRecording = async (discard = false) => {
     if (!recordStartedAtRef.current || finishingRef.current) return
     finishingRef.current = true
+    const recordingId = recordAttemptRef.current
     clearInterval(recordTimerRef.current)
     recordTimerRef.current = null
     const duration = Math.max(1, Math.min(45, (Date.now() - recordStartedAtRef.current) / 1000))
@@ -5156,7 +5193,7 @@ function ChatPanel({
     setRecordHint('Sending voice note…')
     let dataUrl = ''
     try {
-      if (recorder && recorder.state !== 'inactive' && !voiceFallbackRef.current) {
+      if (recorder && recorder.state !== 'inactive' && !recordFailedRef.current) {
         dataUrl = await new Promise((resolve) => {
           let settled = false
           const complete = async () => {
@@ -5164,7 +5201,7 @@ function ChatPanel({
             settled = true
             try {
               const blob = new Blob(recordChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-              resolve(blob.size > 120 ? await blobToDataUrl(blob) : '')
+              resolve(await isUsableVoiceBlob(blob) ? await blobToDataUrl(blob) : '')
             } catch {
               resolve('')
             }
@@ -5177,12 +5214,13 @@ function ChatPanel({
     } catch {
       dataUrl = ''
     }
-    stopRecordingHardware()
-    let sentDuration = duration
-    if (!dataUrl) {
-      sentDuration = Math.max(1.4, Math.min(8, duration))
-      dataUrl = synthVoiceWav(sentDuration)
+    if (recordAttemptRef.current !== recordingId || recordCancelledRef.current) return
+    if (!dataUrl || recordFailedRef.current) {
+      failRecording()
+      return
     }
+    stopRecordingHardware()
+    const sentDuration = duration
     const seed = `${room.id}-${Date.now()}-${dataUrl.length}`
     onSendVoice?.({
       dataUrl,
@@ -5192,7 +5230,7 @@ function ChatPanel({
     recordStartedAtRef.current = 0
     recordCancelledRef.current = false
     finishingRef.current = false
-    voiceFallbackRef.current = false
+    recordFailedRef.current = false
     setRecording(false)
     setRecordSeconds(0)
     setRecordHint('')
@@ -5408,6 +5446,12 @@ function ChatPanel({
           </div>
 
           <div className="chat-composer">
+            {!recording && recordHint && (
+              <div className="recording-error" role="alert">
+                <span>{recordHint}</span>
+                <button type="button" onClick={startRecording}>Retry</button>
+              </div>
+            )}
             {replyTo && (
               <div className="reply-bar">
                 <span className="reply-bar-accent" />
@@ -6273,6 +6317,16 @@ function loadYouTubeApi() {
 }
 
 export default function App() {
+  useEffect(() => {
+    const notify = () => {
+      if (!pendingStorageFailure) return
+      pendingStorageFailure = false
+      showToast("Changes weren't saved (storage full)", 'lock')
+    }
+    window.addEventListener('echosync-storage-failure', notify)
+    notify()
+    return () => window.removeEventListener('echosync-storage-failure', notify)
+  }, [])
   const [theme, setTheme] = useState(() => (readStorage(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark'))
   const [accounts, setAccounts] = useState(loadUsers)
   const [currentUserId, setCurrentUserId] = useState(() => {
@@ -8374,8 +8428,62 @@ export default function App() {
     setTimeout(() => requestRoomSync(roomId), 120)
   }
 
+  function blockShortPlayback(audio) {
+    audio?.pause()
+    audio?.removeAttribute('src')
+    if (audio) audio.load()
+    loadedUrlRef.current = ''
+    setIsPlaying(false)
+    setBuffering(false)
+    clearAdvanceCheck()
+    if (track?.id) {
+      clearResolvedStream(track.id)
+      evictLibraryEntry(track.id)
+      setLibrary((previous) => ({ ...previous, [track.id]: { ...previous[track.id], streamUrl: null, youtubeVideoId: null, status: 'error' } }))
+    }
+    showToast('Track blocked: full-length playback requires at least 60 seconds.', 'lock')
+  }
+
+  function safeYouTubePlay(player) {
+    const total = Number(player?.getDuration?.())
+    if (!Number.isFinite(total) || total < 60) {
+      player?.pauseVideo?.()
+      setIsPlaying(false)
+      showToast(total > 0 ? 'Track blocked: full-length playback requires at least 60 seconds.' : 'Track duration is unverified. Please retry when metadata is available.', 'lock')
+      return
+    }
+    player.playVideo()
+  }
+
   async function safeAudioPlay(audio, attemptId) {
     if (!audio?.play) return false
+    const source = audio.getAttribute('src')
+    if (audio.readyState < 1) {
+      await new Promise((resolve) => {
+        const done = () => {
+          clearTimeout(timer)
+          audio.removeEventListener('loadedmetadata', done)
+          audio.removeEventListener('error', done)
+          audio.removeEventListener('emptied', onEmptied)
+          resolve()
+        }
+        const onEmptied = () => { if (source !== audio.getAttribute('src')) done() }
+        const timer = setTimeout(done, 15000)
+        audio.addEventListener('loadedmetadata', done)
+        audio.addEventListener('error', done)
+        audio.addEventListener('emptied', onEmptied)
+      })
+    }
+    if (attemptId !== playAttemptIdRef.current || source !== audio.getAttribute('src')) return false
+    const total = Number(audio.duration)
+    if (!Number.isFinite(total) || total < 60) {
+      if (total > 0 && Number.isFinite(total)) blockShortPlayback(audio)
+      else {
+        setIsPlaying(false)
+        showToast('Track duration could not be verified. Please retry.', 'lock')
+      }
+      return false
+    }
     try {
       await audio.play()
       return true
@@ -8860,6 +8968,10 @@ export default function App() {
     const fast = Boolean(options.fast)
     let candidate = sanitizeTrack(rawCandidate)
     if (!candidate.id) return null
+    if (!isFullLengthTrack(candidate)) {
+      showToast('Track blocked: full-length playback requires at least 60 seconds.', 'lock')
+      return null
+    }
     if (forceRefresh) {
       evictLibraryEntry(candidate.id)
       clearResolvedStream(candidate.id)
@@ -8925,6 +9037,11 @@ export default function App() {
       }
       if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
         throw new Error('No playable full-length source')
+      }
+      if (!isFullLengthTrack(resolved)) {
+        clearResolvedStream(candidate.id)
+        showToast('Track blocked: resolved audio is shorter than 60 seconds.', 'lock')
+        return null
       }
       const ready = sanitizeTrack({
         ...candidate,
@@ -9123,7 +9240,7 @@ export default function App() {
         safeAudioPlay(audio, ++playAttemptIdRef.current)
       } else if (player?.seekTo) {
         player.seekTo(0, true)
-        if (player.playVideo) player.playVideo()
+        if (player.playVideo) safeYouTubePlay(player)
         updatePlaybackProgress(0)
       }
       setIsPlaying(true)
@@ -9838,7 +9955,7 @@ export default function App() {
               if (pendingSeekRef.current != null) instance.seekTo(pendingSeekRef.current, true)
               const total = instance.getDuration?.() || 0
               if (total > 0) setDuration(total)
-              if (isPlayingRef.current) instance.playVideo()
+              if (isPlayingRef.current) safeYouTubePlay(instance)
             },
             onStateChange: (event) => {
               if (cancelled) return
@@ -9885,7 +10002,7 @@ export default function App() {
       audio?.pause()
       const player = ytPlayerRef.current
       if (player?.playVideo) {
-        if (isPlaying) player.playVideo()
+        if (isPlaying) safeYouTubePlay(player)
         else player.pauseVideo()
       }
       return
@@ -10866,6 +10983,10 @@ export default function App() {
           }}
           onLoadedMetadata={(event) => {
             const audio = event.currentTarget
+            if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.duration < 60) {
+              blockShortPlayback(audio)
+              return
+            }
             if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration)
             if (pendingSeekRef.current != null) {
               try {

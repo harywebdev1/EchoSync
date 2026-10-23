@@ -5,7 +5,7 @@ import { MessageText } from './MessageText'
 import { VoiceNoteBubble } from './VoiceNoteBubble'
 import { LOUNGE_REACTIONS, LYRIC_EMOJIS } from '../lib/chat'
 import { formatTime } from '../lib/time'
-import { blobToDataUrl, makeVoiceWaveform, synthVoiceWav } from '../lib/voice'
+import { blobToDataUrl, makeVoiceWaveform, isUsableVoiceBlob } from '../lib/voice'
 
 export function PublicLoungeDrawer({
   open,
@@ -48,10 +48,11 @@ export function PublicLoungeDrawer({
   const recordStreamRef = useRef(null)
   const recordChunksRef = useRef([])
   const recordTimerRef = useRef(null)
+  const recordAttemptRef = useRef(0)
   const recordStartedAtRef = useRef(0)
   const recordCancelledRef = useRef(false)
   const finishingRef = useRef(false)
-  const voiceFallbackRef = useRef(false)
+  const recordFailedRef = useRef(false)
   const memberList = useMemo(() => Object.values(members || {}).filter(Boolean), [members])
   const mentionMatches = mention
     ? memberList
@@ -107,11 +108,12 @@ export function PublicLoungeDrawer({
   }
 
   const resetRecording = () => {
+    recordAttemptRef.current += 1
     stopRecordingHardware()
     recordStartedAtRef.current = 0
     recordCancelledRef.current = false
     finishingRef.current = false
-    voiceFallbackRef.current = false
+    recordFailedRef.current = false
     setRecording(false)
     setRecordSeconds(0)
     setRecordHint('')
@@ -123,6 +125,13 @@ export function PublicLoungeDrawer({
     resetRecording()
   }
 
+  const failRecording = () => {
+    resetRecording()
+    recordCancelledRef.current = true
+    recordFailedRef.current = true
+    setRecordHint('Microphone access blocked or no audio captured — voice note was not sent.')
+  }
+
   const startRecording = async () => {
     if (!currentUser) {
       onLogin?.()
@@ -131,8 +140,9 @@ export function PublicLoungeDrawer({
     if (recording || finishingRef.current || recordStartedAtRef.current) return
     finishingRef.current = false
     recordCancelledRef.current = false
-    voiceFallbackRef.current = false
+    recordFailedRef.current = false
     recordChunksRef.current = []
+    const recordingId = ++recordAttemptRef.current
     recordStartedAtRef.current = Date.now()
     setRecording(true)
     setRecordSeconds(0)
@@ -147,7 +157,7 @@ export function PublicLoungeDrawer({
         throw new Error('MediaRecorder unavailable')
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (recordCancelledRef.current || finishingRef.current || !recordStartedAtRef.current) {
+      if (recordCancelledRef.current || finishingRef.current || recordAttemptRef.current !== recordingId) {
         stream.getTracks().forEach((track) => track.stop())
         return
       }
@@ -159,21 +169,20 @@ export function PublicLoungeDrawer({
         if (event.data?.size) recordChunksRef.current.push(event.data)
       }
       recorder.onerror = () => {
-        voiceFallbackRef.current = true
-        setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+        if (recordAttemptRef.current === recordingId) failRecording()
       }
-      recorder.start(250)
       recorderRef.current = recorder
+      recorder.start(250)
     } catch {
-      if (!recordStartedAtRef.current || finishingRef.current) return
-      voiceFallbackRef.current = true
-      setRecordHint('Mic unavailable — a demo voice clip will be sent.')
+      if (recordAttemptRef.current !== recordingId || finishingRef.current) return
+      failRecording()
     }
   }
 
   const finishRecording = async (discard = false) => {
     if (!recordStartedAtRef.current || finishingRef.current) return
     finishingRef.current = true
+    const recordingId = recordAttemptRef.current
     clearInterval(recordTimerRef.current)
     recordTimerRef.current = null
     const duration = Math.max(1, Math.min(45, (Date.now() - recordStartedAtRef.current) / 1000))
@@ -186,7 +195,7 @@ export function PublicLoungeDrawer({
     setRecordHint('Sending voice note…')
     let dataUrl = ''
     try {
-      if (recorder && recorder.state !== 'inactive' && !voiceFallbackRef.current) {
+      if (recorder && recorder.state !== 'inactive' && !recordFailedRef.current) {
         dataUrl = await new Promise((resolve) => {
           let settled = false
           const complete = async () => {
@@ -194,7 +203,7 @@ export function PublicLoungeDrawer({
             settled = true
             try {
               const blob = new Blob(recordChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-              resolve(blob.size > 120 ? await blobToDataUrl(blob) : '')
+              resolve(await isUsableVoiceBlob(blob) ? await blobToDataUrl(blob) : '')
             } catch {
               resolve('')
             }
@@ -207,12 +216,13 @@ export function PublicLoungeDrawer({
     } catch {
       dataUrl = ''
     }
-    stopRecordingHardware()
-    let sentDuration = duration
-    if (!dataUrl) {
-      sentDuration = Math.max(1.4, Math.min(8, duration))
-      dataUrl = synthVoiceWav(sentDuration)
+    if (recordAttemptRef.current !== recordingId || recordCancelledRef.current) return
+    if (!dataUrl || recordFailedRef.current) {
+      failRecording()
+      return
     }
+    stopRecordingHardware()
+    const sentDuration = duration
     const seed = `lounge-${Date.now()}-${dataUrl.length}`
     onSendVoice?.({
       dataUrl,
@@ -222,7 +232,7 @@ export function PublicLoungeDrawer({
     recordStartedAtRef.current = 0
     recordCancelledRef.current = false
     finishingRef.current = false
-    voiceFallbackRef.current = false
+    recordFailedRef.current = false
     setRecording(false)
     setRecordSeconds(0)
     setRecordHint('')
@@ -420,6 +430,12 @@ export function PublicLoungeDrawer({
 
       {currentUser ? (
         <div className="chat-composer lounge-composer">
+          {!recording && recordHint && (
+            <div className="recording-error" role="alert">
+              <span>{recordHint}</span>
+              <button type="button" onClick={startRecording}>Retry</button>
+            </div>
+          )}
           {replyTo && (
             <div className="reply-bar">
               <span className="reply-bar-accent" />

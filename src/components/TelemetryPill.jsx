@@ -2,14 +2,14 @@ import { Wifi } from 'lucide-react'
 import { useLiveTelemetry } from '../state/playbackStore'
 
 export function telemetryTone(ms) {
-  if (ms <= 80) return 'good'
-  if (ms <= 250) return 'fair'
+  if (ms < 300) return 'good'
+  if (ms <= 1000) return 'fair'
   return 'poor'
 }
 
 export function telemetryLabel(ms) {
-  if (ms <= 80) return 'In sync'
-  if (ms <= 250) return 'Slight drift'
+  if (ms < 300) return 'Synced'
+  if (ms <= 1000) return 'Drifting'
   return 'Lagging'
 }
 
@@ -19,7 +19,8 @@ export function SyncDot({ ms = 0 }) {
 
 export function TelemetryPill({ compact = false, detail = false, className = '' }) {
   const telemetry = useLiveTelemetry()
-  const ms = Math.max(2, Math.round(telemetry.roomDriftMs || 2))
+  const ms = Math.max(0, Math.round(telemetry.roomDriftMs || 0))
+  const display = ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`
   const tone = telemetryTone(ms)
   return (
     <span
@@ -31,12 +32,12 @@ export function TelemetryPill({ compact = false, detail = false, className = '' 
     >
       <SyncDot ms={ms} />
       {compact ? (
-        <b>{ms} ms</b>
+        <b>{display}</b>
       ) : (
         <>
           <Wifi aria-hidden="true" />
           <span>{telemetryLabel(ms)}</span>
-          <b>{ms} ms</b>
+          <b>{display}</b>
           {detail && <em>drift</em>}
         </>
       )}
