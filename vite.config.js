@@ -14,6 +14,7 @@ const ARTWORK_HOSTS = [
 ]
 const MEDIA_HOSTS = ['googlevideo.com', 'odycdn.com', 'youtube.com', 'ytimg.com', ...ARTWORK_HOSTS]
 const MEDIA_CHUNK_SIZE = 1024 * 1024
+const MEDIA_UPSTREAM_TIMEOUT = 15_000
 
 function mediaRange(value) {
   const match = /^bytes=(\d+)-(\d*)$/i.exec(String(value || '').trim())
@@ -81,143 +82,164 @@ async function extractYouTubeAudio(videoId) {
   return task
 }
 
-function youtubeAudioResolver() {
-  return {
-    name: 'echosync-youtube-audio',
-    configureServer(server) {
-      youtubeClient().catch(() => {})
-      server.middlewares.use('/api/youtube/audio', async (req, res) => {
-        res.setHeader('Content-Type', 'application/json; charset=utf-8')
-        res.setHeader('Cache-Control', 'no-store')
-        if (req.method !== 'GET') {
-          res.statusCode = 405
-          res.end(JSON.stringify({ error: 'Method not allowed' }))
-          return
-        }
-        const requestUrl = new URL(req.originalUrl || req.url, 'http://localhost')
-        const match = requestUrl.pathname.match(/\/api\/youtube\/audio\/([A-Za-z0-9_-]{6,20})\/?$/)
-        if (!match) {
-          res.statusCode = 400
-          res.end(JSON.stringify({ error: 'Invalid video id' }))
-          return
-        }
-        try {
-          const data = await extractYouTubeAudio(match[1])
-          res.end(JSON.stringify(data))
-        } catch {
-          res.statusCode = 502
-          res.end(JSON.stringify({ error: 'Unable to resolve audio' }))
-        }
-      })
-    },
+async function youtubeAudioHandler(req, res) {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-store')
+  if (req.method !== 'GET') {
+    res.statusCode = 405
+    res.end(JSON.stringify({ error: 'Method not allowed' }))
+    return
+  }
+  const requestUrl = new URL(req.originalUrl || req.url, 'http://localhost')
+  const match = requestUrl.pathname.match(/\/api\/youtube\/audio\/([A-Za-z0-9_-]{6,20})\/?$/)
+  if (!match) {
+    res.statusCode = 400
+    res.end(JSON.stringify({ error: 'Invalid video id' }))
+    return
+  }
+  try {
+    const data = await extractYouTubeAudio(match[1])
+    res.end(JSON.stringify(data))
+  } catch {
+    res.statusCode = 502
+    res.end(JSON.stringify({ error: 'Unable to resolve audio' }))
   }
 }
 
+function youtubeAudioResolver() {
+  const register = (server) => {
+    youtubeClient().catch(() => {})
+    server.middlewares.use('/api/youtube/audio', youtubeAudioHandler)
+  }
+  return {
+    name: 'echosync-youtube-audio',
+    configureServer: register,
+    configurePreviewServer: register,
+  }
+}
+
+async function mediaProxyHandler(req, res) {
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type')
+    res.end()
+    return
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.statusCode = 405
+    res.end('Method not allowed')
+    return
+  }
+  let target
+  try {
+    const requestUrl = new URL(req.originalUrl || req.url, 'http://localhost')
+    target = requestUrl.searchParams.get('url')
+  } catch {
+    res.statusCode = 400
+    res.end('Invalid media URL')
+    return
+  }
+  let parsed
+  try {
+    parsed = new URL(target)
+  } catch {
+    res.statusCode = 400
+    res.end('Invalid media URL')
+    return
+  }
+  if (!/^https?:$/.test(parsed.protocol) || !isAllowedMediaHost(parsed.hostname)) {
+    res.statusCode = 403
+    res.end('Media host is not allowed')
+    return
+  }
+  const artwork = isArtworkHost(parsed.hostname) || String(req.headers.accept || '').startsWith('image/')
+  const headers = {
+    accept: artwork
+      ? 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      : '*/*',
+    'user-agent': req.headers['user-agent'] || 'Mozilla/5.0',
+  }
+  if (artwork) {
+    headers.referer = `${parsed.protocol}//${parsed.hostname}/`
+  } else {
+    headers.origin = 'https://www.youtube.com'
+    headers.referer = 'https://www.youtube.com/'
+    headers.range = mediaRange(req.headers.range)
+  }
+  let upstream
+  let current = parsed
+  const controller = new AbortController()
+  const abortUpstream = () => controller.abort()
+  res.on('close', abortUpstream)
+  try {
+    for (let hop = 0; hop < 6; hop += 1) {
+      if (!isAllowedMediaHost(current.hostname)) {
+        throw new Error('Redirected to a disallowed media host')
+      }
+      const timeout = setTimeout(() => controller.abort(), MEDIA_UPSTREAM_TIMEOUT)
+      try {
+        upstream = await fetch(current, { headers, redirect: 'manual', signal: controller.signal })
+      } finally {
+        clearTimeout(timeout)
+      }
+      const location = upstream.headers.get('location')
+      if (upstream.status >= 300 && upstream.status < 400 && location) {
+        current = new URL(location, current)
+        continue
+      }
+      break
+    }
+    if (!upstream) throw new Error('Media request failed')
+  } catch {
+    res.off('close', abortUpstream)
+    if (!res.destroyed) {
+      res.statusCode = 502
+      res.end('Unable to reach the media stream')
+    }
+    return
+  }
+  res.statusCode = upstream.status
+  const passthrough = [
+    'content-type',
+    'content-length',
+    'content-range',
+    'accept-ranges',
+    'cache-control',
+    'last-modified',
+    'etag',
+  ]
+  passthrough.forEach((name) => {
+    const value = upstream.headers.get(name)
+    if (value) res.setHeader(name, value)
+  })
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  if (req.method === 'HEAD' || !upstream.body || upstream.status === 204 || upstream.status === 304) {
+    res.off('close', abortUpstream)
+    res.end()
+    return
+  }
+  res.off('close', abortUpstream)
+  const body = Readable.fromWeb(upstream.body)
+  res.on('close', () => body.destroy())
+  body.on('error', () => {
+    if (!res.headersSent) res.statusCode = 502
+    res.destroy()
+  })
+  body.pipe(res)
+}
+
 function mediaProxy() {
+  const register = (server) => {
+    server.middlewares.use('/api/media', mediaProxyHandler)
+  }
   return {
     name: 'echosync-media-proxy',
-    configureServer(server) {
-      server.middlewares.use('/api/media', async (req, res) => {
-        if (req.method === 'OPTIONS') {
-          res.statusCode = 204
-          res.setHeader('Access-Control-Allow-Origin', '*')
-          res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
-          res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Content-Type')
-          res.end()
-          return
-        }
-        if (req.method !== 'GET' && req.method !== 'HEAD') {
-          res.statusCode = 405
-          res.end('Method not allowed')
-          return
-        }
-        let target
-        try {
-          const requestUrl = new URL(req.originalUrl || req.url, 'http://localhost')
-          target = requestUrl.searchParams.get('url')
-        } catch {
-          res.statusCode = 400
-          res.end('Invalid media URL')
-          return
-        }
-        let parsed
-        try {
-          parsed = new URL(target)
-        } catch {
-          res.statusCode = 400
-          res.end('Invalid media URL')
-          return
-        }
-        if (!/^https?:$/.test(parsed.protocol) || !isAllowedMediaHost(parsed.hostname)) {
-          res.statusCode = 403
-          res.end('Media host is not allowed')
-          return
-        }
-        const artwork = isArtworkHost(parsed.hostname) || String(req.headers.accept || '').startsWith('image/')
-        const headers = {
-          accept: artwork
-            ? 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-            : '*/*',
-          'user-agent': req.headers['user-agent'] || 'Mozilla/5.0',
-        }
-        if (artwork) {
-          headers.referer = `${parsed.protocol}//${parsed.hostname}/`
-        } else {
-          headers.origin = 'https://www.youtube.com'
-          headers.referer = 'https://www.youtube.com/'
-          headers.range = mediaRange(req.headers.range)
-        }
-        let upstream
-        let current = parsed
-        try {
-          for (let hop = 0; hop < 6; hop += 1) {
-            if (!isAllowedMediaHost(current.hostname)) {
-              throw new Error('Redirected to a disallowed media host')
-            }
-            upstream = await fetch(current, { headers, redirect: 'manual' })
-            const location = upstream.headers.get('location')
-            if (upstream.status >= 300 && upstream.status < 400 && location) {
-              current = new URL(location, current)
-              continue
-            }
-            break
-          }
-          if (!upstream) throw new Error('Media request failed')
-        } catch {
-          res.statusCode = 502
-          res.end('Unable to reach the media stream')
-          return
-        }
-        res.statusCode = upstream.status
-        const passthrough = [
-          'content-type',
-          'content-length',
-          'content-range',
-          'accept-ranges',
-          'cache-control',
-          'last-modified',
-          'etag',
-        ]
-        passthrough.forEach((name) => {
-          const value = upstream.headers.get(name)
-          if (value) res.setHeader(name, value)
-        })
-        res.setHeader('Access-Control-Allow-Origin', '*')
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges')
-        res.setHeader('X-Content-Type-Options', 'nosniff')
-        if (req.method === 'HEAD' || !upstream.body || upstream.status === 204 || upstream.status === 304) {
-          res.end()
-          return
-        }
-        const body = Readable.fromWeb(upstream.body)
-        res.on('close', () => body.destroy())
-        body.on('error', () => {
-          if (!res.headersSent) res.statusCode = 502
-          res.destroy()
-        })
-        body.pipe(res)
-      })
-    },
+    configureServer: register,
+    configurePreviewServer: register,
   }
 }
 
@@ -240,6 +262,20 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    strictPort: true,
+    proxy: {
+      '/api/saavn': proxy('https://saavn.sumit.co', (path) => path.replace(/^\/api\/saavn/, '')),
+      '/api/piped/kavin': proxy('https://pipedapi.kavin.rocks', (path) => path.replace(/^\/api\/piped\/kavin/, '')),
+      '/api/piped/coffee': proxy('https://api.piped.private.coffee', (path) => path.replace(/^\/api\/piped\/coffee/, '')),
+      '/api/piped/adminforge': proxy('https://pipedapi.adminforge.de', (path) => path.replace(/^\/api\/piped\/adminforge/, '')),
+      '/api/piped/ducks': proxy('https://pipedapi.ducks.party', (path) => path.replace(/^\/api\/piped\/ducks/, '')),
+      '/api/invidious/tux': proxy('https://inv.tux.pizza', (path) => path.replace(/^\/api\/invidious\/tux/, '')),
+      '/api/invidious/nerd': proxy('https://invidious.nerdvpn.de', (path) => path.replace(/^\/api\/invidious\/nerd/, '')),
+      '/api/invidious/f5': proxy('https://invidious.f5.si', (path) => path.replace(/^\/api\/invidious\/f5/, '')),
+    },
+  },
+  preview: {
+    port: 4173,
     strictPort: true,
     proxy: {
       '/api/saavn': proxy('https://saavn.sumit.co', (path) => path.replace(/^\/api\/saavn/, '')),
