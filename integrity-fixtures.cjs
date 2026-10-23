@@ -1,7 +1,7 @@
 // Test-only audio and catalog. Never imported by application code.
 const fs = require('node:fs')
 const vm = require('node:vm')
-const app = fs.readFileSync(`${__dirname}/src/App.jsx`, 'utf8')
+const app = fs.readFileSync(`${__dirname}/src/lib/appServices.js`, 'utf8')
 const seeds = vm.runInNewContext(app.slice(app.indexOf('const SEED_TRACKS = '), app.indexOf('const SEED_BY_ID')) + '\nSEED_TRACKS')
 const APP_URL = process.env.ECHOSYNC_URL || 'http://127.0.0.1:5173'
 

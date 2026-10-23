@@ -170,6 +170,76 @@ let passed = 0
         }), { sameNode: true, connected: true, sameSource: true, paused: false, removals: 0, interruptions: [] })
       })
     }
+    await check('Media Session actions use current playback commands and retain the root audio node', {}, async page => {
+      await page.addInitScript(() => {
+        window.__mediaActions = {}
+        window.__mediaSession = { metadata: null, playbackState: 'none',
+          setActionHandler(action, handler) { window.__mediaActions[action] = handler },
+          setPositionState(value) { this.positionState = value } }
+        Object.defineProperty(navigator, 'mediaSession', { configurable: true, value: window.__mediaSession })
+      })
+      await open(page)
+      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+      await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused && window.__mediaSession.metadata?.title === 'Chaleya')
+      const original = await page.locator('[data-testid=root-audio]').elementHandle()
+      await page.evaluate(() => window.__mediaActions.pause())
+      await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]').paused && window.__mediaSession.playbackState === 'paused')
+      await page.evaluate(() => window.__mediaActions.play())
+      await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
+      await page.evaluate(() => window.__mediaActions.seekto({ seekTime: 12 }))
+      await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]').currentTime >= 12)
+      await page.waitForFunction(() => window.__mediaSession.positionState?.position >= 12)
+      await page.evaluate(() => window.__mediaActions.nexttrack())
+      await page.waitForFunction(() => window.__mediaSession.metadata?.title && window.__mediaSession.metadata.title !== 'Chaleya' && !document.querySelector('[data-testid=root-audio]').paused)
+      await page.evaluate(() => window.__mediaActions.pause())
+      await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]').paused)
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node, previous) => node === previous, original), true)
+      await page.getByRole('button', { name: /Integrity Room/ }).first().click()
+      await page.locator('.room-head').waitFor()
+      await page.evaluate(() => {
+        window.__rolePeer = new BroadcastChannel('echosync-room-sync')
+        window.__rolePeer.postMessage({ type: 'role-resolved', sender: 'peer', roomId: 'integrity-room', roles: { integrity: 'listener' } })
+      })
+      await page.locator('.role-chip.static').filter({ hasText: 'Listener' }).waitFor()
+      await page.evaluate(async () => {
+        await new Promise(requestAnimationFrame)
+        window.__mediaActions.play()
+        await new Promise(requestAnimationFrame)
+      })
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate(node => node.paused), true, 'OS controls bypassed the listener role')
+      await page.evaluate(() => window.__rolePeer.close())
+    })
+    await check('room sync keeps one channel owner and processes peer chat and playback state after navigation', {}, async page => {
+      await page.addInitScript(() => {
+        const NativeChannel = BroadcastChannel
+        window.__channelRecords = []
+        window.__makePeer = () => new NativeChannel('echosync-room-sync')
+        window.BroadcastChannel = class extends NativeChannel {
+          constructor(name) { super(name); this.record = { name, closed: false }; window.__channelRecords.push(this.record) }
+          close() { this.record.closed = true; super.close() }
+        }
+      })
+      await open(page)
+      const audio = await page.locator('[data-testid=root-audio]').elementHandle()
+      await page.getByRole('button', { name: /Integrity Room/ }).first().click()
+      if (!await page.getByRole('button', { name: 'Record voice note', exact: true }).isVisible()) await page.getByRole('button', { name: /Toggle room chat/ }).click()
+      await page.evaluate(() => {
+        window.__peer = window.__makePeer()
+        const message = { id: 'hook-peer-chat', author: 'peer', userName: 'Peer', type: 'text', text: 'Sync hook peer message', time: '12:00', reactions: [] }
+        window.__peer.postMessage({ type: 'chat', sender: 'peer', roomId: 'integrity-room', message })
+      })
+      await page.getByText('Sync hook peer message', { exact: true }).waitFor()
+      assert.equal(await page.getByText('Sync hook peer message', { exact: true }).count(), 1)
+      // A real interaction has occurred, so remote clock updates should seek rather than request autoplay approval.
+      await page.evaluate(() => window.__peer.postMessage({ type: 'state', sender: 'peer', roomId: 'integrity-room', index: 0, time: 15, isPlaying: true, ts: Date.now() }))
+      await page.waitForFunction(() => { const audio = document.querySelector('[data-testid=root-audio]'); return !audio.paused && audio.currentTime >= 14 })
+      await page.locator('.sidebar').getByRole('button', { name: 'Home', exact: true }).click()
+      await page.getByRole('button', { name: /Integrity Room/ }).first().click()
+      await page.locator('.room-head').waitFor()
+      assert.equal(await page.evaluate(() => window.__channelRecords.filter(record => !record.closed && record.name === 'echosync-room-sync').length), 1)
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node, previous) => node === previous, audio), true)
+      await page.evaluate(() => window.__peer.close())
+    })
     console.log(`Application browser integrity: ${passed} checks passed`)
   } finally { await browser.close() }
 })().catch(error => { console.error(error); process.exitCode = 1 })

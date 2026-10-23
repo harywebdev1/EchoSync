@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
 const read = path => fs.readFileSync(`${__dirname}/${path}`, 'utf8').replaceAll('\r\n', '\n')
-const app = read('src/App.jsx')
+const app = read('src/lib/appServices.js') + '\n' + read('src/hooks/usePlaybackEngine.js')
 function section(source, start, end) {
   const from = source.indexOf(start)
   const to = source.indexOf(end, from + start.length)
@@ -17,6 +17,17 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     import('./src/core/lrcParser.js'), import('./src/core/roomSyncMath.js'),
     import('./src/core/tasteEngine.js'), import('./src/core/storageAdapter.js'),
   ])
+  await check('production resolver client uses same-origin routes and keeps verified duration metadata', async () => {
+    const requests = []
+    const scope = vm.createContext({ DEV_API: false, encodeURIComponent, safeMediaUrl: value => value,
+      fetchJson: async url => { requests.push(url); return { url: 'https://r1.googlevideo.com/stream', duration: 180, bitrate: 128000 } } })
+    vm.runInContext(section(app, 'function mediaProxyUrl(', 'const AVATAR_PRESETS') + section(app, 'async function getLocalYouTubeAudio(', 'async function getPipedAudio('), scope)
+    const track = await scope.getLocalYouTubeAudio('dQw4w9WgXcQ')
+    assert.equal(requests[0], '/api/youtube/audio/dQw4w9WgXcQ')
+    assert.equal(track.streamUrl, '/api/media?url=https%3A%2F%2Fr1.googlevideo.com%2Fstream')
+    assert.equal(track.duration, 180)
+    assert.equal(scope.mediaProxyUrl('/api/media?url=existing'), '/api/media?url=existing')
+  })
   await check('catalog retains unknown durations, rejects known short tracks and previews', () => {
     const scope = vm.createContext({})
     vm.runInContext(section(app, 'function isPreviewTrack(', 'function notifyStorageFailure(') + section(app, 'function isFullLengthTrack(', 'async function resolveFullTrack('), scope)
@@ -46,10 +57,13 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
   })
   await check('RTT 100→160→120 gives jitter 0→60→40; drift remains 0/140/1800/4200', async () => {
     let now = 0, latency = 100, snapshot = {}
+    const probes = []
     const scope = vm.createContext({ window: {}, document: { visibilityState: 'visible' }, navigator: {}, performance: { now: () => now }, AbortController, setTimeout, clearTimeout,
-      fetch: async () => { now += latency; return { ok: true } }, setLiveTelemetry: patch => { snapshot = { ...snapshot, ...patch } }, liveTelemetryStore: { get: () => snapshot } })
+      fetch: async (url, options) => { probes.push({ url, method: options.method }); now += latency; return { ok: true } }, setLiveTelemetry: patch => { snapshot = { ...snapshot, ...patch } }, liveTelemetryStore: { get: () => snapshot } })
     vm.runInContext(read('src/services/networkMonitor.js').replace(/^import .*\n/gm, '').replaceAll('export ', ''), scope)
     for (const [rtt, jitter] of [[100, 0], [160, 60], [120, 40]]) { latency = rtt; await scope.pingProxy(); assert.equal(snapshot.jitterMs, jitter) }
+    assert.equal(probes.length, 3)
+    for (const probe of probes) { assert.match(probe.url, /^\/api\/media\?_ping=/); assert.equal(probe.method, 'OPTIONS') }
     for (const drift of [0, 140, 1800, 4200]) { scope.recordRoomDrift(drift / 1000); assert.equal(snapshot.roomDriftMs, drift) }
     for (const [ms, tone] of [[0, 'good'], [299, 'good'], [300, 'fair'], [1000, 'fair'], [1001, 'poor'], [4200, 'poor']]) assert.equal(room.getDriftTone(ms), tone)
   })

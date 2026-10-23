@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/media.js": { "maxDuration": 30 },
+    "api/youtube-audio.js": { "maxDuration": 30 }
+  },
+  "rewrites": [
+    { "source": "/api/youtube/audio/:videoId", "destination": "/api/youtube-audio?videoId=:videoId" },
+    { "source": "/((?!api(?:/|$)|assets(?:/|$)).*)", "destination": "/index.html" }
+  ]
+}

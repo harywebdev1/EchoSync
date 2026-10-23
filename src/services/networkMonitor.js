@@ -62,8 +62,8 @@ async function pingProxy() {
   const timeout = setTimeout(() => controller.abort(), 4000)
   const startedAt = performance.now()
   try {
-    const response = await fetch(`/api/saavn/?_ping=${Date.now()}`, {
-      method: 'GET',
+    const response = await fetch(`/api/media?_ping=${Date.now()}`, {
+      method: 'OPTIONS',
       cache: 'no-store',
       signal: controller.signal,
     })
