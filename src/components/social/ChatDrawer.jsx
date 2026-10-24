@@ -115,6 +115,14 @@ export function ChatDrawer({
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [menuFor, setMenuFor] = useState(null)
+  useEffect(() => {
+    if (!menuFor) return
+    const frame = requestAnimationFrame(() => document.querySelector('.msg-actions.menu-open')?.scrollIntoView({ block: 'nearest' }))
+    const dismiss = event => { if (!event.target.closest('.msg-actions')) setMenuFor(null) }
+    const escape = event => { if (event.key === 'Escape') setMenuFor(null) }
+    document.addEventListener('pointerdown', dismiss); document.addEventListener('keydown', escape)
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape) }
+  }, [menuFor])
   const [mention, setMention] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [recording, setRecording] = useState(false)
@@ -408,11 +416,11 @@ export function ChatDrawer({
           <h3>{activeTab === 'chat' ? 'Room chat' : 'Live lyrics'}</h3>
           <p>
             {activeTab === 'chat' ? (
-              <><Wifi /> {room.members.length} listener{room.members.length === 1 ? '' : 's'} · live</>
+              <><Wifi /> Connected to the room</>
             ) : lyrics?.status === 'ready' && lyrics.type === 'plain' ? (
-              <>Plain lyrics · LRCLIB</>
+              <>Read along</>
             ) : (
-              <>Synced with playback · LRCLIB</>
+              <>Synced with playback</>
             )}
           </p>
         </div>
@@ -490,7 +498,7 @@ export function ChatDrawer({
                         {message.time}
                         {mine && (message.read ? <CheckCheck /> : <Check />)}
                       </span>
-                      <div className="msg-actions">
+                      <div className={`msg-actions ${menuFor === message.id ? 'menu-open' : ''}`}>
                         <button className="msg-action" onClick={() => onReply(message)} aria-label="Reply to message">
                           <CornerUpLeft />
                         </button>

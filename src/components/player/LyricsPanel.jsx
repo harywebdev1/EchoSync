@@ -82,7 +82,6 @@ export function LyricsPanel({
             <strong>{track?.title || 'Nothing playing'}</strong>
             <span>{track?.artist || 'EchoSync'}</span>
           </div>
-          <span className="source-badge">LRCLIB</span>
         </div>
       )}
 
@@ -101,8 +100,8 @@ export function LyricsPanel({
         {lyrics?.status === 'error' && (
           <div className="lyrics-placeholder">
             <AlertCircle />
-            <h4>No lyrics on this frequency</h4>
-            <p>LRCLIB is taking a breath. The room keeps playing — try the lyrics again in a moment.</p>
+            <h4>Lyrics aren't available for this track yet</h4>
+            <p>You can keep listening and try again later.</p>
             <button className="retry-btn" onClick={onRetry}><RefreshCw /> Try again</button>
           </div>
         )}
@@ -149,7 +148,6 @@ export function LyricsPanel({
                   onClick={() => seekLine(line)}
                   title={translated ? (line.sourceText || line.text) : undefined}
                 >
-                  <span className="lyric-time">{formatTime(line.time)}</span>
                   {translated ? (
                     <span className="lyric-dual">
                       <span className="lyric-en">{translated}</span>
@@ -170,26 +168,13 @@ export function LyricsPanel({
         {lyrics?.status === 'none' && (
           <div className="lyrics-placeholder">
             <Sparkles />
-            <h4>No lyrics for this one</h4>
-            <p>The room keeps moving. Some songs are better without words.</p>
+            <h4>Lyrics aren't available for this track yet</h4>
+
           </div>
         )}
       </div>
 
       <div className="lyrics-foot">
-        <span className="source-badge">LRCLIB</span>
-        {languageLabel && <span className="source-badge lyric-language">{languageLabel}</span>}
-        <span className="mono">
-          {lyrics?.status === 'ready' && lyrics.type === 'synced'
-            ? `${lyrics.lines.length} lines · synced`
-            : lyrics?.status === 'ready' && lyrics.type === 'plain'
-              ? `${lyrics.lines?.length || 0} lines · plain`
-              : lyrics?.status === 'loading'
-                ? 'finding words…'
-                : lyrics?.status === 'error'
-                  ? 'unavailable'
-                  : 'time-synced lyrics'}
-        </span>
         {translateAvailable && onToggleTranslate && (
           <button
             className={`translate-btn ${translateOn ? 'on' : ''}`}
@@ -200,10 +185,10 @@ export function LyricsPanel({
             {translating ? 'Translating lyrics to English…' : translateOn ? 'Showing English' : 'Translate to English'}
           </button>
         )}
-        <button className={`auto-toggle ${autoScroll ? 'on' : ''}`} onClick={() => setAutoScroll((value) => !value)}>
+        {lyrics?.status === 'ready' && lyrics.type === 'synced' && <button className={`auto-toggle ${autoScroll ? 'on' : ''}`} onClick={() => setAutoScroll((value) => !value)}>
           <Sparkles />
-          {pausedHint && autoScroll ? 'Paused' : autoScroll ? 'Auto' : 'Manual'}
-        </button>
+          {pausedHint && autoScroll ? 'Auto-scroll paused' : autoScroll ? 'Auto-scroll' : 'Synced'}
+        </button>}
       </div>
     </div>
   )

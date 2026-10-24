@@ -3,7 +3,7 @@ import { ROOM_GRADIENTS, roomCode } from '../../lib/appServices.js'
 import { ModalShell } from './ModalShell.jsx'
 import { X, Lock, Globe2, Check, Copy, RefreshCw, Trash2, Plus } from 'lucide-react'
 
-export function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete }) {
+export function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete, starterTracks = [] }) {
   const [form, setForm] = useState(() => ({
     name: room?.name || '',
     tagline: room?.tagline || '',
@@ -26,6 +26,7 @@ export function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete })
       private: form.private,
       code: mode === 'edit' ? form.code : undefined,
       trackIds: form.trackIds,
+      starterTrack: starterTracks.find(track => track.id === form.trackIds[0]) || null,
     }
     if (mode === 'create') onCreate({ ...payload, gradient: form.gradient })
     else onUpdate(payload)
@@ -114,9 +115,10 @@ export function RoomModal({ mode, room, onClose, onCreate, onUpdate, onDelete })
           </div>
         )}
 
+        {mode === 'create' && <label className="field"><span>Starter song (optional)</span><select aria-label="Starter song" value={form.trackIds[0] || ''} onChange={event => setForm(value => ({ ...value, trackIds: event.target.value ? [event.target.value] : [] }))}><option value="">Start with an empty stage</option>{starterTracks.slice(0,12).map(track => <option key={track.id} value={track.id}>{track.title} · {track.artist}</option>)}</select></label>}
         <div className="settings-note room-queue-note">
           {mode === 'create'
-            ? 'The room starts empty. Add songs together once everyone arrives.'
+            ? 'Choose a starter, or invite friends to build the queue together.'
             : form.trackIds.length
               ? 'This room already has a shared queue.'
               : 'The room queue is empty. Add songs together once everyone arrives.'}

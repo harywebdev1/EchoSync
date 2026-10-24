@@ -1224,7 +1224,9 @@ export function useEchoSyncController() {
     const gradient = ROOM_GRADIENTS.find((option) => option.id === input.gradient) || ROOM_GRADIENTS[0]
     let code = roomCode()
     while (rooms.some((room) => room.code === code)) code = roomCode()
-    const trackIds = []
+    const starter = input.starterTrack && !input.starterTrack.preview && Number(input.starterTrack.duration) >= 60 ? sanitizeTrack(input.starterTrack) : null
+    if (starter) rememberTrack(starter)
+    const trackIds = starter ? [starter.id] : (input.trackIds || []).filter(id => library[id] && Number(library[id].duration) >= 60).slice(0,1)
     const room = {
       id: uid('room'),
       name: String(input.name || '').trim(),
@@ -1261,6 +1263,7 @@ export function useEchoSyncController() {
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     channelRef.current?.postMessage({ type: 'room-added', sender: tabIdRef.current, room })
     pushSystemMessage(room.id, `${currentUser?.name || 'You'} created this room · invite code ${room.code}`)
+    if (starter) ensurePlayable(starter).then(ready => { if (ready && activeRoomRef.current === room.id) beginPlayback(room.id, [ready.id], 0, ready) })
     if (!options.silent) showToast(`Room created — invite code ${room.code}`)
     return room
   }
@@ -2134,6 +2137,17 @@ export function useEchoSyncController() {
         : [trackId, ...previous]
     ))
     showToast(removing ? 'Removed from your library' : 'Saved to your library')
+  }
+
+  async function startRoomTrack(candidate) {
+    const roomId = activeRoomRef.current
+    if (!roomId || !canControlRoom) { lockToast(); return }
+    const playable = await ensurePlayable(candidate)
+    if (!playable || activeRoomRef.current !== roomId) return
+    const room = roomsRef.current.find(item => item.id === roomId)
+    if (!room) return
+    const { ids, index } = addTrackToRoomQueue(room, playable.id)
+    beginPlayback(roomId, ids, index, playable)
   }
 
   function openSearchExperience() {
@@ -3012,6 +3026,7 @@ export function useEchoSyncController() {
   return useStableActions({
     queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     queueSoloTrack, startTasteRadio,
+    startRoomTrack,
     artworkContextValue,
     memberIndex,
     theme,

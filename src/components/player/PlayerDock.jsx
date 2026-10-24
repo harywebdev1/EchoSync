@@ -147,7 +147,7 @@ export const PlayerDock = memo(function PlayerDock({
         </div>
       </div>
       <div className="dock-actions">
-        {inRoom && <TelemetryPill compact className="dock-sync-pill" />}
+        {inRoom && track?.id !== 'empty' && <TelemetryPill compact className="dock-sync-pill" />}
         <div className="dock-volume">
           <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
             {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}

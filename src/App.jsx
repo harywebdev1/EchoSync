@@ -39,7 +39,7 @@ const AddToPlaylistModal = lazy(() => import('./components/modals/AddToPlaylistM
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -410,7 +410,7 @@ export default function App() {
               )}
 
               {view === 'room' && activeRoom && (
-                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomView
+                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomView starterTracks={searchTasteTracks} onStartTrack={startRoomTrack} onResync={acceptJoin}
                   room={activeRoom}
                   track={track}
                   queue={queue}
@@ -753,7 +753,7 @@ export default function App() {
         )}
 
         {roomEditor === 'edit' && activeRoom && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal starterTracks={searchTasteTracks}
             mode="edit"
             room={activeRoom}
             onClose={() => setRoomEditor(null)}
@@ -763,7 +763,7 @@ export default function App() {
         )}
 
         {roomEditor === 'create' && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal starterTracks={searchTasteTracks}
             mode="create"
             onClose={() => setRoomEditor(null)}
             onCreate={createRoom}

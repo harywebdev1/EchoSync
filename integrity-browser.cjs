@@ -203,7 +203,7 @@ let passed = 0
         window.__rolePeer = new BroadcastChannel('echosync-room-sync')
         window.__rolePeer.postMessage({ type: 'role-resolved', sender: 'peer', roomId: 'integrity-room', roles: { integrity: 'listener' } })
       })
-      await page.locator('.role-chip.static').filter({ hasText: 'Listener' }).waitFor()
+      await page.locator('.room-stage-attribution').filter({ hasText: 'Listener' }).waitFor()
       await page.evaluate(async () => {
         await new Promise(requestAnimationFrame)
         window.__mediaActions.play()

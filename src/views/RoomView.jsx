@@ -34,66 +34,9 @@ import { Cover } from '../components/Cover'
 import { Avatar } from '../components/Avatar'
 import { TelemetryPill } from '../components/TelemetryPill'
 
-function RoomTimeline({ total, canControl, onSeek, onLock, ready, linePeople, members }) {
-  const progress = usePlaybackProgress()
-  const pct = total ? Math.min(100, Math.max(0, (progress / total) * 100)) : 0
-  const linePositions = [15, 33, 54, 74]
-  const seekFromEvent = (event) => {
-    if (!canControl) {
-      onLock()
-      return
-    }
-    if (!ready) return
-    const rect = event.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-    onSeek(ratio * (total || 0))
-  }
-  return (
-    <div className="timeline">
-      <div
-        className={`timeline-track ${canControl ? '' : 'disabled'}`}
-        onClick={seekFromEvent}
-        role="slider"
-        aria-label="Playback position"
-        aria-valuemin={0}
-        aria-valuemax={Math.round(total)}
-        aria-valuenow={Math.round(progress)}
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (!canControl) return
-          if (event.key === 'ArrowRight') onSeek(Math.min(total, progress + 5))
-          if (event.key === 'ArrowLeft') onSeek(Math.max(0, progress - 5))
-        }}
-      >
-        <div className="timeline-fill" style={{ width: `${pct}%` }} />
-        {linePeople.map((id, index) => {
-          const member = members[id]
-          if (!member) return null
-          return (
-            <span
-              key={id}
-              className={`line-avatar ${index === 3 ? 'ghost' : ''}`}
-              style={{
-                left: `${linePositions[index]}%`,
-                '--av1': member.av1,
-                '--av2': member.av2,
-              }}
-              title={`${member.name} is listening`}
-            />
-          )
-        })}
-      </div>
-      <div className="time-row">
-        <b>{formatTime(progress)}</b>
-        <span>{canControl ? 'CLICK TO SEEK' : 'SYNCED TO ROOM'}</span>
-        <span>{formatTime(total)}</span>
-      </div>
-    </div>
-  )
-}
-
 export function RoomView({
   room,
+  starterTracks = [], onStartTrack,
   track,
   queue,
   currentIndex,
@@ -132,7 +75,7 @@ export function RoomView({
   canControlRoom = false,
   onRemoveQueueTrack,
   onClearQueue,
-  onImportPlaylist,
+  onImportPlaylist, onResync,
 }) {
   const [importOpen, setImportOpen] = useState(false)
   const members = useMembers()
@@ -142,6 +85,7 @@ export function RoomView({
     .filter((id) => id !== currentUser?.id && members[id]?.showActivity !== false)
     .slice(0, 4)
   const total = duration || track?.duration || 0
+  const hasTrack = Boolean(queue.length && track?.id && !['empty', 'room-empty'].includes(track.id))
   const ready = track?.status === 'ready' && Boolean(track?.streamUrl || track?.youtubeVideoId)
   const failed = track?.status === 'error'
   const pending = track?.status === 'pending' || track?.status === 'resolving'
@@ -163,14 +107,6 @@ export function RoomView({
         </h1>
         <p className="room-sub">{room.description}</p>
         <div className="room-meta">
-          <AvatarStack ids={room.members} size="sm" max={4} />
-          <span className="meta-listeners"><b>{room.members.length}</b> in the room</span>
-          <TelemetryPill className="room-head-sync" />
-          <div className="meta-divider" />
-          <span className="role-chip static">
-            <RoleIcon />
-            <span>Viewing as <b>{ROLE_COPY[role]?.label}</b></span>
-          </span>
           {requestable && (
             <button
               className={`text-btn ${pendingRequest ? 'ghosted' : ''}`}
@@ -183,7 +119,7 @@ export function RoomView({
             </button>
           )}
           <button className="text-btn" onClick={onOpenMembers}>
-            <UsersRound size={12} /> Members · {room.members.length}
+            <UsersRound size={12} /> {room.members.length} {room.members.length === 1 ? 'member' : 'members'} · Manage roles
           </button>
           {role === 'admin' && (
             <button className="text-btn" onClick={onOpenSettings}>
@@ -231,13 +167,8 @@ export function RoomView({
         </section>
       )}
 
-      {role === 'admin' && roleRequests?.length === 0 && (
-        <button className="chip-btn" onClick={onOpenMembers}>
-          <ShieldCheck size={12} /> {room.members.length} {room.members.length === 1 ? 'member' : 'members'} · manage roles
-        </button>
-      )}
 
-      <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
+      {!hasTrack ? <section className="room-stage-empty"><h2>Room stage is ready</h2><p>Pick a starter song below or search above to kick off the session</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span>{item.artist}</span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
         <Cover track={track} size="cover-size-hero" showQuality playing={isPlaying} />
         <div className="now-main">
           <div className="now-kicker">
@@ -252,56 +183,11 @@ export function RoomView({
             {track?.album && <><span> · </span><span className="album">{track.album}</span></>}
           </p>
 
-          <div className="listening-block">
-            <RoomTimeline
-              total={total}
-              canControl={canControl}
-              onSeek={onSeek}
-              onLock={onLock}
-              ready={ready}
-              linePeople={linePeople}
-              members={members}
-            />
-          </div>
-
-          <div className="now-controls">
-            <div className="transport">
-              <button className="icon-btn" onClick={onPrev} aria-label="Previous track">
-                <SkipBack />
-              </button>
-              <button className="play-main" onClick={onTogglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
-                {isPlaying ? <Pause /> : <Play />}
-              </button>
-              <button className="icon-btn" onClick={onNext} aria-label="Next track">
-                <SkipForward />
-              </button>
-            </div>
-            <TelemetryPill className="room-transport-sync" />
-            <div className="volume-box">
-              <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
-                {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
-              </button>
-              <input
-                className="volume-slider"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={muted ? 0 : volume}
-                onChange={(event) => onVolume(Number(event.target.value))}
-                aria-label="Volume"
-              />
-            </div>
-            <button className="icon-btn" onClick={onOpenFull} aria-label="Open full player">
-              <Maximize2 />
-            </button>
-          </div>
-
+          <div className="room-stage-attribution">Hosted by {members[room.dj || room.createdBy]?.name || 'the room admin'} · {ROLE_COPY[role]?.label}</div>
+          <div className="room-sync-actions"><TelemetryPill className="room-transport-sync" /><button className="text-btn" onClick={onResync}><RefreshCw size={14} /> Resync</button><button className="text-btn" onClick={onOpenFull}><Maximize2 size={14} /> Open full player</button></div>
           <div className="now-foot">
             <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full-length stream' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
             <span className="dot" />
-            <span>{room.members.length} in the room</span>
-            <span className={`dot`} />
             <span>{canControl ? 'You have control' : 'Listen-only mode'}</span>
             <span className="grow" />
             {(failed || track?.needsHydration) && (
@@ -314,7 +200,7 @@ export function RoomView({
             </button>
           </div>
         </div>
-      </section>
+      </section>}
 
       <div className="section-head">
         <div>

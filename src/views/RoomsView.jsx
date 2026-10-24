@@ -8,7 +8,7 @@ export function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoi
       <div className="eyebrow">
         <span className="live-pill"><Radio size={9} /> DISCOVER</span>
         <span className="seg" />
-        <span>{String(rooms.length).padStart(2, '0')} ROOMS LIVE</span>
+        <span>{rooms.length} {rooms.length === 1 ? 'ROOM' : 'ROOMS'} LIVE</span>
         <span className="grow" />
         <button className="text-btn" onClick={onJoinCode}><KeyRound size={11} /> Join with code</button>
       </div>

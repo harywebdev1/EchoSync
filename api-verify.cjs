@@ -23,9 +23,10 @@ let passed = 0
       const route = await import('./api/saavn.js')
       assert.equal(typeof route.default, 'function')
       const requests = []
+      const song = { id: 'song', title: 'Fixture Song', image: 'https://c.saavncdn.com/953/poster-150x150.jpg', more_info: { duration: '180', '320kbps': 'true', encrypted_media_url: 'ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzuqGTOuWwLCDJLDzxR2mfeGuSltMxpC8EVSLt0T06A18y5d+wSWdIRw7tS9a8Gtq', artistMap: { primary_artists: [{ name: 'Artist' }] } } }
       const base = await endpoint(createSaavnHandler({ fetchImpl: async (url, options) => {
         requests.push({ url: String(url), options })
-        return Response.json({ data: { results: [{ id: 'song', duration: 180 }] } })
+        return Response.json(new URL(url).searchParams.get('__call') === 'search.getResults' ? { results: [song] } : { song })
       } }))
       for (const path of ['/api/saavn/api/search/songs?query=Atif%20Aslam&limit=30', '/api/saavn?route=api%2Fsearch%2Fsongs&query=Atif%20Aslam&limit=30']) {
         const response = await fetch(base + path)
@@ -35,15 +36,36 @@ let passed = 0
         assert.equal((await response.json()).data.results[0].duration, 180)
       }
       assert.equal(requests[0].url, requests[1].url)
-      assert.equal(requests[0].url, 'https://saavn.sumit.co/api/search/songs?query=Atif+Aslam&limit=30')
+      assert.equal(new URL(requests[0].url).origin, 'https://www.jiosaavn.com')
+      assert.equal(new URL(requests[0].url).searchParams.get('__call'), 'search.getResults')
+      assert.equal(new URL(requests[0].url).searchParams.get('q'), 'Atif Aslam')
+      assert.equal(new URL(requests[0].url).searchParams.get('n'), '30')
       await (await fetch(base + '/api/saavn/api/songs/abc_123')).json()
-      assert.equal(requests[2].url, 'https://saavn.sumit.co/api/songs/abc_123')
+      assert.equal(new URL(requests[2].url).searchParams.get('__call'), 'song.getDetails')
+      assert.equal(new URL(requests[2].url).searchParams.get('pids'), 'abc_123')
       for (const path of ['/api/saavn?route=https://evil.test', '/api/saavn/api/admin', '/api/saavn?route=../private']) assert.equal((await fetch(base + path)).status, 400)
       assert.equal((await fetch(base + '/api/saavn', { method: 'POST' })).status, 405)
       assert.equal((await fetch(base + '/api/saavn', { method: 'OPTIONS' })).status, 204)
       assert.equal(requests.length, 3)
       const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'))
       assert.equal(config.rewrites.find(item => item.source === '/api/saavn/:route*').destination, '/api/saavn?route=:route*')
+    })
+    await check('official DES known vector, 320/160 URLs, artwork and fixed-origin mirror fallback', async () => {
+      const { decryptMediaUrl, normalizeOfficialSong } = await import('./server/jiosaavn.js')
+      const encrypted = 'ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzuqGTOuWwLCDJLDzxR2mfeGuSltMxpC8EVSLt0T06A18y5d+wSWdIRw7tS9a8Gtq'
+      assert.equal(decryptMediaUrl(encrypted), 'https://aac.saavncdn.com/953/9b1581a4c5948df2b42e16132e02ed51_96.mp4')
+      assert.throws(() => decryptMediaUrl('not valid'))
+      const song = normalizeOfficialSong({ id: 'id', title: 'Song &amp; Soul', image: 'https://c.saavncdn.com/a-150x150.jpg', more_info: { encrypted_media_url: encrypted, '320kbps': 'true', duration: '200' } })
+      assert.equal(song.name, 'Song & Soul'); assert.equal(song.duration, 200)
+      assert.match(song.downloadUrl[0].url, /_320.mp4$/); assert.match(song.downloadUrl[1].url, /_160.mp4$/)
+      assert.equal(song.image[0].url, 'https://c.saavncdn.com/a-500x500.jpg')
+      const { createSaavnHandler } = await import('./server/saavn.js')
+      const seen = []
+      const base = await endpoint(createSaavnHandler({ fetchImpl: async url => { seen.push(new URL(url).hostname); return seen.length === 1 ? new Response('', { status: 503 }) : Response.json({ data: { results: [song] } }) } }))
+      const response = await fetch(base + '/api/saavn/api/search/songs?query=test&limit=5')
+      assert.equal(response.status, 200); assert.equal(response.headers.get('x-echosync-catalog'), 'mirror-fallback')
+      assert.deepEqual(seen, ['www.jiosaavn.com', 'saavn.dev'])
+      assert.equal((await response.json()).data.results[0].id, 'id')
     })
     await check('Saavn timeout, non-JSON failure and upstream JSON status are reported honestly', async () => {
       const { createSaavnHandler } = await import('./server/saavn.js')

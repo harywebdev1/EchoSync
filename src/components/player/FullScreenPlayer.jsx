@@ -128,17 +128,16 @@ export function FullScreenPlayer({
         <div className="fp-body">
           <div className="fp-left">
             <div className="fp-art-wrap">
-              <Cover track={track} size="" showQuality playing={isPlaying} />
+              <Cover track={track} size="" playing={isPlaying} />
             </div>
             <div className="fp-info">
               <div className="fp-kicker">
                 <span className="live-dot" style={{ color: room.accent }} />
-                <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}</span>
+                <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}{track?.quality ? ' · ' + track.quality : ''}</span>
               </div>
               <h2 className="fp-title">{track?.title}</h2>
               <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
 
-              <SleepTimerControl timer={sleepTimer} onChange={onSleepTimer} />
 
               <div className="fp-timeline">
                 <FullPlayerTimeline
@@ -172,6 +171,10 @@ export function FullScreenPlayer({
                 >
                   {repeatMode === 'one' ? <Repeat1 /> : <Repeat />}
                 </button>
+
+              </div>
+
+              <div className="fp-bottom-row">
                 <button
                   className="icon-btn fp-queue-btn"
                   onClick={onToggleQueue}
@@ -182,9 +185,7 @@ export function FullScreenPlayer({
                   <ListMusic />
                   {queueCount > 0 && <SoloQueueBadge count={queueCount} />}
                 </button>
-              </div>
-
-              <div className="fp-bottom-row">
+                <SleepTimerControl compact timer={sleepTimer} onChange={onSleepTimer} />
                 <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track"><Heart /></button>
                 <button className="icon-btn" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
                 <div className="volume-box">
@@ -202,7 +203,7 @@ export function FullScreenPlayer({
                     aria-label="Volume"
                   />
                 </div>
-                {inRoom ? <TelemetryPill detail className="fp-sync-pill" /> : null}
+                {inRoom && track?.id !== 'empty' ? <TelemetryPill detail className="fp-sync-pill" /> : null}
               </div>
             </div>
           </div>
@@ -221,7 +222,6 @@ export function FullScreenPlayer({
                       : 'Time-synced with playback'}
                 </p>
               </div>
-              <span className="source-badge">LRCLIB</span>
             </div>
             <LyricsPanel
               track={track}

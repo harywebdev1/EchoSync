@@ -50,6 +50,14 @@ export function PublicLoungeDrawer({
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [menuFor, setMenuFor] = useState(null)
+  useEffect(() => {
+    if (!menuFor) return
+    const frame = requestAnimationFrame(() => document.querySelector('.msg-actions.menu-open')?.scrollIntoView({ block: 'nearest' }))
+    const dismiss = event => { if (!event.target.closest('.msg-actions')) setMenuFor(null) }
+    const escape = event => { if (event.key === 'Escape') setMenuFor(null) }
+    document.addEventListener('pointerdown', dismiss); document.addEventListener('keydown', escape)
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape) }
+  }, [menuFor])
   const [cardFor, setCardFor] = useState(null)
   const [mention, setMention] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
@@ -309,24 +317,17 @@ export function PublicLoungeDrawer({
         ) : (
           <div className="lounge-drawer-title">
             <Globe2 />
-            <span>EchoSync</span>
+            <span>Public Lounge</span>
           </div>
         )}
+        <span className="lounge-online-count"><i className="lounge-online-dot" /> {Object.values(members).filter(member => member.online).length} online</span>
         <button className="icon-btn social-close" onClick={onClose} aria-label="Close lounge" data-testid="lounge-close-btn">
           <X />
         </button>
       </div>
 
-      <div className="social-head lounge-head">
-        <div className="social-head-copy">
-          <h3>Public Lounge</h3>
-          <p><span className="lounge-online-dot" /> Everyone here · live across tabs</p>
-        </div>
-        <span className="sync-chip"><Wifi /> <b>{messages.length}</b></span>
-      </div>
-
       <div className="chat-body lounge-body" ref={chatRef}>
-        <div className="chat-day"><span>EchoSync · Public Lounge</span></div>
+        <div className="chat-day"><span>Public Lounge</span></div>
         {!messages.length && (
           <div className="lounge-empty">
             <span><Globe2 /></span>
@@ -378,7 +379,7 @@ export function PublicLoungeDrawer({
                     <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
                   )}
                   <span className="bubble-meta">{message.time}</span>
-                  <div className="msg-actions">
+                  <div className={`msg-actions ${menuFor === message.id ? 'menu-open' : ''}`}>
                     <button className="msg-action" onClick={() => onReply(message, author)} aria-label="Reply in Public Lounge">
                       <CornerUpLeft />
                     </button>

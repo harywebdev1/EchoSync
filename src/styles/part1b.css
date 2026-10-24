@@ -1,0 +1,52 @@
+.full-player .fp-body { padding: 20px 32px 28px; }
+.full-player .fp-art-wrap { width: clamp(200px, 28vh, 280px); }
+.full-player .fp-left { justify-content: flex-start; overflow-y: auto; min-height: 0; padding: 0 4px 8px; }
+.full-player .fp-info { width: 100%; max-width: 480px; }
+.full-player .fp-title { font-size: clamp(24px, 3.8vh, 36px); line-height: 1.12; margin: 8px 0; }
+.full-player .fp-artist { margin: 4px 0 12px; }
+.full-player .fp-controls { margin-top: 12px; gap: 14px; }
+.full-player .fp-bottom-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 14px; padding-bottom: 8px; }
+.full-player .fp-bottom-row .sleep-timer-control { margin: 0; font-size: 12px; gap: 5px; }
+.full-player .sleep-timer-control select { min-height: 36px; max-width: 110px; }
+.full-player .sleep-timer-control > span { font-size: 12px; }
+.full-player .fp-queue-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; min-width: 56px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 999px; }
+.full-player .fp-queue-btn .queue-count-badge { position: static; background: none; color: inherit; border: 0; box-shadow: none; transform: none; padding: 0; min-width: auto; }
+.full-player .volume-box { gap: 4px; }
+.full-player .volume-slider { width: 60px; }
+.full-player .fp-right { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.lyrics-shell { min-height: 0; }
+.lyrics-body, .plain-lyrics, .plain-line, .lyric-line { font-family: var(--font-body); }
+.lyric-line { display: block; width: 100%; padding: 12px 8px; opacity: .55; transform-origin: left; transition: opacity .2s, color .2s, transform .2s; }
+.lyric-line.active { opacity: 1; transform: scale(1.025); color: var(--text); }
+.lyrics-foot { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.playlist-detail { margin-top: 12px; padding-top: 8px; overflow: visible; }
+.playlist-detail-head { align-items: center; }
+.library-empty .text-btn { position: static; margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; }
+.playlist-detail-actions button:disabled { opacity: .4; cursor: not-allowed; }
+.room-stage-empty { padding: 24px; margin: 24px 0; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--surface); }
+.room-stage-empty h2 { font-size: 24px; margin: 0 0 8px; }
+.room-stage-empty p { color: var(--text-2); }
+.room-starters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 20px; }
+.room-starters button { display: grid; grid-template-columns: 44px minmax(0,1fr) 20px; grid-template-rows: auto auto; align-items: center; gap: 4px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); padding: 10px; text-align: left; }
+.room-starters .cover { width: 44px; height: 44px; grid-row: 1 / 3; }
+.room-starters strong, .room-starters span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-starters strong { font-size: 15px; }
+.room-starters span { grid-column: 2; font-size: 13.5px; color: var(--text-2); }
+.room-starters svg { grid-column: 3; grid-row: 1 / 3; }
+.room-stage-attribution { font-size: 13.5px; color: var(--text-2); margin: 14px 0; }
+.room-sync-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.room-meta { flex-wrap: wrap; }
+.modal-room .field > span, .modal-room .eyebrow { font: 500 13.5px var(--font-body); letter-spacing: 0; text-transform: none; }
+.modal-room select { width: 100%; min-height: 44px; background: var(--surface-solid); color: var(--text); border: 1px solid var(--line-strong); border-radius: 10px; padding: 8px 12px; }
+.bubble .msg-actions { position: static; height: 0; min-height: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; opacity: 0; overflow: hidden; pointer-events: none; margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; transform: none; }
+.msg-row:hover .msg-actions, .msg-row:focus-within .msg-actions, .bubble .msg-actions.menu-open { height: auto; min-height: 28px; opacity: 1; pointer-events: auto; margin-top: 6px; overflow: visible; }
+.bubble .msg-actions .msg-menu { position: static; flex: 1 0 100%; width: auto; min-width: 180px; margin: 4px 0; transform: none; z-index: 2; box-shadow: none; background: var(--surface-solid); border: 1px solid var(--line-strong); border-radius: 10px; }
+@media (hover: none) { .bubble .msg-actions { height: auto; min-height: 28px; opacity: 1; pointer-events: auto; } }
+@media (max-width: 880px) { .full-player .fp-body { padding: 20px 20px 28px; } .full-player .fp-left { overflow: visible; } .room-starters { grid-template-columns: 1fr; } }
+.lounge-online-count { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); margin-left: auto; white-space: nowrap; }
+.full-player .fp-bottom-row .sleep-timer-control small { flex-basis: 100%; text-align: center; }
+.full-player .fp-info { margin-top: 18px; }
+.full-player .fp-timeline { margin-top: 16px; }
+.lyrics-foot:empty { display: none; }
+/* Both surfaces already clip/scroll their children; contain their paint work. */
+.stage-scroll, .solo-queue-drawer { contain: layout paint; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Radio,
   Search,
@@ -41,6 +41,8 @@ export function LibraryView({
   onOpenPlaylist,
   onImportPlaylist,
 }) {
+  const detailRef = useRef(null)
+  useLayoutEffect(() => { if (activePlaylistId) detailRef.current?.closest('.stage-scroll')?.scrollTo({ top: 0, behavior: 'instant' }) }, [activePlaylistId])
   const [tab, setTab] = useState('playlists')
   const [playlistQuery, setPlaylistQuery] = useState('')
   const [playlistResults, setPlaylistResults] = useState([])
@@ -101,7 +103,7 @@ export function LibraryView({
       </header>
 
       {activePlaylist ? (
-        <section className="playlist-detail">
+        <section ref={detailRef} className="playlist-detail">
           <div className="playlist-detail-head">
             <div className="playlist-mosaic large">
               {playlistTracks.slice(0, 4).map((cover) => (
@@ -114,9 +116,9 @@ export function LibraryView({
               <h2>{activePlaylist.name}</h2>
               <p>{activePlaylist.description || `Made by ${currentUser?.name || 'you'} · ${playlistTracks.length} track${playlistTracks.length === 1 ? '' : 's'}`}</p>
               <div className="playlist-detail-actions">
-                <button className="primary-btn" onClick={() => onPlayPlaylist(activePlaylist)} disabled={!playlistTracks.length}><Play /> Play</button>
-                <button className="text-btn" onClick={() => onShufflePlaylist(activePlaylist)} disabled={!playlistTracks.length}><Shuffle size={12} /> Shuffle</button>
-                <button className="text-btn" onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>
+                <button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button>
+                <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onShufflePlaylist(activePlaylist)}><Shuffle size={12} /> Shuffle</button>
+                <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>
                 <button className="text-btn" onClick={() => onRenamePlaylist(activePlaylist)}><Pencil size={12} /> Edit</button>
                 <button className="text-btn danger-btn" onClick={() => onDeletePlaylist(activePlaylist)}><Trash2 size={12} /> Delete</button>
                 <button className="text-btn ghosted" onClick={() => onSelectPlaylist(null)}><X size={12} /> Close</button>
