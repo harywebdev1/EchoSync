@@ -60,7 +60,7 @@
   display: block;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -69,7 +69,7 @@
   display: block;
   overflow: hidden;
   margin-top: 3px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -129,7 +129,7 @@
   gap: 7px;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
 }
@@ -204,7 +204,7 @@
   align-items: center;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .fp-sync svg { width: 10px; height: 10px; color: #46c98b; }
@@ -230,7 +230,7 @@
   place-items: center;
   flex: 1;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .mobile-only { display: none; }
@@ -303,7 +303,7 @@
   .room-title { font-size: clamp(36px, 9vw, 48px); }
   .room-sub { display: none; }
   .room-meta { margin-top: 16px; gap: 9px; }
-  .meta-listeners { font-size: 10px; }
+  .meta-listeners { font-size: 12px; }
   .now-card {
     flex-direction: column;
     gap: 16px;
@@ -320,17 +320,17 @@
   .now-card .cover-size-hero img { object-position: center top; }
   .now-main { padding: 0 2px; }
   .now-title { font-size: 27px; }
-  .now-artist { font-size: 11.5px; }
+  .now-artist { font-size: 12px; }
   .listening-block { margin-top: 16px; }
   .now-controls { flex-wrap: wrap; gap: 8px; }
-  .sync-chip { font-size: 11px; }
+  .sync-chip { font-size: 12px; }
   .volume-box { margin-left: 0; }
-  .now-foot { font-size: 11px; }
+  .now-foot { font-size: 12px; }
   .voice-note { display: none; }
   .voice-row { margin-top: 7px; padding-top: 7px; }
   .voice-btn,
-  .voice-test { height: 25px; font-size: 11px; }
-  .duck-indicator { font-size: 11px; }
+  .voice-test { height: 25px; font-size: 12px; }
+  .duck-indicator { font-size: 12px; }
   .section-head { margin-top: 23px; }
   .section-head p { display: none; }
   .queue-row {
@@ -341,8 +341,8 @@
   .queue-right { display: none; }
   .queue-row .queue-dur { display: none; }
   .queue-more { display: none; }
-  .queue-copy strong { font-size: 11.5px; }
-  .queue-copy span { font-size: 9.5px; }
+  .queue-copy strong { font-size: 12px; }
+  .queue-copy span { font-size: 12px; }
   .cover-size-sm { width: 41px; }
   .rooms-grid { grid-template-columns: 1fr; margin-top: 20px; }
   .room-card { min-height: 210px; }
@@ -360,7 +360,7 @@
   .dock-track { gap: 9px; }
   .dock-cover .cover { width: 44px; border-radius: 10px; }
   .dock-copy strong { font-size: 12.5px; }
-  .dock-copy span { font-size: 11px; }
+  .dock-copy span { font-size: 12px; }
   .dock-quick-actions { display: none; }
   .dock-center { width: auto; flex-direction: row; gap: 2px; }
   .dock-buttons { gap: 2px; }
@@ -375,7 +375,7 @@
     width: auto;
     max-width: none;
     gap: 6px;
-    font-size: 9px;
+    font-size: 12px;
   }
   .dock-time > span { min-width: 27px; }
   .dock-seek { height: 3px; }
@@ -403,7 +403,7 @@
     border: 0;
     color: var(--muted);
     background: transparent;
-    font-size: 11px;
+    font-size: 12px;
   }
   .mobile-nav button.active { color: var(--text); }
   .mobile-nav button.active svg { color: var(--accent); }
@@ -449,8 +449,8 @@
   .modal-scrim { padding-top: 4vh; }
   .library-row { grid-template-columns: 18px 41px minmax(0, 1fr) 41px 28px; gap: 9px; padding: 8px 10px; }
   .library-row .album, .library-row .provider { display: none; }
-  .library-row .dur { font-size: 11px; }
-  .toast { top: auto; bottom: 142px; width: max-content; font-size: 10.5px; }
+  .library-row .dur { font-size: 12px; }
+  .toast { top: auto; bottom: 142px; width: max-content; font-size: 12px; }
   .toast svg { width: 13px; height: 13px; }
 }
 
@@ -474,7 +474,7 @@
   .now-title { font-size: 31px; }
   .now-controls { flex-wrap: nowrap; gap: 10px; }
   .volume-box { margin-left: auto; }
-  .sync-chip { font-size: 11px; }
+  .sync-chip { font-size: 12px; }
 }
 
 @media (max-width: 370px) {

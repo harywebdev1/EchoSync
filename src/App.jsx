@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback } from 'react'
+import { lazy, Suspense, useCallback, useState, useEffect } from 'react'
 import { useEchoSyncController } from './hooks/useEchoSyncController.js'
 import { ArtworkContext } from './components/Cover'
 import { MembersContext } from './components/shared/MembersContext'
@@ -37,8 +37,9 @@ const PlaylistModal = lazy(() => import('./components/modals/PlaylistModal.jsx')
 const AddToPlaylistModal = lazy(() => import('./components/modals/AddToPlaylistModal.jsx').then(module => ({ default: module.AddToPlaylistModal })))
 
 export default function App() {
+  const [searchQuery, setSearchQuery] = useState('')
   const {
-    queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -253,6 +254,7 @@ export default function App() {
     toast,
   } = useEchoSyncController()
 
+  useEffect(() => { if (searchOpen) document.getElementById('canonical-search-input')?.focus() }, [searchOpen])
   const openTaste = useCallback(() => setTasteOpen(true), [setTasteOpen])
   const createPlaylist = useCallback(() => openCreatePlaylist(), [openCreatePlaylist])
   const openFullPlayer = useCallback(() => setFullPlayer(true), [setFullPlayer])
@@ -319,7 +321,7 @@ export default function App() {
                 <AudioLines size={16} />
               </button>
             )}
-            <StageBar
+            <StageBar searchQuery={searchQuery} onSearchQuery={setSearchQuery} searchOpen={searchOpen}
               room={displayRoom}
               view={view}
               inRoom={roomPlaybackActive}
@@ -343,7 +345,7 @@ export default function App() {
             <ErrorBoundary resetKey={`${view}:${activeRoom?.id || ''}:${activePlaylistId || ''}`}>
               <div className="stage-scroll">
                 {view === 'home' && (
-                <HomeView
+                <HomeView onQueue={queueSoloTrack} onStartRadio={startTasteRadio}
                   currentUser={currentUser}
                   library={library}
                   liked={likedSet}
@@ -644,6 +646,7 @@ export default function App() {
 
         {searchOpen && (
           <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <SearchOverlay
+            query={searchQuery} onQueryChange={setSearchQuery} liked={likedSet} onLike={toggleLike}
             onClose={closeSearchExperience}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}

@@ -1,7 +1,6 @@
 import { Logo } from './Logo.jsx'
 import {
   X,
-  Search,
   Home,
   Radio,
   Globe2,
@@ -24,7 +23,6 @@ export function Sidebar({
   rooms,
   view,
   onNavigate,
-  onSearch,
   onJoinRoom,
   role,
   onInvite,
@@ -50,10 +48,6 @@ export function Sidebar({
   const close = onMobileClose || (() => {})
   const navigate = (nextView) => {
     onNavigate(nextView)
-    close()
-  }
-  const openSearch = () => {
-    onSearch()
     close()
   }
   const openLounge = () => {
@@ -94,11 +88,6 @@ export function Sidebar({
         </div>
 
         <div className="side-middle">
-          <button className="search-trigger" onClick={openSearch}>
-            <Search size={14} />
-            <span>Search songs, artists...</span>
-            <kbd>Ctrl K</kbd>
-          </button>
 
           <nav className="side-nav">
             <button className={`nav-item ${view === 'home' || (view === 'room' && !inRoom) ? 'active' : ''}`} onClick={() => navigate('home')}>
@@ -143,10 +132,6 @@ export function Sidebar({
                 )}
               </button>
             </div>
-            <button className="nav-item" onClick={openSearch}>
-              <Search />
-              <span>Search</span>
-            </button>
             <button className={`nav-item ${view === 'library' ? 'active' : ''}`} onClick={() => navigate('library')}>
               <Library />
               <span>Your library</span>

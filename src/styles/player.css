@@ -299,7 +299,7 @@
   color: var(--dock-sub);
   background: rgba(255, 255, 255, 0.045);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -356,7 +356,7 @@
 
   .dock-buttons { gap: 6px; }
   .dock-actions { gap: 6px; }
-  .dock-sync { padding: 0 7px; font-size: 10px; }
+  .dock-sync { padding: 0 7px; font-size: 12px; }
   .dock-volume .volume-slider { width: 60px; }
 }
 
@@ -381,7 +381,7 @@
   background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(25px);
-  font-size: 11px;
+  font-size: 12px;
   transform: translateX(-50%);
   animation: toastin 0.35s var(--ease) both;
 }

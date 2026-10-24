@@ -773,7 +773,7 @@ export function useEchoSyncController() {
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') || (event.key === '/' && !event.ctrlKey && !event.metaKey && !/INPUT|TEXTAREA|SELECT/.test(event.target?.tagName) && !event.target?.isContentEditable)) {
         event.preventDefault()
         openSearchExperience()
       }
@@ -2137,6 +2137,7 @@ export function useEchoSyncController() {
   }
 
   function openSearchExperience() {
+    document.getElementById('canonical-search-input')?.focus()
     const targetRoom = viewRef.current === 'room' ? activeRoomRef.current : null
     const room = targetRoom ? roomsRef.current.find((candidate) => candidate.id === targetRoom) : null
     searchTargetRef.current = {
@@ -2269,6 +2270,7 @@ export function useEchoSyncController() {
     clearRoomQueue,
     importPlaylistToRoom,
     searchRoomTarget,
+    startTasteRadio,
     playSearchTrack,
     queueSearchTrack,
     playSoloQueue,
@@ -3007,6 +3009,7 @@ export function useEchoSyncController() {
 
   return useStableActions({
     queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    queueSoloTrack, startTasteRadio,
     artworkContextValue,
     memberIndex,
     theme,

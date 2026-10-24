@@ -41,7 +41,7 @@
   border-radius: 8px;
   color: var(--muted);
   background: transparent;
-  font-size: 10.5px;
+  font-size: 12px;
   transition: 0.2s;
 }
 
@@ -84,7 +84,7 @@
   gap: 5px;
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .social-head p svg { width: 10px; height: 10px; color: #46c98b; }
@@ -94,7 +94,7 @@
   margin-left: auto;
 }
 
-.social-head .avatar-stack .avatar { width: 23px; height: 23px; font-size: 11px; }
+.social-head .avatar-stack .avatar { width: 23px; height: 23px; font-size: 12px; }
 
 .chat-body {
   position: relative;
@@ -125,7 +125,7 @@
   color: var(--wa-meta);
   background: var(--surface);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -153,7 +153,7 @@
 .msg-author {
   margin: 0 0 3px 5px;
   color: var(--wa-meta);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -164,7 +164,7 @@
   color: var(--accent-2);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
 }
 
@@ -177,7 +177,7 @@
   color: var(--wa-text);
   background: var(--wa-in);
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -218,7 +218,7 @@
   margin: 5px 0 -2px 8px;
   color: var(--wa-meta);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -244,11 +244,11 @@
   border-radius: 10px;
   color: var(--wa-meta);
   background: var(--surface-solid);
-  font-size: 10px;
+  font-size: 12px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.13);
 }
 
-.reaction b { font-family: var(--font-mono); font-size: 11px; font-weight: 450; }
+.reaction b { font-family: var(--font-mono); font-size: 12px; font-weight: 450; }
 .reaction.mine { border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
 
 .typing-row {
@@ -285,7 +285,7 @@
 
 .typing-label {
   color: var(--wa-meta);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .chat-composer {
@@ -320,7 +320,7 @@
   outline: 0;
   color: var(--text);
   background: transparent;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .composer-input input::placeholder { color: var(--muted); }
@@ -391,7 +391,7 @@
   padding: 8px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .social-note svg { width: 9px; height: 9px; }
@@ -421,7 +421,7 @@
   display: block;
   overflow: hidden;
   font-family: var(--font-display);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 570;
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
@@ -432,7 +432,7 @@
   overflow: hidden;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -504,7 +504,7 @@
   margin-right: 8px;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   vertical-align: middle;
   letter-spacing: 0;
   transition: color 0.2s;
@@ -544,7 +544,7 @@
 .lyrics-placeholder p {
   max-width: 230px;
   margin: 0;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.6;
 }
 
@@ -559,7 +559,7 @@
   border-radius: 8px;
   color: var(--text);
   background: var(--surface-2);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .retry-btn:hover { background: var(--surface-3); }
@@ -605,12 +605,12 @@
   padding: 8px 14px;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .lyrics-foot .mono {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.02em;
 }
 
@@ -624,7 +624,7 @@
   border-radius: 5px;
   color: var(--muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .auto-toggle:hover { color: var(--text); background: var(--surface-2); }

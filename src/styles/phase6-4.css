@@ -23,7 +23,7 @@
   padding: 4px 7px 7px;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -42,14 +42,14 @@
 }
 .room-import-popover button:hover { color: var(--text); background: var(--surface-2); }
 .room-import-popover button svg { width: 12px; height: 12px; }
-.room-import-popover button span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.room-import-popover button span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .room-import-popover button b {
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 450;
 }
-.room-import-popover p { margin: 3px 7px 6px; color: var(--muted); font-size: 9.5px; }
+.room-import-popover p { margin: 3px 7px 6px; color: var(--muted); font-size: 12px; }
 .queue-clear-btn { color: var(--muted); }
 .queue-clear-btn:hover { color: #e97b7b; border-color: rgba(233, 123, 123, 0.2); background: rgba(233, 123, 123, 0.07); }
 .room-queue .queue-row { grid-template-columns: 21px 44px minmax(0, 1fr) auto 30px 34px 30px; }
@@ -100,7 +100,7 @@
   color: var(--text-2);
   background: var(--surface-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.045em;
 }
 .search-context-pill.room {
@@ -113,7 +113,7 @@
 .search-context-pill b {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 450;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -129,7 +129,7 @@
 }
 .search-add span {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -138,7 +138,7 @@
 .search-pending-copy {
   color: var(--accent) !important;
   font-family: var(--font-mono);
-  font-size: 11px !important;
+  font-size: 12px !important;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -223,8 +223,8 @@
 .app.light .playlist-room-btn:hover { background: #fff; }
 
 @media (max-width: 560px) {
-  .search-add span { font-size: 11px; }
-  .search-context-pill { font-size: 11px; }
+  .search-add span { font-size: 12px; }
+  .search-context-pill { font-size: 12px; }
   .room-head .head-actions { width: 100%; justify-content: flex-start; }
 }
 

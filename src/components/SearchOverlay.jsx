@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, Fragment } from 'react'
 import {
   AudioLines,
   Clock3,
-  Headphones,
+  Headphones, Heart,
   ListPlus,
   Play,
   Plus,
@@ -26,6 +26,7 @@ const SEARCH_CATEGORIES = [
 
 export function SearchOverlay({
   onClose,
+  query, onQueryChange, liked = [], onLike,
   onPlay,
   onQueue,
   onAddToPlaylist,
@@ -41,14 +42,15 @@ export function SearchOverlay({
   canControlRoom = false,
   pendingTrackId = '',
 }) {
-  const [query, setQuery] = useState('')
+  const setQuery = onQueryChange
+  const [anchor, setAnchor] = useState({})
   const [results, setResults] = useState([])
   const [status, setStatus] = useState('idle')
-  const inputRef = useRef(null)
+
   const latestQuery = useRef('')
 
   useEffect(() => {
-    inputRef.current?.focus()
+
     const onKey = (event) => {
       if (event.key === 'Escape') onClose()
     }
@@ -58,6 +60,7 @@ export function SearchOverlay({
 
   useEffect(() => {
     const trimmed = query.trim()
+    latestQuery.current = trimmed
     if (trimmed.length < 2) {
       setStatus('idle')
       setResults([])
@@ -76,9 +79,17 @@ export function SearchOverlay({
         if (latestQuery.current === trimmed) setStatus('error')
       }
     }, 380)
-    return () => clearTimeout(timer)
-  }, [query, onSearch])
+    return () => { clearTimeout(timer); latestQuery.current = null }
+  }, [query, onSearch, onSearchCommit])
 
+  useLayoutEffect(() => {
+    const place = () => {
+      const rect = document.querySelector('.canonical-search')?.getBoundingClientRect()
+      if (rect) setAnchor({ '--search-top': rect.bottom + 10 + 'px', '--search-center': rect.left + rect.width / 2 + 'px' })
+    }
+    place(); window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [])
   const runQuery = (value) => {
     const next = String(value || '').trim()
     if (!next) return
@@ -94,20 +105,10 @@ export function SearchOverlay({
   const picks = tasteTracks.slice(0, 5)
 
   return (
-    <div className="modal-scrim" onMouseDown={onClose}>
-      <div className="search-modal" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="search-top">
-          <Search />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search a song, an artist, a mood..."
-          />
-          <span className="esc-key">ESC</span>
-          <button className="icon-btn" onClick={onClose} aria-label="Close search"><X /></button>
-        </div>
-
+    <div className="search-command-root" style={anchor}>
+      <button className="search-dismiss" aria-label="Dismiss search" onClick={onClose} />
+      <section id="search-command-surface" className="search-modal search-command-surface" aria-label="Search results">
+        <div className="search-command-heading"><strong>Find your next favorite</strong><button className="icon-btn" onClick={onClose} aria-label="Close search"><X /></button></div>
         <div className={`search-context-pill ${context.mode}`} data-testid="search-context">
           {context.mode === 'room' ? (
             <>
@@ -136,12 +137,13 @@ export function SearchOverlay({
                 </button>
               </div>
 
-              {recent.length > 0 && (
+              {(
                 <section className="search-block search-recent" data-testid="search-recent">
                   <div className="search-caption">
                     <span>Recent searches</span>
                     <button className="text-btn" onClick={onClearRecentSearches}>Clear all</button>
                   </div>
+                  {!recent.length && <p className="search-idle-note">Your searches will appear here.</p>}
                   <div className="recent-search-list">
                     {recent.map((item) => (
                       <span key={item} className="recent-search-chip">
@@ -229,11 +231,11 @@ export function SearchOverlay({
 
           {status === 'ready' && results.length > 0 && (
             <>
-              <div className="search-caption"><span>Top results</span><b>{results.length} streams</b></div>
-              {results.map((track) => (
-                <div
+              <div className="search-caption"><span>Top result</span><b>{results.length} streams</b></div>
+              {results.map((track, index) => (
+                <Fragment key={track.id}>{index === 1 && <h3 className="search-song-heading">Songs</h3>}<div
                   key={track.id}
-                  className="search-result"
+                  className={`search-result ${index === 0 ? 'search-top-result' : ''}`}
                   role="button"
                   tabIndex={0}
                   data-provider={track.provider}
@@ -249,6 +251,7 @@ export function SearchOverlay({
                   </div>
                   <button
                     className="search-play"
+                    disabled={context.mode === 'room' && !canControlRoom}
                     onClick={(event) => {
                       event.stopPropagation()
                       onPlay(track, results)
@@ -262,12 +265,12 @@ export function SearchOverlay({
                     className="search-save"
                     onClick={(event) => {
                       event.stopPropagation()
-                      onAddToPlaylist(track)
+                      onLike(track)
                     }}
-                    aria-label="Add to playlist"
-                    title="Add to playlist"
+                    aria-label={`${liked.includes(track.id) ? 'Unlike' : 'Like'} ${track.title}`}
+                    title="Like song"
                   >
-                    <ListPlus />
+                    <Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} />
                   </button>
                   <button
                     className="search-add"
@@ -282,7 +285,7 @@ export function SearchOverlay({
                     <Plus />
                     <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>
                   </button>
-                </div>
+                </div></Fragment>
               ))}
             </>
           )}
@@ -293,7 +296,7 @@ export function SearchOverlay({
           <span>Music, artwork, and lyrics</span>
           <span className="right">Search the catalogue</span>
         </div>
-      </div>
+      </section>
     </div>
   )
 }

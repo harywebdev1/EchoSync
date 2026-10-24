@@ -1,4 +1,4 @@
-import { Menu, ChevronRight, Search, Globe2, Sun, Moon, MessageCircle } from 'lucide-react'
+import { Menu, ChevronRight, Search, Globe2, Sun, Moon, MessageCircle, X } from 'lucide-react'
 import { Avatar } from '../Avatar'
 
 export function StageBar({
@@ -8,6 +8,7 @@ export function StageBar({
   theme,
   onToggleTheme,
   onSearch,
+  searchQuery, onSearchQuery, searchOpen,
   onToggleChat,
   chatOpen,
   unreadCount,
@@ -39,6 +40,11 @@ export function StageBar({
         <strong>{view === 'rooms' ? 'All rooms' : view === 'library' ? 'Your library' : view === 'room' && inRoom ? room.name : 'Home'}</strong>
       </div>
 
+      <div className="canonical-search" data-testid="canonical-search">
+        <Search aria-hidden="true" />
+        <input id="canonical-search-input" type="search" aria-label="Search songs, artists, moods" aria-expanded={searchOpen} aria-controls="search-command-surface" autoComplete="off" value={searchQuery} onFocus={onSearch} onClick={onSearch} onChange={event => onSearchQuery(event.target.value)} placeholder="Search songs, artists, moods…" onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); document.querySelector('#search-command-surface button')?.focus() } }} />
+        {searchQuery ? <button className="icon-btn" aria-label="Clear search" onClick={() => { onSearchQuery(''); document.getElementById('canonical-search-input')?.focus() }}><X /></button> : <kbd>Ctrl K</kbd>}
+      </div>
       <div className="stage-actions">
         {!currentUser && (
           <div className="guest-actions">
@@ -48,9 +54,6 @@ export function StageBar({
         )}
         <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label="Account and profile">
           <Avatar member={currentUser} />
-        </button>
-        <button className="icon-btn" onClick={onSearch} aria-label="Search">
-          <Search />
         </button>
         <button
           className={`lounge-header-btn ${loungeOpen ? 'active' : ''}`}

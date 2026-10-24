@@ -255,3 +255,37 @@ export function computeTasteMatchPercentage(profileA, profileB) {
   }
   return totalWeight ? Math.max(0, Math.min(99, Math.round(99 * similarity / totalWeight))) : 0
 }
+
+
+export const HOME_MOODS = [
+  { id: 'all', label: 'All', tint: '#a78bfa' },
+  { id: 'energize', label: 'Energize', tint: '#f59e0b', pattern: /dance|pop|party|energy|punjabi|hip.hop/i },
+  { id: 'relax', label: 'Relax', tint: '#5eaca5', pattern: /acoustic|chill|soft|calm|romance|dil/i },
+  { id: 'focus', label: 'Focus', tint: '#8c9ecf', pattern: /instrumental|piano|ambient|focus|study|classical/i },
+  { id: 'workout', label: 'Workout', tint: '#ee8273', pattern: /workout|beats|dance|energy|hip.hop|rap/i },
+  { id: 'sufi', label: 'Sufi & Soul', tint: '#d6ac66', pattern: /sufi|qawwali|coke studio|nusrat|rahat|soul|tajdar/i },
+  { id: 'night', label: 'Late Night', tint: '#a695d4', pattern: /lo.fi|night|slow|moon|raat|ambient|chill/i },
+]
+
+export function rankHomeTracks(tracks, { profile, liked = [], recent = [], mood = 'all' } = {}) {
+  const known = new Set(liked), played = new Set(recent), seen = new Set()
+  const pattern = HOME_MOODS.find(item => item.id === mood)?.pattern
+  return tracks.filter(track => {
+    const duration = Number(track?.duration)
+    if (!track?.id || seen.has(track.id) || track.preview || (duration > 0 && duration < 60)) return false
+    seen.add(track.id); return true
+  }).map((track, index) => {
+    const artistWeight = artistNames(track).reduce((sum, artist) => sum + (profile?.artists?.[normalize(artist)]?.weight || 0), 0)
+    const genreWeight = genresForTrack(track).reduce((sum, genre) => sum + (profile?.genres?.[normalize(genre)]?.weight || 0), 0)
+    const text = [track.title, track.artist, track.album, track.genre, ...(track.tags || [])].join(' ')
+    const score = (pattern?.test(text) ? 1000 : 0) + Math.min(artistWeight + genreWeight, 100) + (known.has(track.id) ? 20 : 0) + (played.has(track.id) ? 8 : 0)
+    return { track, score, index }
+  }).sort((a, b) => b.score - a.score || a.index - b.index).map(item => item.track)
+}
+
+export function buildQuickPicksAndRadio(tracks, options = {}, seed = null) {
+  const ranked = rankHomeTracks(tracks, options)
+  const related = seed ? rankHomeTracks(ranked, { ...options, profile: applyTasteSignal(options.profile, 'play', { track: seed }, () => 0) }) : ranked
+  const radio = [...(seed ? [seed] : []), ...related.filter(track => track.id !== seed?.id)].slice(0, 16)
+  return { quickPicks: ranked.slice(0, 12), radio }
+}

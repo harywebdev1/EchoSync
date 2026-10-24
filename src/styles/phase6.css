@@ -92,7 +92,7 @@
 .fp-kicker,
 .chat-day span,
 .library-row .num {
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.06em;
 }
 
@@ -125,11 +125,11 @@
 .added-tag,
 .switch-hint,
 .switch-current {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .msg-author {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .bubble {
@@ -139,7 +139,7 @@
 .bubble-meta,
 .msg-handle,
 .chat-day span {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .msg-system,
@@ -158,7 +158,7 @@
 .lyric-line .lyric-time,
 .lyrics-foot,
 .lyric-language {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .toast {
@@ -166,11 +166,11 @@
 }
 
 .modal-head .eyebrow {
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 @media (max-width: 560px) {
-  .mobile-nav button { font-size: 11px; }
+  .mobile-nav button { font-size: 12px; }
   .queue-copy strong { font-size: 14px; }
   .queue-copy span { font-size: 12px; }
   .dock-copy strong { font-size: 14px; }

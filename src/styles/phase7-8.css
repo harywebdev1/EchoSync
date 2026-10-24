@@ -18,7 +18,7 @@
   margin-bottom: 8px;
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -65,7 +65,7 @@
   border-radius: 999px;
   color: var(--text-2);
   background: var(--surface-2);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 580;
   transition: 0.2s var(--ease);
 }
@@ -114,7 +114,7 @@
   border-radius: 999px;
   color: var(--text-2);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 560;
   transition: 0.2s var(--ease);
 }
@@ -199,7 +199,7 @@
 
 .quick-copy span {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .quick-play {
@@ -288,7 +288,7 @@
   flex: 0 0 auto;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -297,7 +297,7 @@
   flex: 0 0 auto;
   height: 28px;
   padding: 0 10px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .shelf-scroll {
@@ -509,7 +509,7 @@
 .home-empty span,
 .home-taste-card span {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -576,7 +576,7 @@
 
 .home-v2 .playlist-card > span {
   padding: 0 2px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .home-v2 .playlist-card em {
@@ -600,7 +600,7 @@
   border-radius: 999px;
   color: var(--text-2);
   background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 560;
   white-space: nowrap;
 }
@@ -614,13 +614,13 @@
 .live-sync-pill b {
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .live-sync-pill em {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
 }
 
@@ -635,7 +635,7 @@
 }
 
 .live-sync-pill.compact b {
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .sync-dot {
@@ -767,7 +767,7 @@
 
   .home-sub {
     margin-top: 9px;
-    font-size: 11.5px;
+    font-size: 12px;
   }
 
   .home-top-actions {
@@ -778,7 +778,7 @@
   .home-room-btn {
     min-height: 36px;
     padding: 0 12px;
-    font-size: 10.5px;
+    font-size: 12px;
   }
 
   .home-chips {
@@ -829,7 +829,7 @@
   }
 
   .track-card-copy span {
-    font-size: 11.5px;
+    font-size: 12px;
   }
 
   .track-card-like {
@@ -926,7 +926,7 @@
 
   .mini-copy span {
     color: var(--muted);
-    font-size: 10.5px;
+    font-size: 12px;
   }
 
   .mini-like,
@@ -1016,7 +1016,7 @@
     border-radius: 13px;
     color: var(--muted);
     background: transparent;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 540;
     line-height: 1;
     transition: color 0.2s ease, background 0.2s ease;
@@ -1062,7 +1062,7 @@
     color: #fff;
     background: var(--accent);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     line-height: 1.2;
   }
@@ -1126,11 +1126,11 @@
   }
 
   .quick-copy strong {
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .quick-copy span {
-    font-size: 9.5px;
+    font-size: 12px;
   }
 
   .home-v2 .home-section {
@@ -1168,11 +1168,11 @@
   }
 
   .quick-copy strong {
-    font-size: 10.5px;
+    font-size: 12px;
   }
 
   .quick-copy span {
-    font-size: 9px;
+    font-size: 12px;
   }
 }
 
@@ -1196,7 +1196,7 @@
 .queue-filter-chips button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
 .sleep-timer-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; color: inherit; font-size: 12px; margin: 4px 0 8px; }
 .sleep-timer-control select { min-height: 36px; max-width: 130px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; background: var(--bg); color: var(--text); font: inherit; }
-.sleep-timer-control small { font-size: 11px; font-variant-numeric: tabular-nums; }
+.sleep-timer-control small { font-size: 12px; font-variant-numeric: tabular-nums; }
 .dock-actions .sleep-timer-control { position: relative; flex: 0 0 44px; margin: 0; }
 .dock-actions .sleep-timer-control > span { position: absolute; left: 7px; pointer-events: none; }
 .dock-actions .sleep-timer-control select { width: 44px; color: transparent; }

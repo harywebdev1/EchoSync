@@ -20,7 +20,7 @@ import {
 } from '../lib/appServices.js'
 import { playbackProgressStore, setLiveTelemetry } from '../state/playbackStore'
 import { preloadQueueWindow, preloadCandidateAt } from '../services/preloadManager'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMediaSession, publishMediaSessionPosition } from './useMediaSession.js'
 
 export function usePlaybackEngine({
@@ -139,6 +139,7 @@ export function usePlaybackEngine({
     suspendRoomPlayback,
   },
 }) {
+  const radioActive = useRef(false)
   const { sleepTimer, setSleepTimer: selectSleepTimer, onSleepTrackEnded } = useSleepTimer(() => {
     sleepPausedRef.current = true
     playAttemptIdRef.current += 1
@@ -457,6 +458,7 @@ export function usePlaybackEngine({
   }
 
   function clearSoloQueue() {
+    radioActive.current = false
     if (inRoom) return
     playAttemptIdRef.current += 1
     clearAdvanceCheck()
@@ -525,9 +527,17 @@ export function usePlaybackEngine({
     updatePlaybackProgress(0)
     setDuration(candidate?.duration || 0)
     pendingSeekRef.current = null
+    // Re-selecting the active Quick Pick must restart even when React batches
+    // the pause/play state updates and the source URL stays identical.
+    if (candidate?.id === track?.id || (candidate?.streamUrl && candidate.streamUrl === track?.streamUrl)) {
+      pendingSeekRef.current = 0
+      setSeekSignal(value => value + 1)
+      setRecoverySignal(value => value + 1)
+    }
     resumeAttemptRef.current = { id: 0, trackId: candidate?.id || '', resumeTime: 0, validate: false, directRetry: false }
     setJoinPill(null)
     if (key !== SOLO_ROOM_ID) {
+      radioActive.current = false
       setRoomClock({
         roomId: key,
         index,
@@ -853,7 +863,7 @@ export function usePlaybackEngine({
     }
     const nextIndex = currentIndex + 1
     if (nextIndex >= queueIds.length) {
-      if (repeatMode !== 'all') {
+      if (repeatMode !== 'all' && !radioActive.current) {
         setIsPlaying(false)
         const endedAt = Math.max(Number(duration) || 0, Number(getPlaybackTime()) || 0)
         updatePlaybackProgress(endedAt)
@@ -887,7 +897,7 @@ export function usePlaybackEngine({
     if (!total || audio.currentTime / total < 0.55) return
     let nextIndex = currentIndex + 1
     if (nextIndex >= queueIds.length) {
-      if (repeatMode !== 'all') return
+      if (repeatMode !== 'all' && !radioActive.current) return
       nextIndex = 0
     }
     const candidate = queue[nextIndex] || library[queueIds[nextIndex]]
@@ -898,7 +908,7 @@ export function usePlaybackEngine({
     if (sleepTimer.endOfTrack) return
     if (!settings.crossfade || inRoom || crossfadeLockRef.current || !audio || !queueIds.length) return
     if (repeatMode === 'one') return
-    if (currentIndex + 1 >= queueIds.length && repeatMode !== 'all') return
+    if (currentIndex + 1 >= queueIds.length && repeatMode !== 'all' && !radioActive.current) return
     const seconds = Math.max(0, Number(settings.crossfadeSeconds) || 0)
     if (seconds < 1) return
     const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration
@@ -1214,6 +1224,7 @@ export function usePlaybackEngine({
 
   async function playSearchTrack(candidate, contextTracks = null) {
     if (!candidate) return
+    radioActive.current = false
     const targetRoom = searchRoomTarget()
     const requestId = playRequestRef.current.seq + 1
     if (targetRoom) {
@@ -1264,7 +1275,6 @@ export function usePlaybackEngine({
         setView(nextView)
         beginPlayback(SOLO_ROOM_ID, playOrder, index, playable)
       }
-      closeSearchExperience()
       showToast(`Playing "${playable.title}"`)
     } finally {
       if (requestId === playRequestRef.current.seq) {
@@ -1302,10 +1312,10 @@ export function usePlaybackEngine({
         showToast(`Added "${ready.title}" to your queue`)
       }
     })
-    closeSearchExperience()
   }
 
   async function playSoloQueue(ids, startIndex = 0) {
+    radioActive.current = false
     if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
     const clean = ids.filter(Boolean)
     if (!clean.length) return
@@ -1334,7 +1344,11 @@ export function usePlaybackEngine({
     beginPlayback(SOLO_ROOM_ID, playOrder, playIndex, playable)
   }
 
-  async function playSoloTrack(candidate, contextTracks = null) {
+  function startTasteRadio(candidate, tracks) {
+    return playSoloTrack(candidate, tracks, { radio: true })
+  }
+
+  async function playSoloTrack(candidate, contextTracks = null, options = {}) {
     if (!candidate?.id) return
     if (requireAuth(
       { type: 'playSolo', track: candidate },
@@ -1343,6 +1357,7 @@ export function usePlaybackEngine({
     )) return
     const playable = await ensurePlayable(candidate)
     if (!playable) return
+    radioActive.current = options.radio === true
     const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
     context.forEach((item) => {
       if (item.id !== playable.id) rememberTrack(item)
@@ -1631,7 +1646,7 @@ export function usePlaybackEngine({
       audio.pause()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, track?.streamUrl, youtubeActive, currentUser, recoverySignal])
+  }, [isPlaying, track?.id, track?.streamUrl, youtubeActive, currentUser, recoverySignal])
 
   useEffect(() => {
     const target = pendingSeekRef.current
@@ -1805,6 +1820,7 @@ export function usePlaybackEngine({
     clearRoomQueue,
     importPlaylistToRoom,
     searchRoomTarget,
+    startTasteRadio,
     playSearchTrack,
     queueSearchTrack,
     playSoloQueue,

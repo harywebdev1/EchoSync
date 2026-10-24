@@ -17,6 +17,22 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     import('./src/core/lrcParser.js'), import('./src/core/roomSyncMath.js'),
     import('./src/core/tasteEngine.js'), import('./src/core/storageAdapter.js'),
   ])
+  await check('Home mood ranking and Quick Pick radio are deterministic, unique and preserve full-length policy', () => {
+    const tracks = Array.from({ length: 22 }, (_, i) => ({ id: String(i), title: i === 9 ? 'Sufi acoustic' : 'Song ' + i, artist: i === 6 ? 'Atif Aslam' : 'Other', duration: 180 }))
+    tracks.push({ ...tracks[0] }, { id: 'short', duration: 30 }, { id: 'preview', duration: 180, preview: true }, { id: 'unknown', duration: 0 })
+    const options = { profile: { artists: { 'atif aslam': { name: 'Atif Aslam', weight: 9 } } }, mood: 'sufi' }
+    const before = JSON.stringify([tracks, options])
+    const result = taste.buildQuickPicksAndRadio(tracks, options, tracks[4])
+    assert.equal(result.quickPicks.length, 12); assert.equal(result.quickPicks[0].id, '9')
+    assert.equal(result.radio.length, 16); assert.equal(result.radio[0].id, '4')
+    assert.equal(new Set(result.radio.map(x => x.id)).size, 16)
+    assert.deepEqual(result, taste.buildQuickPicksAndRadio(tracks, options, tracks[4]))
+    const all = taste.rankHomeTracks(tracks, options)
+    assert.ok(all.some(x => x.id === 'unknown')); assert.ok(!all.some(x => ['short', 'preview'].includes(x.id)))
+    assert.equal(taste.rankHomeTracks(tracks, { profile: options.profile })[0].id, '6')
+    assert.deepEqual(taste.buildQuickPicksAndRadio([], {}), { quickPicks: [], radio: [] })
+    assert.equal(JSON.stringify([tracks, options]), before)
+  })
   await check('queue chips preserve original indexes, deterministic order, current track and source queue', async () => {
     const { filterUpcomingQueue } = await import('./src/core/queueFilters.js')
     const queue = [
