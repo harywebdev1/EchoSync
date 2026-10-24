@@ -1,9 +1,10 @@
+import { trackArtworkSources } from '../lib/media.js'
 import { useMemo, useState, useEffect } from 'react'
-import { paletteFromTrack, extractArtworkPalette } from '../lib/appServices.js'
+import { paletteFromTrack, extractArtworkPalette, resolveTrackArtwork } from '../lib/appServices.js'
 
 export function useTrackPalette(track) {
   const trackKey = track?.id && track.id !== 'empty' ? track.id : ''
-  const cover = track?.cover || ''
+  const cover = resolveTrackArtwork(track) || ''
   const fallback = useMemo(
     () => paletteFromTrack(track),
     [trackKey, cover, track?.c1, track?.c2, track?.artist, track?.title],
@@ -14,10 +15,13 @@ export function useTrackPalette(track) {
     setPalette(fallback)
     if (!cover || !trackKey) return undefined
     let cancelled = false
-    extractArtworkPalette(cover)
-      .then((extracted) => {
-        if (!cancelled && extracted) setPalette({ ...fallback, ...extracted })
-      })
+    ;(async () => {
+      for (const source of trackArtworkSources(track)) {
+        const extracted = await extractArtworkPalette(source)
+        if (cancelled) return
+        if (extracted) { setPalette({ ...fallback, ...extracted }); return }
+      }
+    })()
       .catch(() => {})
     return () => {
       cancelled = true

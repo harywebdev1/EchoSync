@@ -108,42 +108,18 @@ export function SearchOverlay({
     <div className="search-command-root" style={anchor}>
       <button className="search-dismiss" aria-label="Dismiss search" onClick={onClose} />
       <section id="search-command-surface" className="search-modal search-command-surface" aria-label="Search results">
-        <div className="search-command-heading"><strong>Find your next favorite</strong><button className="icon-btn" onClick={onClose} aria-label="Close search"><X /></button></div>
-        <div className={`search-context-pill ${context.mode}`} data-testid="search-context">
-          {context.mode === 'room' ? (
-            <>
-              <Radio size={12} />
-              <span>Playing in Room: {context.roomName || 'Room'}</span>
-              {!canControlRoom && <b>Admin/DJ only</b>}
-            </>
-          ) : (
-            <>
-              <Headphones size={12} />
-              <span>Listening privately</span>
-            </>
-          )}
-        </div>
-
+        <button className="icon-btn search-compact-close" onClick={onClose} aria-label="Close search"><X /></button>
+        {context.mode === 'room' && <div className="search-room-context" data-testid="search-context"><Radio size={14} /> {context.roomName}{!canControlRoom && ' · Admin/DJ only'}</div>}
         <div className="search-results">
           {status === 'idle' && (
             <div className="search-idle">
-              <div className="search-idle-head">
-                <div>
-                  <h4>What should play next?</h4>
-                  <p>Search by song, artist, mood, or lyric. Every result opens a playable stream.</p>
-                </div>
-                <button className="text-btn search-tune-btn" onClick={onOpenTaste}>
-                  <Sparkles size={12} /> Tune your taste
-                </button>
-              </div>
-
               {(
                 <section className="search-block search-recent" data-testid="search-recent">
                   <div className="search-caption">
                     <span>Recent searches</span>
                     <button className="text-btn" onClick={onClearRecentSearches}>Clear all</button>
                   </div>
-                  {!recent.length && <p className="search-idle-note">Your searches will appear here.</p>}
+
                   <div className="recent-search-list">
                     {recent.map((item) => (
                       <span key={item} className="recent-search-chip">
@@ -165,14 +141,15 @@ export function SearchOverlay({
 
               <section className="search-block" data-testid="search-suggestions">
                 <div className="search-caption">
-                  <span>Suggested for your taste</span>
-                  <b>{fallbackSuggestions.length ? 'personalised' : 'start with a vibe'}</b>
+                  <span>Trending & taste vibes</span>
+                  <button className="text-btn" onClick={onOpenTaste}>Tune taste</button>
                 </div>
                 {fallbackSuggestions.length ? (
                   <div className="suggestion-chips">
                     {fallbackSuggestions.map((suggestion) => (
                       <button key={suggestion.label} onClick={() => runQuery(suggestion.query)}>{suggestion.label}</button>
                     ))}
+                    {SEARCH_CATEGORIES.slice(0, 4).map(category => <button key={category.id} onClick={() => runQuery(category.query)}>{category.label}</button>)}
                   </div>
                 ) : (
                   <p className="search-idle-note">Tune a few vibes and this space will start shaping itself around you.</p>
@@ -181,36 +158,10 @@ export function SearchOverlay({
 
               {picks.length > 0 && (
                 <section className="search-block">
-                  <div className="search-caption"><span>Picked for you</span><b>{picks.length} tracks</b></div>
-                  <div className="search-mini-grid">
-                    {picks.map((track) => (
-                      <button key={track.id} className="search-mini-card" onClick={() => onPlay(track, picks)}>
-                        <Cover track={track} size="" />
-                        <span className="search-mini-play"><Play /></span>
-                        <strong>{track.title}</strong>
-                        <span>{track.artist}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <div className="search-caption"><span>Quick Picks for You</span></div>
+                  <div className="search-quick-rows">{picks.map(track => <div className="search-quick-row" key={track.id}><Cover track={track} /><div><strong>{track.title}</strong><span>{track.artist}</span></div><button className="icon-btn" aria-label={`Play ${track.title}`} onClick={() => onPlay(track, picks)}><Play /></button><button className="icon-btn" aria-label={`Queue ${track.title}`} onClick={() => onQueue(track)} disabled={context.mode === 'room' && !canControlRoom}><Plus /></button></div>)}</div>
                 </section>
               )}
-
-              <section className="search-block search-browse">
-                <div className="search-caption"><span>Browse vibes</span><b>{SEARCH_CATEGORIES.length} moods</b></div>
-                <div className="browse-vibe-grid">
-                  {SEARCH_CATEGORIES.map((category) => (
-                    <button
-                      key={category.id}
-                      className="browse-vibe-card"
-                      style={{ '--vibe-1': category.c1, '--vibe-2': category.c2 }}
-                      onClick={() => runQuery(category.query)}
-                    >
-                      <span>{category.label}</span>
-                      <Search size={13} />
-                    </button>
-                  ))}
-                </div>
-              </section>
             </div>
           )}
 
@@ -291,11 +242,7 @@ export function SearchOverlay({
           )}
         </div>
 
-        <div className="search-foot">
-          <AudioLines />
-          <span>Music, artwork, and lyrics</span>
-          <span className="right">Search the catalogue</span>
-        </div>
+
       </section>
     </div>
   )

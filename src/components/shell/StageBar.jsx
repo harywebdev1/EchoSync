@@ -34,11 +34,6 @@ export function StageBar({
         <span className="brand-name" style={{ fontSize: 15 }}>Echo<span>Sync</span></span>
       </div>
 
-      <div className="stage-crumb">
-        {inRoom && <span className="live-pill"><span className="live-dot" /> LIVE</span>}
-        {inRoom && <ChevronRight />}
-        <strong>{view === 'rooms' ? 'All rooms' : view === 'library' ? 'Your library' : view === 'room' && inRoom ? room.name : 'Home'}</strong>
-      </div>
 
       <div className="canonical-search" data-testid="canonical-search">
         <Search aria-hidden="true" />

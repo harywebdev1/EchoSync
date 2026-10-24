@@ -97,7 +97,7 @@ export function Sidebar({
             <button className={`nav-item ${view === 'rooms' ? 'active' : ''}`} onClick={() => navigate('rooms')}>
               <Radio />
               <span>Rooms</span>
-              <span className="nav-count">{String(rooms.length).padStart(2, '0')}</span>
+              <>{rooms.length > 0 && <span className="nav-count">{rooms.length}</span>}</>
             </button>
             <div className={`lounge-nav-wrap ${latestLoungePreview ? 'has-preview' : ''}`}>
               {latestLoungePreview && (
@@ -135,7 +135,7 @@ export function Sidebar({
             <button className={`nav-item ${view === 'library' ? 'active' : ''}`} onClick={() => navigate('library')}>
               <Library />
               <span>Your library</span>
-              <span className="nav-count">{String(likedCount).padStart(2, '0')}</span>
+              <>{likedCount > 0 && <span className="nav-count">{likedCount}</span>}</>
             </button>
           </nav>
 
@@ -149,7 +149,7 @@ export function Sidebar({
             </div>
             <div className="room-list">
               {rooms.length === 0 && (
-                <p className="side-empty">No rooms yet. Start one and invite a friend.</p>
+                null
               )}
               {rooms.map((item) => {
                 const unread = unreadRoomCounts?.[item.id] || 0
@@ -209,7 +209,7 @@ export function Sidebar({
                 <button key={playlist.id} className="room-link playlist-link" onClick={() => openPlaylist(playlist)}>
                   <ListMusic size={12} />
                   <span className="room-link-name">{playlist.name}</span>
-                  <span className="nav-count">{playlist.trackIds.length}</span>
+                  {playlist.trackIds.length > 0 && <span className="nav-count">{playlist.trackIds.length}</span>}
                 </button>
               ))}
             </div>

@@ -36,6 +36,8 @@ function fixtureState({ duration = 180, streamSeconds = 180 } = {}) {
 }
 
 async function installFixtures(context) {
+  const stored = (await context.storageState()).origins.find(origin => origin.origin === APP_URL)?.localStorage || []
+  const configured = JSON.parse(stored.find(entry => entry.name === 'echosync.library.v1')?.value || '{}')
   const audio = new Map()
   await context.route('**/*', async route => {
     const url = new URL(route.request().url())
@@ -54,7 +56,7 @@ async function installFixtures(context) {
     if (url.origin === APP_URL && !url.pathname.startsWith('/api/')) return route.continue()
     if (route.request().resourceType() === 'image') return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#426"/></svg>' })
     if (url.pathname.includes('/api/search/songs') || url.pathname.includes('/api/songs/')) {
-      const songs = seeds.map(track => ({ id: track.id, name: track.title, duration: 180, primaryArtists: track.artist, album: { name: track.album }, image: [], downloadUrl: [{ quality: '320kbps', url: `https://aac.saavncdn.com/integrity/${track.id}.wav?seconds=180&resolved=1` }] }))
+      const songs = seeds.map(seed => { const track = configured[seed.id]?.track || seed; return ({ id: track.id, name: track.title, duration: track.duration, primaryArtists: track.artist, album: { name: track.album }, image: [], downloadUrl: [{ quality: '320kbps', url: (track.streamUrl || `https://aac.saavncdn.com/integrity/${track.id}.wav?seconds=180`) + '&resolved=1' }] }) })
       const data = url.pathname.includes('/api/search/songs') ? { results: songs } : songs.filter(song => url.pathname.endsWith(`/${song.id}`))
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data }) })
     }

@@ -89,6 +89,7 @@ export function usePlaybackEngine({
     viewRef,
     libraryRef,
     queueIdsRef,
+    currentIndexRef,
     lastPauseAtRef,
     crossfadeLockRef,
     fadeFrameRef,
@@ -220,6 +221,10 @@ export function usePlaybackEngine({
     }
     if (attemptId !== playAttemptIdRef.current || source !== audio.getAttribute('src')) return false
     const total = Number(audio.duration)
+    if (audio.error || audio.readyState < 1) {
+      if (!recoveryRef.current.active) await recoverCurrentStream('initial', { force: true, fast: false, wasPlaying: true })
+      return false
+    }
     if (!Number.isFinite(total) || total < 60) {
       if (total > 0 && Number.isFinite(total)) blockShortPlayback(audio)
       else {
@@ -234,10 +239,12 @@ export function usePlaybackEngine({
     } catch (error) {
       if (attemptId !== playAttemptIdRef.current) return false
       const actuallyPlaying = Boolean(audio && !audio.paused && !audio.ended)
-      setIsPlaying(actuallyPlaying)
-      if (actuallyPlaying) return true
+      if (actuallyPlaying) { setIsPlaying(true); return true }
       if (error?.name === 'AbortError') {
-        if (hasInteractedRef.current) showToast('Playback was interrupted. Press play to continue.')
+        await Promise.resolve()
+        if (attemptId !== playAttemptIdRef.current || sleepPausedRef.current || source !== audio.getAttribute('src')) return false
+        try { await audio.play(); if (attemptId !== playAttemptIdRef.current || sleepPausedRef.current) return false; setIsPlaying(true); return true } catch { /* bounded fresh-resolution recovery below */ }
+        if (!recoveryRef.current.active) await recoverCurrentStream('initial', { force: true, fast: false, wasPlaying: true })
         return false
       }
       if (error?.name === 'NotAllowedError') {
@@ -519,6 +526,7 @@ export function usePlaybackEngine({
 
   function beginPlayback(key, ids, index, candidate) {
     sleepPausedRef.current = false
+    isPlayingRef.current = key === SOLO_ROOM_ID || (viewRef.current === 'room' && activeRoomRef.current === key)
     playAttemptIdRef.current += 1
     clearAdvanceCheck()
     progressRef.current = 0
@@ -558,15 +566,7 @@ export function usePlaybackEngine({
       addRecent(candidate.id)
       recordTasteSignal('play', { track: candidate })
     }
-    const preloadQueue = ids
-      .map((id) => libraryRef.current[id] || SEED_BY_ID[id])
-      .filter(Boolean)
-    preloadQueueWindow({
-      queue: preloadQueue,
-      currentIndex: index,
-      repeatMode,
-      resolve: ensurePlayable,
-    })
+
   }
 
   async function ensurePlayable(rawCandidate, options = {}) {
@@ -628,7 +628,7 @@ export function usePlaybackEngine({
       let resolved = null
       try {
         resolved = await withTimeout(
-          resolveFullTrack(candidate),
+          resolveFullTrack(candidate, { forceRefresh }),
           fast ? 1800 : 4500,
           'Primary stream lookup timed out',
         )
@@ -637,7 +637,7 @@ export function usePlaybackEngine({
       }
       if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
         resolved = await withTimeout(
-          resolveByMetadata(candidate),
+          resolveByMetadata(candidate, { forceRefresh }),
           fast ? 1500 : 9000,
           'Fallback stream lookup timed out',
         )
@@ -971,6 +971,10 @@ export function usePlaybackEngine({
   }
 
   function handleAudioReady() {
+    const audio = audioRef.current
+    if (Number(audio?.duration) >= 60 && !audio.error) {
+      preloadQueueWindow({ queue, currentIndex, repeatMode: radioActive.current ? 'all' : repeatMode, resolve: ensurePlayable })
+    }
     clearStallTimer()
     setBuffering(false)
     setStreamRecovering(false)
@@ -982,6 +986,7 @@ export function usePlaybackEngine({
     if (!current?.id || current.id === 'empty') return false
     if (!current.streamUrl && !current.youtubeVideoId) return false
     if (recoveryRef.current.active) return false
+    if (reason === 'initial' && recoveryRef.current.id === current.id && Date.now() - recoveryRef.current.at < 10000) return false
     if (!options.force && recoveryRef.current.id === current.id && Date.now() - recoveryRef.current.at < 10000) return false
     const resumeTime = Math.max(0, Number(options.resumeTime) || getPlaybackTime() || progressRef.current || 0)
     const wasPlaying = options.wasPlaying === undefined ? isPlayingRef.current : Boolean(options.wasPlaying)
@@ -1013,7 +1018,7 @@ export function usePlaybackEngine({
         needsHydration: true,
         status: 'pending',
       }, { forceRefresh: true, fast: options.fast !== false })
-      if (sleepPausedRef.current) return false
+      if (sleepPausedRef.current || queueIdsRef.current[currentIndexRef.current] !== current.id) return false
       if (!resolved?.streamUrl && !resolved?.youtubeVideoId) {
         setIsPlaying(false)
         setBuffering(false)

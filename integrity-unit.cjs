@@ -17,6 +17,34 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     import('./src/core/lrcParser.js'), import('./src/core/roomSyncMath.js'),
     import('./src/core/tasteEngine.js'), import('./src/core/storageAdapter.js'),
   ])
+  await check('canonical artwork resolves provider shapes without inventing thumbnail URLs', async () => {
+    const { resolveTrackArtwork, trackArtworkSources } = await import('./src/lib/media.js')
+    assert.equal(resolveTrackArtwork({ artwork: [{ url: 'https://cdn.test/500.jpg' }], cover: '//cdn.test/cover.jpg' }), 'https://cdn.test/500.jpg')
+    assert.equal(resolveTrackArtwork({ artwork: 'javascript:bad', image: { url: 'http://cdn.test/a.jpg' } }), 'https://cdn.test/a.jpg')
+    assert.deepEqual(trackArtworkSources({ cover: '/original.jpg', thumbnail: '/original.jpg', albumArt: '/album.jpg' }), ['/original.jpg', '/album.jpg'])
+    assert.equal(resolveTrackArtwork({}), null)
+  })
+  await check('live mood queries rotate and fresh metadata preserves user IDs without duplicate songs', async () => {
+    const { moodQueries, mergeMoodCatalog, MOOD_QUERIES } = await import('./src/core/moodFeed.js')
+    for (const mood of Object.keys(MOOD_QUERIES)) assert.notDeepEqual(moodQueries(mood, [], 0), moodQueries(mood, [], 1))
+    assert.equal(moodQueries('all', ['Atif Aslam'], 0)[0], 'Atif Aslam hits')
+    const local = [{ id: 'liked-id', title: 'Song', artist: 'Artist', streamUrl: 'expired' }]
+    const fresh = [{ id: 'jio-provider', title: 'Song', artist: 'Artist', streamUrl: 'fresh', cover: '/real.jpg' }]
+    const result = mergeMoodCatalog(fresh, local)
+    assert.equal(result.length, 1); assert.equal(result[0].id, 'liked-id'); assert.equal(result[0].streamUrl, 'fresh'); assert.equal(local[0].streamUrl, 'expired')
+  })
+  await check('successful seed resolution releases its promise; force refresh bypasses cached search and resolved results', async () => {
+    const source = section(app, 'async function resolveSeed(', 'function prepareLyricsData(')
+    let lookups = 0
+    const promises = new Map()
+    const seed = { id: 'seed', title: 'Song', artist: 'Artist' }
+    const scope = { resolutionPromises: promises, cachedResolvedStream: () => null, cacheResolvedStream: () => {}, fetchJioSearch: async (query, limit, options) => { lookups++; assert.equal(options.fresh, true); return [{ id: 'found', streamUrl: 'fresh-' + lookups, duration: 180 }] }, rankCandidates: tracks => tracks.map(track => ({ track })), isFullLengthTrack: () => true }
+    const resolve = vm.runInNewContext(source + '\nresolveSeed', scope)
+    assert.equal((await resolve(seed, { forceRefresh: true })).streamUrl, 'fresh-1')
+    assert.equal(promises.size, 0)
+    assert.equal((await resolve(seed, { forceRefresh: true })).streamUrl, 'fresh-2')
+    assert.equal(promises.size, 0)
+  })
   await check('Home mood ranking and Quick Pick radio are deterministic, unique and preserve full-length policy', () => {
     const tracks = Array.from({ length: 22 }, (_, i) => ({ id: String(i), title: i === 9 ? 'Sufi acoustic' : 'Song ' + i, artist: i === 6 ? 'Atif Aslam' : 'Other', duration: 180 }))
     tracks.push({ ...tracks[0] }, { id: 'short', duration: 30 }, { id: 'preview', duration: 180, preview: true }, { id: 'unknown', duration: 0 })

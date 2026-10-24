@@ -34,9 +34,123 @@ async function audit(page, name) {
   assert.equal(result.overflow || result.appOverflow, false, `${name}: document overflow`)
   console.log(`PASS ${name}: typography >=12px (numeric badges >=11px), no page overflow`)
 }
+
+
+async function verifyFirstClickRecovery(browser) {
+  for (const mode of ['expired', 'abort']) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, storageState: state() })
+    await installFixtures(context)
+    const page = await context.newPage(); let navigations = 0, detailRequests = 0
+    const pageErrors = []
+    page.on('pageerror', error => pageErrors.push(error.message))
+    page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations++ })
+    const song = fresh => ({ id: 'recover', name: 'Recovery Song', primaryArtists: 'Test Artist', duration: 180, downloadUrl: [{ quality: '320kbps', url: 'https://aac.saavncdn.com/integrity/recover.wav?seconds=180&' + (fresh ? 'fresh=1' : 'expired=1') }] })
+    await page.route('**/api/saavn/api/search/songs?*', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { results: [song(mode === 'abort')] } }) }))
+    await page.route('**/api/saavn/api/songs/recover', route => { detailRequests++; return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [song(true)] }) }) })
+    await page.route('**/*expired=1', route => route.fulfill({ status: 410, body: 'expired signed stream' }))
+    await page.addInitScript(() => {
+      window.__audioTrace = []
+      for (const method of ['play', 'pause']) {
+        const original = HTMLMediaElement.prototype[method]
+        HTMLMediaElement.prototype[method] = function(...args) {
+          if (this.dataset.testid === 'root-audio') window.__audioTrace.push({ method, src: this.src, stack: new Error().stack })
+          return original.apply(this, args)
+        }
+      }
+    })
+    if (mode === 'abort') await page.addInitScript(() => {
+      const play = HTMLMediaElement.prototype.play
+      HTMLMediaElement.prototype.play = function(...args) {
+        if (this.dataset.testid === 'root-audio' && !window.__abortedOnce) { window.__abortedOnce = true; return Promise.reject(new DOMException('interrupted probe', 'AbortError')) }
+        return play.apply(this, args)
+      }
+    })
+    await page.goto(URL, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Play Recovery Song', exact: true }).first().waitFor()
+    await page.getByRole('button', { name: 'Play Recovery Song', exact: true }).first().click()
+    await page.waitForFunction(() => { const audio = document.querySelector('[data-testid=root-audio]'); return audio && !audio.paused && audio.currentTime > .1 && audio.duration >= 60 }, null, { timeout: 20000 }).catch(async error => {
+      console.error('RECOVERY DIAGNOSTIC', mode, detailRequests, await page.evaluate(() => ({ audio: [...document.querySelectorAll('audio')].map(a => ({ source: a.src, paused: a.paused, error: a.error?.message, ready: a.readyState })), trace: window.__audioTrace, toast: document.querySelector('.toast')?.textContent }))); throw error
+    })
+    assert.equal(navigations, 1)
+    assert.deepEqual(pageErrors, [])
+    if (mode === 'expired') { assert.ok(detailRequests > 0); assert.match(await page.getByTestId('root-audio').getAttribute('src'), /fresh=1/) }
+    else assert.equal(await page.evaluate(() => window.__abortedOnce), true)
+    console.log('PASS first-click ' + mode + ': same-click recovery starts verified full-length audio without reload')
+    await context.close()
+  }
+}
+
+async function verifyPart1A(browser) {
+  for (const width of [1440, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, storageState: state() })
+    await installFixtures(context)
+    const page = await context.newPage(), queries = [], errors = []
+    page.on('pageerror', error => errors.push(error.message))
+    const poster = color => '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="' + color + '"/><circle cx="210" cy="90" r="55" fill="#f5d8aa"/><path d="M0 260L140 110L300 300Z" fill="#202b48"/></svg>'
+    await page.route('**/fixture-*.jpg', route => route.fulfill({ contentType: 'image/svg+xml', headers: { 'access-control-allow-origin': '*' }, body: poster(route.request().url().includes('blue') ? '#2679d7' : '#df6332') }))
+    await page.route('**/api/media?*', route => route.fulfill({ contentType: 'image/svg+xml', headers: { 'access-control-allow-origin': '*' }, body: poster(route.request().url().includes('blue') ? '#2679d7' : '#df6332') }))
+    await page.route('**/api/saavn/api/search/songs?*', async route => {
+      const url = new global.URL(route.request().url()), query = url.searchParams.get('query'); queries.push(query)
+      const mood = /workout|gym|tempo/.test(query) ? 'Workout' : /acoustic|ballad|unplugged/.test(query) ? 'Relax' : /qawwali|Sufi|Coke Studio|soulful/.test(query) ? 'Sufi' : 'Live'
+      if (mood === 'Workout') await new Promise(resolve => setTimeout(resolve, 120))
+      const songs = Array.from({ length: 18 }, (_, i) => ({ id: mood.toLowerCase() + '-' + i, name: mood + ' fresh ' + i, duration: i === 17 ? 30 : 180, primaryArtists: 'Atif Aslam', image: [{ quality: '500x500', url: 'https://c.saavncdn.com/fixture-' + (i % 2 ? 'orange' : 'blue') + '.jpg' }], downloadUrl: [{ quality: '320kbps', url: 'https://aac.saavncdn.com/integrity/chaleya.wav?seconds=180' }] }))
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { results: songs } }) })
+    })
+    await page.goto(URL, { waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(() => [...document.querySelectorAll('.quick-copy strong')].some(el => /fresh/.test(el.textContent)))
+    for (const [label, word] of [['Workout', 'Workout'], ['Relax', 'Relax'], ['Sufi & Soul', 'Sufi']]) {
+      await page.getByRole('button', { name: label, exact: true }).click()
+      await page.waitForFunction(word => [...document.querySelectorAll('.quick-copy strong')].some(el => el.textContent.startsWith(word + ' fresh')), word)
+    }
+    assert.ok(queries.some(q => /workout|gym|tempo/.test(q)) && queries.some(q => /acoustic|ballad|unplugged/.test(q)) && queries.some(q => /qawwali|Sufi|Coke Studio|soulful/.test(q)))
+    assert.equal(await page.locator('.quick-card').filter({ hasText: 'fresh 17' }).count(), 0)
+    const strip = await page.locator('.home-chips').evaluate(el => ({ position: getComputedStyle(el).position, color: getComputedStyle(el).backgroundColor }))
+    assert.equal(strip.position, 'relative'); assert.equal(strip.color, 'rgba(0, 0, 0, 0)')
+    assert.equal(await page.locator('.stage-crumb').count(), 0)
+    assert.equal(await page.locator('.sidebar .nav-count').filter({ hasText: /^0+$/ }).count(), 0)
+    assert.equal(await page.locator('.player-dock [aria-label="Sleep timer"]').count(), 0)
+    await page.locator('.quick-main').first().click()
+    await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
+    await page.waitForFunction(() => { const i = document.querySelector('.player-dock .dock-cover img'); return i?.complete && i.naturalWidth > 0 })
+    const artwork = await page.locator('.quick-card .cover').first().getAttribute('data-artwork')
+    assert.equal(await page.locator('.player-dock .dock-cover img').getAttribute('src'), artwork)
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.app')).getPropertyValue('--song-accent-rgb').trim() !== '145, 100, 210')
+    const firstAccent = await page.locator('.app').evaluate(el => getComputedStyle(el).getPropertyValue('--song-accent'))
+    await page.locator('.quick-main').nth(1).click()
+    await page.waitForFunction(previous => getComputedStyle(document.querySelector('.app')).getPropertyValue('--song-accent') !== previous, firstAccent)
+    await page.locator('.stage-scroll').evaluate(el => el.scrollTop = 160)
+    if (width === 1440) {
+      const dock = await page.getByTestId('player-dock').boundingBox(), scroll = await page.locator('.stage-scroll').boundingBox()
+      assert.ok(scroll.y + scroll.height <= dock.y, 'scrollable view must end above dock')
+    }
+    await page.locator('.stage-scroll').evaluate(el => el.scrollTo({ top: 0, behavior: 'instant' }))
+    await page.waitForFunction(() => document.querySelector('.stage-scroll').scrollTop === 0)
+    await page.screenshot({ animations: 'disabled', path: OUT + '/part1a-home-' + width + '.png' })
+    if (width === 1440) await page.getByTestId('player-dock').screenshot({ path: OUT + '/part1a-dock-' + width + '.png' })
+    await page.getByRole('searchbox').click(); await page.locator('#search-command-surface').waitFor()
+    const text = await page.locator('#search-command-surface').innerText()
+    for (const filler of ['Find your next favorite', 'Listening privately', 'What should play next?', 'Music, artwork, and lyrics']) assert.ok(!text.includes(filler))
+    assert.equal(await page.locator('.search-mini-card, .search-foot').count(), 0)
+    await page.locator('.search-quick-row').last().scrollIntoViewIfNeeded()
+    assert.equal(await page.locator('.search-quick-row').last().isVisible(), true)
+    assert.equal(await page.locator('.search-results').evaluate(el => getComputedStyle(el).scrollbarWidth), 'thin')
+    await page.screenshot({ animations: 'disabled', path: OUT + '/part1a-search-' + width + '.png' })
+    await page.getByRole('button', { name: 'Close search', exact: true }).click()
+    if (width === 390) await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: /^Library/ }).click()
+    else await page.locator('.sidebar').getByRole('button', { name: /^Your library/ }).click()
+    await page.locator('.library-view').waitFor()
+    await page.screenshot({ animations: 'disabled', path: OUT + '/part1a-library-' + width + '.png' })
+    assert.deepEqual(errors, [])
+    console.log('PASS ' + width + 'px Part1A: live mood requests, canonical artwork/pixel palette, separate dock, compact search, editorial shell')
+    await context.close()
+  }
+}
+
 ;(async () => {
   const browser = await chromium.launch({ executablePath: CHROME, headless: true })
   try {
+    await verifyFirstClickRecovery(browser)
+    await verifyPart1A(browser)
     for (const width of [1440, 390]) {
       const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, storageState: state() })
       await installFixtures(context)
@@ -70,7 +184,7 @@ async function audit(page, name) {
         if (heights.length) assert.ok(Math.max(...heights) - Math.min(...heights) <= 1)
       }
       await audit(page, `${width}px Home`)
-      await page.screenshot({ path: `${OUT}/home-${width}.png` })
+      await page.screenshot({ animations: 'disabled', path: `${OUT}/home-${width}.png` })
       const input = page.getByRole('searchbox', { name: 'Search songs, artists, moods' })
       assert.equal(await page.locator('.sidebar .search-trigger, .sidebar .nav-item').filter({ hasText: /^Search$/ }).count(), 0)
       await input.click()
@@ -86,7 +200,7 @@ async function audit(page, name) {
       await page.locator('.search-result').first().getByRole('button', { name: 'Play in Solo Mode' }).click()
       await page.waitForFunction(() => document.querySelector('audio') === window.__radioAudio && !document.querySelector('audio').paused)
       await audit(page, `${width}px Search`)
-      await page.screenshot({ path: `${OUT}/search-${width}.png` })
+      await page.screenshot({ animations: 'disabled', path: `${OUT}/search-${width}.png` })
       await page.getByRole('button', { name: 'Clear search', exact: true }).click()
       await page.getByTestId('search-recent').waitFor()
       await page.getByRole('button', { name: 'Remove Atif from recent searches' }).click()
@@ -125,7 +239,7 @@ async function audit(page, name) {
       await audit(page, `${width}px Room`)
       await input.click(); await input.fill('Coke Studio')
       await page.locator('.search-result').first().waitFor()
-      assert.match(await page.getByTestId('search-context').innerText(), /Playing in Room: Integrity Room/)
+      assert.match(await page.getByTestId('search-context').innerText(), /Integrity Room/)
       await page.locator('.search-result').first().getByRole('button', { name: 'Add to Room Queue' }).click()
       await page.locator('.search-result').first().getByRole('button', { name: 'Play in Room' }).click()
       await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]') === window.__radioAudio && !document.querySelector('[data-testid=root-audio]').paused)

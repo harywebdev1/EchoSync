@@ -1,5 +1,5 @@
 import { createStorageAdapter } from '../core/storageAdapter.js'
-import { initials, normalizeArtworkUrl } from './media'
+import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
 import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/tasteEngine.js'
 import { getActiveStreamQuality } from '../services/networkMonitor'
 import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc } from '../core/lrcParser.js'
@@ -745,6 +745,7 @@ function paletteFromArtworkPixels(data) {
   return {
     accent: cssColor(accent),
     accent2: cssColor(accent2),
+    accentRgb: `${accent.r}, ${accent.g}, ${accent.b}`,
     glow: cssColor(accent, 0.34),
     surface: cssColor(accent, 0.13),
   }
@@ -852,7 +853,7 @@ function sanitizeTrack(raw) {
     duration: Number.isFinite(duration) ? Math.max(0, duration) : 0,
     fullDuration: Number.isFinite(fullDuration) ? Math.max(0, fullDuration) : undefined,
     streamUrl: safeMediaUrl(source.streamUrl),
-    cover: normalizeArtworkUrl(source.cover),
+    cover: normalizeArtworkUrl(source.cover) || resolveTrackArtwork(source),
     youtubeVideoId: safeText(source.youtubeVideoId) || undefined,
     quality: safeText(source.quality),
     c1: safeText(source.c1, '#26303a'),
@@ -1316,7 +1317,7 @@ function mirrorKeyFromUrl(url) {
 async function fetchJson(url, options = {}) {
   const { timeout = 4500, ...rest } = options
   const mirrorKey = mirrorKeyFromUrl(url)
-  if (deadMirrors.has(mirrorKey)) {
+  if (!url.startsWith('/api/') && deadMirrors.has(mirrorKey)) {
     const error = new Error('Mirror unavailable')
     error.deadMirror = true
     error.status = 503
@@ -1327,7 +1328,7 @@ async function fetchJson(url, options = {}) {
   try {
     const response = await fetch(url, { ...rest, credentials: 'omit', signal: controller.signal })
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) deadMirrors.add(mirrorKey)
+      if (!url.startsWith('/api/') && (response.status === 401 || response.status === 403)) deadMirrors.add(mirrorKey)
       const error = new Error(`Request failed (${response.status})`)
       error.status = response.status
       throw error
@@ -1465,9 +1466,9 @@ function rankCandidates(results, seed) {
     .sort((a, b) => b.score - a.score)
 }
 
-async function hydrateJioTrack(track) {
-  if (!track || track.streamUrl || !track.providerId) return track
-  const cached = cachedResolvedStream(`jio:${track.providerId}`)
+async function hydrateJioTrack(track, options = {}) {
+  if (!track || (!options.fresh && track.streamUrl) || !track.providerId) return track
+  const cached = !options.fresh && cachedResolvedStream(`jio:${track.providerId}`)
   if (cached) return { ...track, ...cached, cover: track.cover || cached.cover }
   if (Date.now() < saavnBackoffUntil) return track
   for (const base of SAAVN_BASES) {
@@ -1491,14 +1492,14 @@ async function hydrateJioTrack(track) {
   return track
 }
 
-async function fetchJioSearch(query, limit = 12) {
-  const cached = cachedSearchEntry('jio', query, limit)
+async function fetchJioSearch(query, limit = 12, options = {}) {
+  const cached = !options.fresh && cachedSearchEntry('jio', query, limit)
   if (cached) return cached
   if (Date.now() < saavnBackoffUntil) return []
   for (const base of SAAVN_BASES) {
     try {
       const payload = await fetchJson(
-        `${base}/api/search/songs?query=${encodeURIComponent(query)}&limit=${limit}`,
+        `${base}/api/search/songs?query=${encodeURIComponent(query)}&limit=${limit}&page=${options.page || 1}`,
         { timeout: 4200 },
       )
       const results = payload?.data?.results || payload?.data?.songs?.results || []
@@ -1883,20 +1884,20 @@ function isFullLengthTrack(track) {
   return !seconds || (Number.isFinite(seconds) && seconds >= 60)
 }
 
-async function resolveFullTrack(candidate) {
+async function resolveFullTrack(candidate, options = {}) {
   if (!candidate) return null
-  const cached = cachedResolvedStream(candidate.id)
+  const cached = !options.forceRefresh && cachedResolvedStream(candidate.id)
   if (cached && (cached.streamUrl || cached.youtubeVideoId)) {
     return { ...candidate, ...cached, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
   }
   const seed = SEED_BY_ID[candidate.id]
   if (seed) {
-    const resolved = await resolveSeed(seed)
+    const resolved = await resolveSeed(seed, options)
     return { ...candidate, ...resolved, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
   }
   const target = { ...candidate, preview: false, needsHydration: true }
   if (target.provider === 'jiosaavn') {
-    const hydrated = target.streamUrl && !isPreviewTrack(target) ? target : await hydrateJioTrack(target)
+    const hydrated = target.streamUrl && !isPreviewTrack(target) ? target : await hydrateJioTrack(target, { fresh: options.forceRefresh })
     if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) {
       const ready = { ...target, ...hydrated, id: target.id, preview: false, needsHydration: false }
       cacheResolvedStream(target.id, ready)
@@ -1928,14 +1929,14 @@ async function resolveFullTrack(candidate) {
 
   const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
   if (query) {
-    const candidates = await fetchJioSearch(query, 16)
+    const candidates = await fetchJioSearch(query, 16, { fresh: options.forceRefresh })
     const ranked = rankCandidates(candidates, {
       ...target,
       title: target.searchTitle || target.title,
       duration: target.duration || 180,
     })
     for (const entry of ranked.slice(0, 4)) {
-      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
+      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track, { fresh: options.forceRefresh })
       if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) {
         const ready = {
           ...target,
@@ -1971,7 +1972,7 @@ async function resolveFullTrack(candidate) {
   return null
 }
 
-async function resolveByMetadata(candidate) {
+async function resolveByMetadata(candidate, options = {}) {
   if (!candidate) return null
   const target = {
     ...candidate,
@@ -1983,7 +1984,7 @@ async function resolveByMetadata(candidate) {
   if (!query) return null
 
   const [jioResult, youtubeResult] = await Promise.allSettled([
-    withTimeout(fetchJioSearch(query, 16), 4500),
+    withTimeout(fetchJioSearch(query, 16, { fresh: options.forceRefresh }), 4500),
     withTimeout(searchYouTubeCandidates(query), 4500),
   ])
   const jioTracks = jioResult.status === 'fulfilled' ? jioResult.value : []
@@ -2059,10 +2060,10 @@ async function resolveByMetadata(candidate) {
 
 const resolutionPromises = new Map()
 
-async function resolveSeed(seed) {
-  const cached = cachedResolvedStream(seed.id)
+async function resolveSeed(seed, options = {}) {
+  const cached = !options.forceRefresh && cachedResolvedStream(seed.id)
   if (cached && (cached.streamUrl || cached.youtubeVideoId)) return { ...cached, id: seed.id }
-  if (resolutionPromises.has(seed.id)) return resolutionPromises.get(seed.id)
+  if (!options.forceRefresh && resolutionPromises.has(seed.id)) return resolutionPromises.get(seed.id)
   const task = (async () => {
     const searchTitle = seed.searchTitle || seed.title
     const primaryQuery = `${searchTitle} ${seed.artist}`
@@ -2076,21 +2077,21 @@ async function resolveSeed(seed) {
         cover: seed.cover || best.cover || null,
         preview: false,
       }
-      cacheResolvedStream(seed.id, resolved)
+      if (resolutionPromises.get(seed.id) === task) cacheResolvedStream(seed.id, resolved)
       return resolved
     }
 
-    let candidates = await fetchJioSearch(primaryQuery, 16)
+    let candidates = await fetchJioSearch(primaryQuery, 16, { fresh: options.forceRefresh })
     let ranked = rankCandidates(candidates, seed)
     for (const entry of ranked.slice(0, 3)) {
-      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
+      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track, { fresh: options.forceRefresh })
       if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) return finalize(hydrated)
     }
 
     const youtube = await resolveYouTubeTrack(seed)
     if (youtube?.streamUrl || youtube?.youtubeVideoId) return finalize(youtube)
 
-    candidates = await fetchJioSearch(searchTitle, 16)
+    candidates = await fetchJioSearch(searchTitle, 16, { fresh: options.forceRefresh })
     ranked = rankCandidates(candidates, seed)
     for (const entry of ranked.slice(0, 3)) {
       const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
@@ -2104,9 +2105,8 @@ async function resolveSeed(seed) {
   resolutionPromises.set(seed.id, task)
   try {
     return await task
-  } catch (error) {
-    resolutionPromises.delete(seed.id)
-    throw error
+  } finally {
+    if (resolutionPromises.get(seed.id) === task) resolutionPromises.delete(seed.id)
   }
 }
 
@@ -2582,6 +2582,7 @@ export {
   scoreYouTubeCandidate,
   rankYouTubeCandidates,
   resolveYouTubeTrack,
+  resolveTrackArtwork,
   searchEverything,
   isFullLengthTrack,
   resolveFullTrack,

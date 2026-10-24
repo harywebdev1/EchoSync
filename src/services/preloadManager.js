@@ -73,9 +73,10 @@ export function preloadTrack(track, { resolve, force = false } = {}) {
     .then((resolved) => {
       const candidate = resolved && typeof resolved === 'object' ? resolved : track
       if (candidate?.streamUrl && !candidate.preview) warmStream(candidate.streamUrl)
+      if (!resolved?.streamUrl && !resolved?.youtubeVideoId && resolvedTracks.get(id) === task) resolvedTracks.delete(id)
       return candidate || null
     })
-    .catch(() => null)
+    .catch(() => { if (resolvedTracks.get(id) === task) resolvedTracks.delete(id); return null })
   resolvedTracks.set(id, task)
   while (resolvedTracks.size > MAX_WARM_TRACKS * 2) {
     resolvedTracks.delete(resolvedTracks.keys().next().value)

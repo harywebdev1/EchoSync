@@ -1,5 +1,7 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Heart, ListPlus, Play, Plus, Radio, Shuffle, Sparkles } from 'lucide-react'
+import { mergeMoodCatalog } from '../core/moodFeed.js'
+import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
 import { Cover } from '../components/Cover'
 import { TrackCard } from '../components/TrackCard'
 import { HOME_MOODS, buildQuickPicksAndRadio, rankHomeTracks, topTasteLabels } from '../core/tasteEngine.js'
@@ -19,11 +21,12 @@ function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
 
 export const HomeView = memo(function HomeView({ currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onOpenTaste, onPlayTrack, onStartRadio, onLike, onQueue, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
   const [mood, setMood] = useState('all')
+  const live = useLiveMoodFeed(mood, tasteProfile)
   const options = useMemo(() => ({ profile: tasteProfile, liked, recent: recentIds, mood }), [tasteProfile, liked, recentIds, mood])
   const catalog = useMemo(() => {
     const daily = dailyFeed?.users?.[currentUser?.id || 'guest'] || {}
-    return [...(daily.madeForYou || []), ...(daily.basedOnRecent || []), ...(dailyFeed?.trending || []), ...Object.values(library)]
-  }, [dailyFeed, currentUser?.id, library])
+    return mergeMoodCatalog(live.tracks, [...(daily.madeForYou || []), ...(daily.basedOnRecent || []), ...(dailyFeed?.trending || []), ...Object.values(library)])
+  }, [dailyFeed, currentUser?.id, library, live.tracks])
   const { quickPicks, radio } = useMemo(() => buildQuickPicksAndRadio(catalog, options), [catalog, options])
   const recent = useMemo(() => recentIds.map(id => library[id]).filter(Boolean), [recentIds, library])
   const ranked = useMemo(() => rankHomeTracks(catalog, options), [catalog, options])
@@ -43,12 +46,13 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
   ]
   const playQuick = track => onPlayTrack(track, buildQuickPicksAndRadio(catalog, options, track).radio)
   return <div className="home-view home-v2 home-v81" data-testid="home-v2" style={{ '--mood-tint': tint }}>
-    <div className="home-chips" role="group" aria-label="Mood filters">{HOME_MOODS.map(item => <button key={item.id} className={`home-chip ${mood === item.id ? 'active' : ''}`} aria-pressed={mood === item.id} onClick={() => setMood(item.id)}>{item.label}</button>)}</div>
+    <div className="home-chips" role="group" aria-label="Mood filters">{HOME_MOODS.map(item => <button key={item.id} className={`home-chip ${mood === item.id ? 'active' : ''}`} aria-pressed={mood === item.id} onClick={() => setMood(item.id)}>{item.label}{mood === item.id && live.status === 'loading' && <span className="mood-loading" aria-label="Loading fresh tracks" />}</button>)}</div>
     <header className="home-hero">
-      <div className="home-hero-copy"><span className="home-kicker">Made for your moment</span><h1>{greeting}, {firstName}.</h1><p>{artists.length ? `A little ${artists.join(', ')}, a few familiar favorites, and something new to fall for.` : 'The songs you come back to. The ones you haven’t met yet. All in one place.'}</p>
+      <div className="home-hero-copy"><span className="home-kicker">Made for your moment</span><h1>{greeting}, <em>{firstName}.</em></h1><p>{artists.length ? `A little ${artists.join(', ')}, a few familiar favorites, and something new to fall for.` : 'The songs you come back to. The ones you haven’t met yet. All in one place.'}</p>
         <div className="home-hero-actions"><button className="primary-btn" disabled={!radio.length} onClick={() => onPlayTrack(radio[0], radio)}><Play /> Play Supermix</button><button className="secondary-btn" disabled={!radio.length} onClick={() => onStartRadio(radio[0], radio)}><Shuffle /> Start Radio</button><button className="text-btn" onClick={onCreateRoom}><Radio /> Create Room</button></div>
       </div><Collage tracks={collage} className="hero-collage" />
     </header>
+    {live.status === 'error' && <p className="mood-notice" role="status">Live picks are unavailable. Enjoy your saved rotation while we reconnect.</p>}
     <section className="home-section quick-picks-section"><div className="home-section-head"><div><p>Your next great listen</p><h2>Quick picks</h2></div><span className="quick-radio-note"><Radio size={16} /> A song starts a radio</span></div>
       <div className="quick-grid" data-testid="quick-grid">{quickPicks.map(track => <article className="quick-card" key={track.id}>
         <button className="quick-main" onClick={() => playQuick(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span><span className="quick-copy"><strong>{track.title}</strong><span>{track.artist}</span></span></button>

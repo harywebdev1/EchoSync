@@ -89,6 +89,7 @@ export function LibraryView({
 
   return (
     <div className="library-view">
+      <header className="library-hero">
       <div className="eyebrow">
         <span className="live-pill"><Library size={9} /> YOUR LIBRARY</span>
         <span className="seg" />
@@ -96,6 +97,8 @@ export function LibraryView({
       </div>
       <h1 className="page-title">Everything that sounds like <em>you.</em></h1>
       <p className="page-sub">Your playlists, your liked songs, and the music you keep returning to. All in one place.</p>
+
+      </header>
 
       {activePlaylist ? (
         <section className="playlist-detail">

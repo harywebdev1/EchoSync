@@ -53,3 +53,12 @@ export function initials(value = '') {
     .join('')
     .toUpperCase()
 }
+
+
+export function trackArtworkSources(track) {
+  return [...new Set(['artwork', 'cover', 'image', 'thumbnail', 'albumArt'].map(key => normalizeArtworkUrl(track?.[key])).filter(Boolean))]
+}
+
+export function resolveTrackArtwork(track) {
+  return trackArtworkSources(track)[0] || null
+}
