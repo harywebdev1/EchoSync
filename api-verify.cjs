@@ -18,6 +18,42 @@ let passed = 0
   const mediaPath = url => '/api/media?url=' + encodeURIComponent(url)
   const target = 'https://r1.googlevideo.com/stream'
   try {
+    await check('Saavn shared handler covers search, song lookup and the production rewrite without forwarding an arbitrary host', async () => {
+      const { createSaavnHandler } = await import('./server/saavn.js')
+      const route = await import('./api/saavn.js')
+      assert.equal(typeof route.default, 'function')
+      const requests = []
+      const base = await endpoint(createSaavnHandler({ fetchImpl: async (url, options) => {
+        requests.push({ url: String(url), options })
+        return Response.json({ data: { results: [{ id: 'song', duration: 180 }] } })
+      } }))
+      for (const path of ['/api/saavn/api/search/songs?query=Atif%20Aslam&limit=30', '/api/saavn?route=api%2Fsearch%2Fsongs&query=Atif%20Aslam&limit=30']) {
+        const response = await fetch(base + path)
+        assert.equal(response.status, 200)
+        assert.match(response.headers.get('content-type'), /application\/json/)
+        assert.equal(response.headers.get('access-control-allow-origin'), '*')
+        assert.equal((await response.json()).data.results[0].duration, 180)
+      }
+      assert.equal(requests[0].url, requests[1].url)
+      assert.equal(requests[0].url, 'https://saavn.sumit.co/api/search/songs?query=Atif+Aslam&limit=30')
+      await (await fetch(base + '/api/saavn/api/songs/abc_123')).json()
+      assert.equal(requests[2].url, 'https://saavn.sumit.co/api/songs/abc_123')
+      for (const path of ['/api/saavn?route=https://evil.test', '/api/saavn/api/admin', '/api/saavn?route=../private']) assert.equal((await fetch(base + path)).status, 400)
+      assert.equal((await fetch(base + '/api/saavn', { method: 'POST' })).status, 405)
+      assert.equal((await fetch(base + '/api/saavn', { method: 'OPTIONS' })).status, 204)
+      assert.equal(requests.length, 3)
+      const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'))
+      assert.equal(config.rewrites.find(item => item.source === '/api/saavn/:route*').destination, '/api/saavn?route=:route*')
+    })
+    await check('Saavn timeout, non-JSON failure and upstream JSON status are reported honestly', async () => {
+      const { createSaavnHandler } = await import('./server/saavn.js')
+      const timeout = await endpoint(createSaavnHandler({ timeoutMs: 25, fetchImpl: (_, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('timeout')))) }))
+      assert.equal((await fetch(timeout + '/api/saavn/api/search/songs?query=test')).status, 504)
+      const invalid = await endpoint(createSaavnHandler({ fetchImpl: async () => new Response('<html>upstream secret</html>') }))
+      assert.equal((await fetch(invalid + '/api/saavn/api/songs/test')).status, 502)
+      const limited = await endpoint(createSaavnHandler({ fetchImpl: async () => Response.json({ error: 'Rate limited' }, { status: 429 }) }))
+      assert.equal((await fetch(limited + '/api/saavn/api/songs/test')).status, 429)
+    })
     await check('serverless entrypoints import as Node handlers without initializing upstream clients', () => {
       assert.equal(typeof mediaRoute.default, 'function'); assert.equal(typeof youtubeRoute.default, 'function')
     })

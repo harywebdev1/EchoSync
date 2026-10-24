@@ -1,14 +1,15 @@
+import { memo } from 'react'
 import { Heart, Play } from 'lucide-react'
 import { Cover } from './Cover'
 
-export function TrackCard({ track, liked = false, playing = false, onPlay, onLike }) {
+export const TrackCard = memo(function TrackCard({ track, liked = false, playing = false, onPlay, onLike, contextTracks }) {
   return (
     <article className={`track-card ${playing ? 'is-playing' : ''}`} data-testid="track-card">
       <div className="track-card-art-wrap">
         <button
           type="button"
           className="track-card-art"
-          onClick={onPlay}
+          onClick={() => onPlay(track, contextTracks)}
           aria-label={`Play ${track?.title || 'track'}`}
         >
           <Cover track={track} size="" playing={playing} />
@@ -29,7 +30,7 @@ export function TrackCard({ track, liked = false, playing = false, onPlay, onLik
       </div>
     </article>
   )
-}
+})
 
 export function SkeletonShelf({ count = 6 }) {
   return (

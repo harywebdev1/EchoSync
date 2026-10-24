@@ -30,6 +30,7 @@ import {
 import { usePlaybackState } from './usePlaybackState.js'
 
 export function useAppState() {
+  const [queueFilter, setQueueFilter] = useState('All')
 const [theme, setTheme] = useState(() => (readStorage(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark'))
 const [accounts, setAccounts] = useState(loadUsers)
 const [currentUserId, setCurrentUserId] = useState(() => {
@@ -164,7 +165,7 @@ const chatOpenRef = useRef(chatOpen)
 const searchRoomRef = useRef(null)
 const searchTargetRef = useRef({ mode: 'solo', roomId: null })
   const playback = usePlaybackState()
-  return { ...playback, theme,
+  return { ...playback, queueFilter, setQueueFilter, theme,
     setTheme,
     accounts,
     setAccounts,

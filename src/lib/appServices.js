@@ -6,9 +6,7 @@ import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc 
 
 const DEV_API = import.meta.env.DEV
 
-const SAAVN_BASES = DEV_API
-  ? ['/api/saavn', 'https://saavn.sumit.co']
-  : ['https://saavn.sumit.co']
+const SAAVN_BASES = ['/api/saavn']
 
 let saavnBackoffUntil = 0
 

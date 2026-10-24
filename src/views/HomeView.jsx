@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useMemo, useState } from 'react'
 import { ArrowRight, ListPlus, Music2, Play, Plus, Radio, RefreshCw, Search, Sparkles } from 'lucide-react'
 import { Cover } from '../components/Cover'
@@ -45,7 +46,8 @@ function Shelf({ title, eyebrow, tracks, liked, playingId, onPlay, onLike }) {
             track={track}
             liked={liked.includes(track.id)}
             playing={playingId === track.id}
-            onPlay={() => onPlay(track, tracks)}
+            onPlay={onPlay}
+            contextTracks={tracks}
             onLike={onLike}
           />
         ))}
@@ -54,7 +56,7 @@ function Shelf({ title, eyebrow, tracks, liked, playingId, onPlay, onLike }) {
   )
 }
 
-export function HomeView({
+export const HomeView = memo(function HomeView({
   currentUser,
   library,
   liked = [],
@@ -193,7 +195,8 @@ export function HomeView({
                 track={track}
                 liked={liked.includes(track.id)}
                 playing={playingId === track.id}
-                onPlay={() => onPlayTrack(track, madeShelf)}
+                onPlay={onPlayTrack}
+                contextTracks={madeShelf}
                 onLike={onLike}
               />
             ))}
@@ -278,4 +281,5 @@ export function HomeView({
       </section>
     </div>
   )
-}
+})
+HomeView.displayName = 'HomeView'

@@ -16,6 +16,7 @@ const [seekSignal, setSeekSignal] = useState(0)
 const [recoverySignal, setRecoverySignal] = useState(0)
 const [buffering, setBuffering] = useState(false)
 const [streamRecovering, setStreamRecovering] = useState(false)
+const sleepPausedRef = useRef(false)
 const audioRef = useRef(null)
 const loadedUrlRef = useRef('')
 const pendingSeekRef = useRef(null)
@@ -44,7 +45,7 @@ const soloPlayOrderRef = useRef([])
 const shuffleSeedRef = useRef(1)
 const previousShuffleRef = useRef(false)
 const playRequestRef = useRef({ seq: 0, id: '' })
-  return { soloQueue,
+  return { sleepPausedRef, soloQueue,
     setSoloQueue,
     soloPlayOrder,
     setSoloPlayOrder,

@@ -1,3 +1,4 @@
+import { SleepTimerControl } from './SleepTimerControl.jsx'
 import {
   Heart,
   Play,
@@ -76,6 +77,7 @@ function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
 
 export function FullScreenPlayer({
   room,
+  sleepTimer, onSleepTimer,
   track,
   queue,
   isPlaying,
@@ -135,6 +137,8 @@ export function FullScreenPlayer({
               </div>
               <h2 className="fp-title">{track?.title}</h2>
               <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
+
+              <SleepTimerControl timer={sleepTimer} onChange={onSleepTimer} />
 
               <div className="fp-timeline">
                 <FullPlayerTimeline

@@ -17,6 +17,39 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     import('./src/core/lrcParser.js'), import('./src/core/roomSyncMath.js'),
     import('./src/core/tasteEngine.js'), import('./src/core/storageAdapter.js'),
   ])
+  await check('queue chips preserve original indexes, deterministic order, current track and source queue', async () => {
+    const { filterUpcomingQueue } = await import('./src/core/queueFilters.js')
+    const queue = [
+      { id: 'current', artist: 'A' }, { id: 'liked', artist: 'B' }, { id: 'recent', artist: 'C' },
+      { id: 'affinity', artist: 'Loved Artist' }, { id: 'fresh', artist: 'New Artist' },
+      { id: 'deep', title: 'Acoustic Sufi', duration: 180 }, { id: 'long', duration: 360 },
+    ]
+    const before = JSON.stringify(queue)
+    const context = { liked: ['liked'], recent: ['recent'], tasteProfile: { artists: { 'loved artist': { weight: 9 } } } }
+    const ids = mode => filterUpcomingQueue(queue, 0, mode, context).map(entry => entry.item.id)
+    assert.deepEqual(ids('All'), ['liked', 'recent', 'affinity', 'fresh', 'deep', 'long'])
+    assert.deepEqual(ids('Familiar'), ['liked', 'recent', 'affinity'])
+    assert.deepEqual(ids('Discover'), ['affinity', 'fresh', 'deep', 'long'])
+    assert.deepEqual(ids('Deep Cuts'), ['deep', 'long'])
+    assert.deepEqual(filterUpcomingQueue(queue, 0, 'Deep Cuts', context).map(entry => entry.index), [5, 6])
+    assert.equal(queue[0].id, 'current'); assert.equal(JSON.stringify(queue), before)
+    assert.deepEqual(filterUpcomingQueue([], 0, 'All'), [])
+  })
+  await check('sleep timer deadlines, modes, cancellation and end-of-track policy are exact', async () => {
+    const { createSleepTimer, sleepRemaining, sleepExpired } = await import('./src/core/sleepTimer.js')
+    for (const [mode, minutes] of [['15m', 15], ['30m', 30]]) {
+      const timer = createSleepTimer(mode, 1000)
+      assert.equal(sleepRemaining(timer, 1000), minutes * 60_000)
+      assert.equal(sleepRemaining(timer, 2000), minutes * 60_000 - 1000)
+      assert.equal(sleepExpired(timer, timer.deadline - 1), false)
+      assert.equal(sleepExpired(timer, timer.deadline), true)
+      assert.equal(sleepRemaining(timer, timer.deadline + 1), 0)
+    }
+    assert.equal(createSleepTimer('end-of-track').endOfTrack, true)
+    assert.equal(sleepExpired(createSleepTimer('end-of-track'), Infinity), false)
+    assert.equal(createSleepTimer('invalid').mode, 'off')
+    assert.equal(createSleepTimer('off').deadline, null)
+  })
   await check('production resolver client uses same-origin routes and keeps verified duration metadata', async () => {
     const requests = []
     const scope = vm.createContext({ DEV_API: false, encodeURIComponent, safeMediaUrl: value => value,
@@ -37,7 +70,7 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
   })
   await check('playback waits for metadata; short, unknown and stale attempts never call play', async () => {
     let plays = 0, blocked = 0
-    const scope = vm.createContext({ setTimeout, clearTimeout, playAttemptIdRef: { current: 1 }, blockShortPlayback: () => blocked++, setIsPlaying() {}, showToast() {} })
+    const scope = vm.createContext({ setTimeout, clearTimeout, sleepPausedRef: { current: false }, playAttemptIdRef: { current: 1 }, blockShortPlayback: () => blocked++, setIsPlaying() {}, showToast() {} })
     vm.runInContext(section(app, '  async function safeAudioPlay(', '  function clearAdvanceCheck('), scope)
     const audio = new EventTarget()
     Object.assign(audio, { readyState: 1, duration: 30, getAttribute: () => 'fixture', play: async () => plays++ })

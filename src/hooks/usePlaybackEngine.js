@@ -1,3 +1,4 @@
+import { useSleepTimer } from './useSleepTimer.js'
 import {
   clearResolvedStream,
   evictLibraryEntry,
@@ -75,6 +76,7 @@ export function usePlaybackEngine({
     isPlayingRef,
     progressRef,
     audioRef,
+    sleepPausedRef,
     ytPlayerRef,
     shuffleSeedRef,
     soloPlayOrderRef,
@@ -137,6 +139,35 @@ export function usePlaybackEngine({
     suspendRoomPlayback,
   },
 }) {
+  const { sleepTimer, setSleepTimer: selectSleepTimer, onSleepTrackEnded } = useSleepTimer(() => {
+    sleepPausedRef.current = true
+    playAttemptIdRef.current += 1
+    clearAdvanceCheck()
+    clearStallTimer()
+    if (fadeFrameRef.current) cancelAnimationFrame(fadeFrameRef.current)
+    audioRef.current?.pause()
+    ytPlayerRef.current?.pauseVideo?.()
+    isPlayingRef.current = false
+    setIsPlaying(false)
+    setBuffering(false)
+    setStreamRecovering(false)
+    crossfadeLockRef.current = false
+    crossfadeGainRef.current = 1
+    setCrossfadeGain(1)
+    showToast('Sleep timer paused playback')
+  })
+
+  function setSleepTimer(mode) {
+    if (mode === 'end-of-track') {
+      if (fadeFrameRef.current) cancelAnimationFrame(fadeFrameRef.current)
+      crossfadeLockRef.current = false
+      crossfadeGainRef.current = 1
+      setCrossfadeGain(1)
+    }
+    selectSleepTimer(mode)
+  }
+
+  useEffect(() => { selectSleepTimer('off'); sleepPausedRef.current = false }, [currentUserId, selectSleepTimer])
 
   function blockShortPlayback(audio) {
     audio?.pause()
@@ -155,6 +186,7 @@ export function usePlaybackEngine({
   }
 
   function safeYouTubePlay(player) {
+    if (sleepPausedRef.current) return
     const total = Number(player?.getDuration?.())
     if (!Number.isFinite(total) || total < 60) {
       player?.pauseVideo?.()
@@ -166,6 +198,7 @@ export function usePlaybackEngine({
   }
 
   async function safeAudioPlay(audio, attemptId) {
+    if (sleepPausedRef.current) return false
     if (!audio?.play) return false
     const source = audio.getAttribute('src')
     if (audio.readyState < 1) {
@@ -483,6 +516,7 @@ export function usePlaybackEngine({
   }
 
   function beginPlayback(key, ids, index, candidate) {
+    sleepPausedRef.current = false
     playAttemptIdRef.current += 1
     clearAdvanceCheck()
     progressRef.current = 0
@@ -665,6 +699,12 @@ export function usePlaybackEngine({
 
   async function togglePlay() {
     if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
+    if (sleepPausedRef.current) {
+      sleepPausedRef.current = false
+      if (roomPlaybackActive) { pendingSeekRef.current = roomClockTime(); setSeekSignal(value => value + 1) }
+      setIsPlaying(true)
+      return
+    }
     if (!canControl) {
       lockToast()
       return
@@ -772,6 +812,8 @@ export function usePlaybackEngine({
   }
 
   function handleEnded() {
+    if (sleepPausedRef.current) return
+    if (onSleepTrackEnded()) return
     if (roomPlaybackActive) {
       if (!canControlRoom) {
         setIsPlaying(false)
@@ -853,6 +895,7 @@ export function usePlaybackEngine({
   }
 
   function maybeCrossfade(audio) {
+    if (sleepTimer.endOfTrack) return
     if (!settings.crossfade || inRoom || crossfadeLockRef.current || !audio || !queueIds.length) return
     if (repeatMode === 'one') return
     if (currentIndex + 1 >= queueIds.length && repeatMode !== 'all') return
@@ -960,6 +1003,7 @@ export function usePlaybackEngine({
         needsHydration: true,
         status: 'pending',
       }, { forceRefresh: true, fast: options.fast !== false })
+      if (sleepPausedRef.current) return false
       if (!resolved?.streamUrl && !resolved?.youtubeVideoId) {
         setIsPlaying(false)
         setBuffering(false)
@@ -1714,6 +1758,7 @@ export function usePlaybackEngine({
   })
 
   return {
+    sleepTimer, setSleepTimer,
     blockShortPlayback,
     safeYouTubePlay,
     safeAudioPlay,

@@ -1,3 +1,4 @@
+import { lazy, Suspense, useCallback } from 'react'
 import { useEchoSyncController } from './hooks/useEchoSyncController.js'
 import { ArtworkContext } from './components/Cover'
 import { MembersContext } from './components/shared/MembersContext'
@@ -9,33 +10,35 @@ import { AudioLines } from 'lucide-react'
 import { StageBar } from './components/shell/StageBar.jsx'
 import { ErrorBoundary } from './components/shell/ErrorBoundary.jsx'
 import { HomeView } from './views/HomeView'
-import { RoomsView } from './views/RoomsView'
-import { LibraryView } from './views/LibraryView'
 import { searchEverything, normalizeRoomCode } from './lib/appServices.js'
-import { RoomView } from './views/RoomView'
 import { PlayerDock } from './components/player/PlayerDock'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
-import { ChatDrawer as ChatPanel } from './components/social/ChatDrawer'
-import { QueueDrawer } from './components/QueueDrawer'
-import { PublicLoungeDrawer } from './components/social/PublicLoungeDrawer'
-import { LoungeUserCard } from './components/social/LoungeUserCard.jsx'
+import { QueueDrawer } from './components/player/QueueDrawer'
 import { InviteBanner } from './components/shell/InviteBanner.jsx'
 import { RoleRequestPopup } from './components/shell/RoleRequestPopup.jsx'
-import { SearchOverlay } from './components/SearchOverlay'
-import { FullScreenPlayer as FullPlayer } from './components/player/FullScreenPlayer'
-import { TasteModal } from './components/modals/TasteModal.jsx'
-import { SettingsModal } from './components/modals/SettingsModal.jsx'
-import { MembersModal } from './components/modals/MembersModal.jsx'
-import { RoomModal } from './components/modals/RoomModal.jsx'
-import { JoinRoomModal } from './components/modals/JoinRoomModal.jsx'
-import { PasscodeModal } from './components/modals/PasscodeModal.jsx'
-import { AuthModal } from './components/modals/AuthModal.jsx'
-import { PlaylistModal } from './components/modals/PlaylistModal.jsx'
-import { AddToPlaylistModal } from './components/modals/AddToPlaylistModal.jsx'
 import { Toast } from './components/shell/Toast.jsx'
+
+const RoomsView = lazy(() => import('./views/RoomsView').then(module => ({ default: module.RoomsView })))
+const LibraryView = lazy(() => import('./views/LibraryView').then(module => ({ default: module.LibraryView })))
+const RoomView = lazy(() => import('./views/RoomView').then(module => ({ default: module.RoomView })))
+const ChatPanel = lazy(() => import('./components/social/ChatDrawer').then(module => ({ default: module.ChatDrawer })))
+const PublicLoungeDrawer = lazy(() => import('./components/social/PublicLoungeDrawer').then(module => ({ default: module.PublicLoungeDrawer })))
+const LoungeUserCard = lazy(() => import('./components/social/LoungeUserCard.jsx').then(module => ({ default: module.LoungeUserCard })))
+const SearchOverlay = lazy(() => import('./components/SearchOverlay').then(module => ({ default: module.SearchOverlay })))
+const FullPlayer = lazy(() => import('./components/player/FullScreenPlayer').then(module => ({ default: module.FullScreenPlayer })))
+const TasteModal = lazy(() => import('./components/modals/TasteModal.jsx').then(module => ({ default: module.TasteModal })))
+const SettingsModal = lazy(() => import('./components/modals/SettingsModal.jsx').then(module => ({ default: module.SettingsModal })))
+const MembersModal = lazy(() => import('./components/modals/MembersModal.jsx').then(module => ({ default: module.MembersModal })))
+const RoomModal = lazy(() => import('./components/modals/RoomModal.jsx').then(module => ({ default: module.RoomModal })))
+const JoinRoomModal = lazy(() => import('./components/modals/JoinRoomModal.jsx').then(module => ({ default: module.JoinRoomModal })))
+const PasscodeModal = lazy(() => import('./components/modals/PasscodeModal.jsx').then(module => ({ default: module.PasscodeModal })))
+const AuthModal = lazy(() => import('./components/modals/AuthModal.jsx').then(module => ({ default: module.AuthModal })))
+const PlaylistModal = lazy(() => import('./components/modals/PlaylistModal.jsx').then(module => ({ default: module.PlaylistModal })))
+const AddToPlaylistModal = lazy(() => import('./components/modals/AddToPlaylistModal.jsx').then(module => ({ default: module.AddToPlaylistModal })))
 
 export default function App() {
   const {
+    queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -250,6 +253,12 @@ export default function App() {
     toast,
   } = useEchoSyncController()
 
+  const openTaste = useCallback(() => setTasteOpen(true), [setTasteOpen])
+  const createPlaylist = useCallback(() => openCreatePlaylist(), [openCreatePlaylist])
+  const openFullPlayer = useCallback(() => setFullPlayer(true), [setFullPlayer])
+  const toggleMute = useCallback(() => setMuted(value => !value), [setMuted])
+  const closeQueue = useCallback(() => setQueueOpen(false), [setQueueOpen])
+
   return (
     <ArtworkContext.Provider value={artworkContextValue}>
     <MembersContext.Provider value={memberIndex}>
@@ -286,7 +295,7 @@ export default function App() {
             onInvite={copyInvite}
             onCreateRoom={requestCreateRoom}
             onOpenProfile={openProfile}
-            onCreatePlaylist={() => openCreatePlaylist()}
+            onCreatePlaylist={createPlaylist}
             onOpenPlaylist={openPlaylist}
             onLeaveRoom={leaveRoom}
             unreadRoomCounts={unreadRoomCounts}
@@ -343,7 +352,7 @@ export default function App() {
                   dailyFeed={dailyFeed}
                   dailyStatus={dailyStatus}
                   tasteProfile={tasteProfile}
-                  onOpenTaste={() => setTasteOpen(true)}
+                  onOpenTaste={openTaste}
                   onRefreshDaily={refreshDailyFeed}
                   roomCount={rooms.length}
                   onPlayTrack={playSoloTrack}
@@ -351,7 +360,7 @@ export default function App() {
                   onLike={toggleLike}
                   onAddToPlaylist={requestAddToPlaylist}
                   onSearch={openSearchExperience}
-                  onCreatePlaylist={() => openCreatePlaylist()}
+                  onCreatePlaylist={createPlaylist}
                   onOpenPlaylist={openPlaylist}
                   onCreateRoom={requestCreateRoom}
                   onJoinCode={requestJoinCode}
@@ -359,18 +368,18 @@ export default function App() {
               )}
 
               {view === 'rooms' && (
-                <RoomsView
+                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomsView
                   rooms={rooms}
                   library={library}
                   currentRoom={activeRoom}
                   onJoin={joinRoom}
                   onCreate={requestCreateRoom}
                   onJoinCode={requestJoinCode}
-                />
+                /> </Suspense>
               )}
 
               {view === 'library' && (
-                <LibraryView
+                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <LibraryView
                   searchTracks={searchEverything}
                   library={library}
                   liked={likedSet}
@@ -387,7 +396,7 @@ export default function App() {
                     addTrackToPlaylist(activePlaylistId, candidate)
                   }}
                   onSearch={openSearchExperience}
-                  onCreatePlaylist={() => openCreatePlaylist()}
+                  onCreatePlaylist={createPlaylist}
                   onPlayPlaylist={playPlaylist}
                   onRenamePlaylist={openEditPlaylist}
                   onDeletePlaylist={deletePlaylist}
@@ -395,11 +404,11 @@ export default function App() {
                   onShufflePlaylist={shufflePlaylist}
                   onOpenPlaylist={openPlaylist}
                   onImportPlaylist={importPlaylistToRoom}
-                />
+                /> </Suspense>
               )}
 
               {view === 'room' && activeRoom && (
-                <RoomView
+                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomView
                   room={activeRoom}
                   track={track}
                   queue={queue}
@@ -427,26 +436,27 @@ export default function App() {
                   onPrev={previousTrack}
                   onSeek={seekTo}
                   onVolume={handleVolume}
-                  onToggleMute={() => setMuted((value) => !value)}
+                  onToggleMute={toggleMute}
                   onLike={toggleLike}
                   onAddToPlaylist={requestAddToPlaylist}
                   onInvite={() => setMembersOpen(true)}
                   onSearch={openSearchExperience}
                   onPlayIndex={playIndex}
-                  onOpenFull={() => setFullPlayer(true)}
+                  onOpenFull={openFullPlayer}
                   playlists={playlists}
                   likedTracks={likedSet.map((id) => library[id]).filter(Boolean)}
                   canControlRoom={canControlRoom}
                   onRemoveQueueTrack={removeRoomQueueTrack}
                   onClearQueue={clearRoomQueue}
                   onImportPlaylist={importPlaylistToRoom}
-                />
+                /> </Suspense>
               )}
               </div>
             </ErrorBoundary>
 
             <ErrorBoundary resetKey="player-dock">
               <PlayerDock
+                sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
                 track={track}
                 inRoom={roomPlaybackActive}
                 isPlaying={isPlaying}
@@ -461,10 +471,10 @@ export default function App() {
                 onLike={toggleLike}
                 onAddToPlaylist={requestAddToPlaylist}
                 onVolume={handleVolume}
-                onToggleMute={() => setMuted((value) => !value)}
+                onToggleMute={toggleMute}
                 onSeek={seekTo}
                 canSeek={canControl}
-                onOpenFull={() => setFullPlayer(true)}
+                onOpenFull={openFullPlayer}
                 onToggleQueue={toggleQueuePanel}
                 onCycleRepeat={cycleRepeatMode}
                 onToggleShuffle={toggleShuffleMode}
@@ -483,7 +493,7 @@ export default function App() {
               liked={likedSet}
               onTogglePlay={togglePlay}
               onLike={toggleLike}
-              onOpenFull={() => setFullPlayer(true)}
+              onOpenFull={openFullPlayer}
             />
             <MobileBottomBar
               view={view}
@@ -500,7 +510,7 @@ export default function App() {
           </main>
 
           {inRoom && view === 'room' && !loungeOpen && (
-            <ChatPanel
+            <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <ChatPanel
               room={activeRoom}
               activeTab={activeTab}
               onTab={(tab) => {
@@ -550,15 +560,16 @@ export default function App() {
               open={chatOpen}
               onOpenLounge={openLounge}
               unreadLoungeCount={loungeUnreadCount}
-            />
+            /> </Suspense>
           )}
           {shellQueueOpen && (
             <QueueDrawer
+              filterMode={queueFilter} onFilter={setQueueFilter} liked={likedSet} recent={recent} tasteProfile={tasteProfile}
               queue={queue}
               currentIndex={currentIndex}
               track={track}
               isPlaying={isPlaying}
-              onClose={() => setQueueOpen(false)}
+              onClose={closeQueue}
               onPlayIndex={playIndex}
               onMove={reorderSoloQueue}
               onRemove={removeSoloQueueTrack}
@@ -567,7 +578,7 @@ export default function App() {
             />
           )}
           {loungeOpen && (
-            <PublicLoungeDrawer
+            <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PublicLoungeDrawer
               open={loungeOpen}
               messages={loungeMessages}
               currentUser={currentUser}
@@ -598,7 +609,7 @@ export default function App() {
               invitingId={loungeInvitingId}
               onLogin={() => openAuth('signin', 'Log in to join the Public Lounge conversation.')}
               UserCard={LoungeUserCard}
-            />
+            /> </Suspense>
           )}
           {shellDrawerOpen && (
             <div
@@ -632,7 +643,7 @@ export default function App() {
         )}
 
         {searchOpen && (
-          <SearchOverlay
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <SearchOverlay
             onClose={closeSearchExperience}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
@@ -651,11 +662,12 @@ export default function App() {
               closeSearchExperience()
               setTasteOpen(true)
             }}
-          />
+          /> </Suspense>
         )}
 
         {fullPlayer && (
-          <FullPlayer
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <FullPlayer
+            sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
             room={displayRoom}
             inRoom={roomPlaybackActive}
             track={track}
@@ -677,7 +689,7 @@ export default function App() {
             onLike={toggleLike}
             onAddToPlaylist={requestAddToPlaylist}
             onVolume={handleVolume}
-            onToggleMute={() => setMuted((value) => !value)}
+            onToggleMute={toggleMute}
             onRetryLyrics={() => setLyricsRefresh((value) => value + 1)}
             onToggleQueue={toggleQueuePanel}
             onCycleRepeat={cycleRepeatMode}
@@ -688,19 +700,19 @@ export default function App() {
             translateOn={translateOn}
             translating={translating}
             onToggleTranslate={toggleTranslation}
-          />
+          /> </Suspense>
         )}
 
         {tasteOpen && (
-          <TasteModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <TasteModal
             profile={tasteProfile}
             onClose={() => setTasteOpen(false)}
             onSave={saveTasteVibes}
-          />
+          /> </Suspense>
         )}
 
         {settingsOpen && currentUser && (
-          <SettingsModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <SettingsModal
             user={currentUser}
             settings={settings}
             cacheInfo={cacheInfo}
@@ -716,11 +728,11 @@ export default function App() {
             onSaveTaste={saveTasteVibes}
             onClearCache={clearAllCaches}
             onSignOut={signOut}
-          />
+          /> </Suspense>
         )}
 
         {membersOpen && activeRoom && (
-          <MembersModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <MembersModal
             room={activeRoom}
             currentUserId={currentUserId}
             canModerate={canModerate}
@@ -734,44 +746,44 @@ export default function App() {
             onKick={kickMember}
             onAssignRole={assignRole}
             onResolveRequest={resolveRoleRequest}
-          />
+          /> </Suspense>
         )}
 
         {roomEditor === 'edit' && activeRoom && (
-          <RoomModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal
             mode="edit"
             room={activeRoom}
             onClose={() => setRoomEditor(null)}
             onUpdate={updateRoom}
             onDelete={deleteRoom}
-          />
+          /> </Suspense>
         )}
 
         {roomEditor === 'create' && (
-          <RoomModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal
             mode="create"
             onClose={() => setRoomEditor(null)}
             onCreate={createRoom}
-          />
+          /> </Suspense>
         )}
 
         {joinRoomOpen && currentUser && (
-          <JoinRoomModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <JoinRoomModal
             onClose={() => setJoinRoomOpen(false)}
             onJoin={joinRoomByCode}
-          />
+          /> </Suspense>
         )}
 
         {passcodeRoomId && (
-          <PasscodeModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PasscodeModal
             room={rooms.find((room) => room.id === passcodeRoomId)}
             onClose={() => setPasscodeRoomId(null)}
             onUnlock={unlockPrivateRoom}
-          />
+          /> </Suspense>
         )}
 
         {authOpen && (
-          <AuthModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <AuthModal
             mode={authMode}
             reason={authReason}
             notice={authNotice}
@@ -789,11 +801,11 @@ export default function App() {
             }}
             onSignIn={signIn}
             onSignUp={signUp}
-          />
+          /> </Suspense>
         )}
 
         {playlistDialog && (
-          <PlaylistModal
+          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PlaylistModal
             mode={playlistDialog.mode}
             playlist={playlistDialog.playlist}
             onClose={() => {
@@ -801,11 +813,11 @@ export default function App() {
               setPendingPlaylistTrack(null)
             }}
             onSubmit={submitPlaylist}
-          />
+          /> </Suspense>
         )}
 
           {addTrack && (
-            <AddToPlaylistModal
+            <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <AddToPlaylistModal
               track={addTrack}
               playlists={playlists}
               onClose={() => setAddTrack(null)}
@@ -814,7 +826,7 @@ export default function App() {
                 setAddTrack(null)
                 openCreatePlaylist(candidate)
               }}
-            />
+            /> </Suspense>
           )}
         </ErrorBoundary>
 

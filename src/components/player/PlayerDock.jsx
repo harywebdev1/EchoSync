@@ -1,3 +1,5 @@
+import { SleepTimerControl } from './SleepTimerControl.jsx'
+import { memo } from 'react'
 import {
   Heart,
   ListMusic,
@@ -24,7 +26,8 @@ function QueueBadge({ count }) {
   return <b className="queue-count-badge">{count > 99 ? '99+' : count}</b>
 }
 
-export function PlayerDock({
+export const PlayerDock = memo(function PlayerDock({
+  sleepTimer, onSleepTimer,
   track,
   isPlaying,
   buffering,
@@ -146,6 +149,7 @@ export function PlayerDock({
         </div>
       </div>
       <div className="dock-actions">
+        <SleepTimerControl compact timer={sleepTimer} onChange={onSleepTimer} />
         {inRoom && <TelemetryPill compact className="dock-sync-pill" />}
         <div className="dock-volume">
           <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
@@ -166,4 +170,4 @@ export function PlayerDock({
       </div>
     </div>
   )
-}
+})

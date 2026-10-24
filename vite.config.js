@@ -1,11 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { saavnHandler } from './server/saavn.js'
 import { mediaHandler } from './server/media.js'
 import { youtubeAudioHandler } from './server/youtubeAudio.js'
 
 function streamRoutes() {
   const register = server => {
+    server.middlewares.use('/api/saavn', saavnHandler)
     server.middlewares.use('/api/media', mediaHandler)
     server.middlewares.use('/api/youtube/audio', youtubeAudioHandler)
     server.middlewares.use('/api/youtube-audio', youtubeAudioHandler)
@@ -34,7 +36,6 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api/saavn': proxy('https://saavn.sumit.co', (path) => path.replace(/^\/api\/saavn/, '')),
       '/api/piped/kavin': proxy('https://pipedapi.kavin.rocks', (path) => path.replace(/^\/api\/piped\/kavin/, '')),
       '/api/piped/coffee': proxy('https://api.piped.private.coffee', (path) => path.replace(/^\/api\/piped\/coffee/, '')),
       '/api/piped/adminforge': proxy('https://pipedapi.adminforge.de', (path) => path.replace(/^\/api\/piped\/adminforge/, '')),
@@ -48,7 +49,6 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
     proxy: {
-      '/api/saavn': proxy('https://saavn.sumit.co', (path) => path.replace(/^\/api\/saavn/, '')),
       '/api/piped/kavin': proxy('https://pipedapi.kavin.rocks', (path) => path.replace(/^\/api\/piped\/kavin/, '')),
       '/api/piped/coffee': proxy('https://api.piped.private.coffee', (path) => path.replace(/^\/api\/piped\/coffee/, '')),
       '/api/piped/adminforge': proxy('https://pipedapi.adminforge.de', (path) => path.replace(/^\/api\/piped\/adminforge/, '')),

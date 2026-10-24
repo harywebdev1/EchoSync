@@ -42,6 +42,7 @@ export function useRoomSync({
     currentIndexRef,
     roomQueueRef,
     audioRef,
+    sleepPausedRef,
     isPlayingRef,
     viewRef,
     pendingSeekRef,
@@ -119,6 +120,7 @@ export function useRoomSync({
   }
 
   function syncRoomClockFromPlayback(overrides = {}) {
+    if (sleepPausedRef.current) return roomClockRef.current
     const roomId = activeRoomRef.current
     if (!roomId) return null
     const index = currentIndexRef.current
@@ -154,6 +156,7 @@ export function useRoomSync({
   }
 
   function resumeRoomOnEntry(roomId = activeRoomRef.current) {
+    sleepPausedRef.current = false
     if (!roomId) return
     activeRoomRef.current = roomId
     setActiveRoomId(roomId)
@@ -210,11 +213,11 @@ export function useRoomSync({
     const nextId = ids[nextIndex]
     setRoomClock({ roomId, index: nextIndex, trackId: nextId, time: 0, isPlaying: true })
     setCurrentByRoom((previous) => ({ ...previous, [roomId]: nextIndex }))
-    if (viewRef.current === 'room') {
+    if (viewRef.current === 'room' && !sleepPausedRef.current) {
       const candidate = libraryRef.current[nextId] || SEED_BY_ID[nextId]
       if (candidate) {
         ensurePlayable(candidate).then((playable) => {
-          if (!playable || activeRoomRef.current !== roomId || roomClockRef.current.index !== nextIndex) return
+          if (!playable || sleepPausedRef.current || activeRoomRef.current !== roomId || roomClockRef.current.index !== nextIndex) return
           beginPlayback(roomId, roomQueueRef.current, nextIndex, playable)
         })
       }
@@ -281,7 +284,7 @@ export function useRoomSync({
     if (index !== currentIndexRef.current) {
       setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: index }))
     }
-    if (viewRef.current !== 'room') return
+    if (viewRef.current !== 'room' || sleepPausedRef.current) return
     const indexChanged = index !== currentIndexRef.current
     if (indexChanged) {
       updatePlaybackProgress(0)
@@ -631,7 +634,7 @@ export function useRoomSync({
       if (!clock.isPlaying) return
       const duration = roomTrackDuration(clock)
       const live = roomClockTime(clock)
-      if (duration > 0 && live >= duration - 0.15 && viewRef.current !== 'room') {
+      if (duration > 0 && live >= duration - 0.15 && (viewRef.current !== 'room' || sleepPausedRef.current)) {
         if (!roomControlRef.current) return
         advanceRoomClock()
         return

@@ -1,8 +1,11 @@
+import { QUEUE_FILTERS, filterUpcomingQueue } from '../../core/queueFilters.js'
+import { memo } from 'react'
 import { AudioLines, ChevronDown, ChevronUp, ListMusic, Shuffle, Trash2, X } from 'lucide-react'
-import { Cover } from './Cover'
+import { Cover } from '../Cover'
 
-export function QueueDrawer({
+export const QueueDrawer = memo(function QueueDrawer({
   queue,
+  filterMode = 'All', onFilter, liked, recent, tasteProfile,
   currentIndex,
   track,
   isPlaying,
@@ -13,9 +16,7 @@ export function QueueDrawer({
   onClear,
   onShuffle,
 }) {
-  const upcoming = queue
-    .map((item, index) => ({ item, index }))
-    .filter((entry) => entry.index > currentIndex)
+  const upcoming = filterUpcomingQueue(queue, currentIndex, filterMode, { liked, recent, tasteProfile })
   return (
     <aside className="social solo-queue-drawer mobile-open" data-testid="solo-queue-drawer" aria-label="Up Next queue">
       <div className="social-top">
@@ -51,6 +52,9 @@ export function QueueDrawer({
         </div>
       </div>
 
+      <div className="queue-filter-chips" role="group" aria-label="Queue filters">
+        {QUEUE_FILTERS.map(mode => <button key={mode} type="button" aria-pressed={filterMode === mode} onClick={() => onFilter(mode)}>{mode}</button>)}
+      </div>
       <div className="queue-drawer-list">
         <div className="queue-drawer-list-head">
           <span>Up next in queue</span>
@@ -59,8 +63,8 @@ export function QueueDrawer({
         {upcoming.length === 0 ? (
           <div className="queue-empty queue-drawer-empty">
             <span className="empty-icon"><ListMusic /></span>
-            <strong>No tracks waiting</strong>
-            <p>Add songs from Search to build what plays next.</p>
+            <strong>{filterMode === 'All' ? 'No tracks waiting' : 'No matches for this filter'}</strong>
+            <p>{filterMode === 'All' ? 'Add songs from Search to build what plays next.' : 'Try All to see the rest of your queue.'}</p>
           </div>
         ) : upcoming.map(({ item, index }) => (
           <div className="queue-drawer-row" key={`${item?.id || 'track'}-${index}`} data-testid="queue-drawer-row">
@@ -110,4 +114,4 @@ export function QueueDrawer({
       </div>
     </aside>
   )
-}
+})

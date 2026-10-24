@@ -20,6 +20,7 @@ let passed = 0
       passed++
       console.log(`PASS ${name}`)
     } catch (error) {
+      if (errors.length) console.error('Application page errors:', errors)
       console.error(await page.evaluate(() => ({ audio: [...document.querySelectorAll('audio')].map(a => ({ duration: a.duration, paused: a.paused, readyState: a.readyState, error: a.error?.code })), alerts: [...document.querySelectorAll('[role=alert], .toast')].map(e => e.textContent) })))
       throw error
     } finally { await context.close() }
@@ -86,6 +87,7 @@ let passed = 0
         const rootAudio = await page.locator('[data-testid=root-audio]').elementHandle()
         if (room) {
           await page.getByRole('button', { name: /Integrity Room/ }).first().click()
+          await page.locator('.social:not(.lounge-drawer)').waitFor({ state: 'attached' })
           if (!await page.getByRole('button', { name: 'Record voice note', exact: true }).isVisible()) await page.getByRole('button', { name: /Toggle room chat/ }).click()
         } else {
           await page.locator('[data-testid="lounge-nav-btn"]').click()
@@ -195,6 +197,7 @@ let passed = 0
       await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]').paused)
       assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node, previous) => node === previous, original), true)
       await page.getByRole('button', { name: /Integrity Room/ }).first().click()
+      await page.locator('.social:not(.lounge-drawer)').waitFor({ state: 'attached' })
       await page.locator('.room-head').waitFor()
       await page.evaluate(() => {
         window.__rolePeer = new BroadcastChannel('echosync-room-sync')
@@ -222,14 +225,17 @@ let passed = 0
       await open(page)
       const audio = await page.locator('[data-testid=root-audio]').elementHandle()
       await page.getByRole('button', { name: /Integrity Room/ }).first().click()
+      await page.locator('.social:not(.lounge-drawer)').waitFor({ state: 'attached' })
       if (!await page.getByRole('button', { name: 'Record voice note', exact: true }).isVisible()) await page.getByRole('button', { name: /Toggle room chat/ }).click()
+      await page.getByRole('button', { name: 'Record voice note', exact: true }).waitFor()
       await page.evaluate(() => {
         window.__peer = window.__makePeer()
         const message = { id: 'hook-peer-chat', author: 'peer', userName: 'Peer', type: 'text', text: 'Sync hook peer message', time: '12:00', reactions: [] }
         window.__peer.postMessage({ type: 'chat', sender: 'peer', roomId: 'integrity-room', message })
       })
-      await page.getByText('Sync hook peer message', { exact: true }).waitFor()
-      assert.equal(await page.getByText('Sync hook peer message', { exact: true }).count(), 1)
+      const chat = page.locator('.social:not(.lounge-drawer)')
+      await chat.getByText('Sync hook peer message', { exact: true }).waitFor()
+      assert.equal(await chat.getByText('Sync hook peer message', { exact: true }).count(), 1)
       // A real interaction has occurred, so remote clock updates should seek rather than request autoplay approval.
       await page.evaluate(() => window.__peer.postMessage({ type: 'state', sender: 'peer', roomId: 'integrity-room', index: 0, time: 15, isPlaying: true, ts: Date.now() }))
       await page.waitForFunction(() => { const audio = document.querySelector('[data-testid=root-audio]'); return !audio.paused && audio.currentTime >= 14 })
@@ -239,6 +245,140 @@ let passed = 0
       assert.equal(await page.evaluate(() => window.__channelRecords.filter(record => !record.closed && record.name === 'echosync-room-sync').length), 1)
       assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node, previous) => node === previous, audio), true)
       await page.evaluate(() => window.__peer.close())
+    })
+    await check('Queue filter chips select deterministic upcoming rows and preserve playing audio', {}, async page => {
+      await page.addInitScript(() => {
+        localStorage.setItem('echosync.likes.v1', JSON.stringify({ integrity: ['kesariya'] }))
+        localStorage.setItem('echosync_recent_v1', JSON.stringify({ integrity: ['excuses'] }))
+        const library = JSON.parse(localStorage.getItem('echosync.library.v1'))
+        library['tajdar'].track.genre = 'Sufi'
+        localStorage.setItem('echosync.library.v1', JSON.stringify(library))
+      })
+      await open(page)
+      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+      await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
+      const original = await page.locator('[data-testid=root-audio]').elementHandle()
+      const source = await original.evaluate(audio => audio.currentSrc)
+      await page.locator('[data-testid=queue-btn]').click()
+      const drawer = page.locator('[data-testid=solo-queue-drawer]')
+      const titles = () => drawer.locator('[data-testid=queue-drawer-row] .queue-copy strong').allTextContents()
+      const all = await titles()
+      assert.ok(all.length > 2)
+      await drawer.getByRole('button', { name: 'Familiar', exact: true }).click()
+      assert.ok((await titles()).includes('Kesariya'))
+      assert.ok((await titles()).length < all.length)
+      await drawer.getByRole('button', { name: 'Discover', exact: true }).click()
+      assert.ok(!(await titles()).includes('Kesariya'))
+      assert.ok(!(await titles()).includes('Excuses'))
+      await drawer.getByRole('button', { name: 'Deep Cuts', exact: true }).click()
+      assert.ok((await titles()).includes('Tajdar-e-Haram'))
+      await drawer.getByRole('button', { name: 'All', exact: true }).click()
+      assert.deepEqual(await titles(), all)
+      assert.match(await drawer.locator('[data-testid=queue-now-playing]').innerText(), /Chaleya/)
+      assert.deepEqual(await page.locator('[data-testid=root-audio]').evaluate((audio, previous) => ({ same: audio === previous, paused: audio.paused, source: audio.currentSrc }), original), { same: true, paused: false, source })
+    })
+    await check('Sleep Timer countdown, Off cancellation and End of track stop before queue advance', {}, async page => {
+      await page.clock.install({ time: new Date() })
+      await open(page)
+      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+      await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
+      await page.getByRole('button', { name: 'Open full player', exact: true }).filter({ visible: true }).click()
+      const sheet = page.locator('.full-player')
+      const timer = sheet.getByRole('combobox', { name: 'Sleep timer' })
+      await timer.selectOption('15m')
+      await page.clock.fastForward(1000)
+      await sheet.getByRole('timer').filter({ hasText: '14:59' }).waitFor()
+      await timer.selectOption('off')
+      await page.clock.fastForward(15 * 60_000)
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate(audio => audio.paused), false)
+      await timer.selectOption('30m')
+      await page.clock.fastForward(30 * 60_000)
+      await page.getByText('Sleep timer paused playback', { exact: true }).waitFor()
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate(audio => audio.paused), true)
+      assert.equal(await timer.inputValue(), 'off')
+      await sheet.getByRole('button', { name: 'Play', exact: true }).click()
+      await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
+      await timer.selectOption('end-of-track')
+      const track = await page.locator('[data-testid=audio-root]').getAttribute('data-track-id')
+      await page.locator('[data-testid=root-audio]').evaluate(audio => { audio.currentTime = audio.duration - 0.1 })
+      await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]').ended)
+      await page.waitForFunction(() => document.querySelector('.full-player select[aria-label="Sleep timer"]').value === 'off')
+      assert.equal(await page.locator('[data-testid=audio-root]').getAttribute('data-track-id'), track)
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate(audio => audio.paused), true)
+    })
+    await check('Mobile Back closes top overlay and UI dismissal returns history to its original state', {}, async page => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await open(page)
+      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+      await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
+      const original = await page.locator('[data-testid=root-audio]').elementHandle()
+      const url = page.url()
+      await page.evaluate(() => history.replaceState({ sentinel: 'original' }, ''))
+      for (const viaBack of [true, false, true]) {
+        await page.getByRole('button', { name: 'Open full player', exact: true }).filter({ visible: true }).click()
+        await page.locator('.full-player').waitFor()
+        await page.waitForFunction(() => history.state?.__echoOverlay?.stack.includes('full-player'))
+        if (viaBack) await page.goBack()
+        else await page.getByRole('button', { name: 'Close full player', exact: true }).click()
+        await page.locator('.full-player').waitFor({ state: 'detached' })
+        await page.waitForFunction(() => !history.state?.__echoOverlay)
+        assert.equal(page.url(), url)
+      }
+      await page.getByRole('button', { name: 'Open full player', exact: true }).filter({ visible: true }).click()
+      await page.locator('.full-player').getByRole('button', { name: 'Add to playlist', exact: true }).click()
+      await page.getByRole('dialog').waitFor()
+      await page.waitForFunction(() => history.state?.__echoOverlay?.stack.length === 2)
+      await page.goBack()
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      assert.equal(await page.locator('.full-player').isVisible(), true)
+      await page.goBack()
+      await page.locator('.full-player').waitFor({ state: 'detached' })
+      await page.waitForFunction(() => !history.state?.__echoOverlay)
+      // Queue replaces the expanded sheet in the same history layer.
+      await page.getByRole('button', { name: 'Open full player', exact: true }).filter({ visible: true }).click()
+      await page.locator('.fp-queue-btn').click()
+      await page.locator('[data-testid=solo-queue-drawer]').waitFor()
+      await page.waitForFunction(() => history.state?.__echoOverlay?.stack.includes('queue'))
+      await page.goBack()
+      await page.locator('[data-testid=solo-queue-drawer]').waitFor({ state: 'detached' })
+      await page.waitForFunction(() => !history.state?.__echoOverlay)
+      assert.deepEqual(await page.evaluate(() => history.state), { sentinel: 'original' })
+      assert.equal(page.url(), url)
+      assert.deepEqual(await page.locator('[data-testid=root-audio]').evaluate((audio, previous) => ({ same: audio === previous, paused: audio.paused }), original), { same: true, paused: false })
+    })
+    await check('memoized Home catalog does not execute on Queue, Shuffle or Repeat interactions', {}, async page => {
+      await page.addInitScript(() => {
+        window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = { supportsFiber: true, renderers: new Map(),
+          inject(renderer) { this.renderers.set(1, renderer); return 1 },
+          onCommitFiberRoot: (_id, root) => { window.__testFiberRoot = root }, onScheduleFiberRoot() {}, onCommitFiberUnmount() {}, checkDCE() {} }
+      })
+      await open(page)
+      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+      await page.waitForFunction(() => document.querySelector('[data-testid=root-audio]').currentTime > 1.5)
+      await page.evaluate(() => {
+        function find(fiber) {
+          if (!fiber) return null
+          if (fiber.elementType?.displayName === 'HomeView' || fiber.type?.displayName === 'HomeView' || fiber.type?.name === 'HomeView') return fiber.type.type || fiber.type
+          return find(fiber.child) || find(fiber.sibling)
+        }
+        window.__homeRenderFunction = find(window.__testFiberRoot.current)
+      })
+      const cdp = await page.context().newCDPSession(page)
+      let renders = 0
+      try {
+        await cdp.send('Debugger.enable')
+        const { result } = await cdp.send('Runtime.evaluate', { expression: 'window.__homeRenderFunction' })
+        assert.equal(result.type, 'function')
+        const { breakpointId } = await cdp.send('Debugger.setBreakpointOnFunctionCall', { objectId: result.objectId })
+        cdp.on('Debugger.paused', () => { renders++; cdp.send('Debugger.resume').catch(() => {}) })
+        await page.locator('[data-testid=queue-btn]').click()
+        await page.locator('[data-testid=solo-queue-drawer]').waitFor()
+        await page.getByRole('button', { name: 'Close queue', exact: true }).click()
+        await page.locator('[data-testid=shuffle-btn]').click()
+        await page.locator('[data-testid=repeat-btn]').click()
+        await cdp.send('Debugger.removeBreakpoint', { breakpointId })
+        assert.equal(renders, 0, 'Home catalog rerendered for unrelated playback UI settings')
+      } finally { await cdp.detach() }
     })
     console.log(`Application browser integrity: ${passed} checks passed`)
   } finally { await browser.close() }

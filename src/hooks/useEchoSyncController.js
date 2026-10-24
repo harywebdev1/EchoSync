@@ -1,3 +1,5 @@
+import { useOverlayHistory } from './useOverlayHistory.js'
+import { useStableActions } from './useStableActions.js'
 import { useEffect, useMemo, useCallback } from 'react'
 import {
   consumeStorageFailure,
@@ -91,7 +93,7 @@ export function useEchoSyncController() {
     return () => window.removeEventListener('echosync-storage-failure', notify)
   }, [])
 
-  const {
+  const { queueFilter, setQueueFilter, sleepPausedRef,
     theme,
     setTheme,
     accounts,
@@ -348,20 +350,20 @@ export function useEchoSyncController() {
 
   const shuffleEnabled = Boolean(settings.shuffleEnabled)
 
-  const soloPlaybackIds = shuffleEnabled && soloQueue.length
+  const soloPlaybackIds = useMemo(() => shuffleEnabled && soloQueue.length
     ? [
         ...new Set([
           ...soloPlayOrder.filter((id) => soloQueue.includes(id)),
           ...soloQueue.filter((id) => !soloPlayOrder.includes(id)),
         ]),
       ]
-    : soloQueue
+    : soloQueue, [shuffleEnabled, soloQueue, soloPlayOrder])
 
   const activeKey = roomPlaybackActive ? activeRoom.id : SOLO_ROOM_ID
 
   const queueIds = roomPlaybackActive ? activeRoom.trackIds : soloPlaybackIds
 
-  const queue = queueIds.map((id) => {
+  const queue = useMemo(() => queueIds.map((id) => {
     if (library[id]) return library[id]
     if (SEED_BY_ID[id]) return { ...SEED_BY_ID[id], status: 'pending', streamUrl: null }
     return {
@@ -374,7 +376,7 @@ export function useEchoSyncController() {
       c1: '#26303a',
       c2: '#a65845',
     }
-  })
+  }), [queueIds, library])
 
   const requestedIndex = currentByRoom[activeKey] ?? 0
 
@@ -2275,6 +2277,7 @@ export function useEchoSyncController() {
     findFullVersion,
     handleTimeUpdate,
     handleLoadedMetadata,
+    sleepTimer, setSleepTimer,
   } = usePlaybackEngine({
     state: {
       setIsPlaying,
@@ -2328,6 +2331,7 @@ export function useEchoSyncController() {
       isPlayingRef,
       progressRef,
       audioRef,
+      sleepPausedRef,
       ytPlayerRef,
       shuffleSeedRef,
       soloPlayOrderRef,
@@ -2553,6 +2557,7 @@ export function useEchoSyncController() {
       currentIndexRef,
       roomQueueRef,
       audioRef,
+      sleepPausedRef,
       isPlayingRef,
       viewRef,
       pendingSeekRef,
@@ -2983,7 +2988,25 @@ export function useEchoSyncController() {
     '--song-surface': trackPalette?.surface || `color-mix(in srgb, ${accent} 13%, #0b0c0f)`,
   }
 
-  return {
+  useOverlayHistory([
+    { id: 'full-player', open: Boolean(fullPlayer), onClose: () => { setFullPlayer(false) } },
+    { id: 'queue', open: Boolean(shellQueueOpen), onClose: () => { setQueueOpen(false) } },
+    { id: 'lounge', open: Boolean(loungeOpen), onClose: () => { closeLounge() } },
+    { id: 'chat', open: Boolean(shellChatOpen), onClose: () => { setChatOpen(false) } },
+    { id: 'search', open: Boolean(searchOpen), onClose: () => { closeSearchExperience() } },
+    { id: 'taste', open: Boolean(tasteOpen), onClose: () => { setTasteOpen(false) } },
+    { id: 'settings', open: Boolean(settingsOpen), onClose: () => { setSettingsOpen(false) } },
+    { id: 'members', open: Boolean(membersOpen), onClose: () => { setMembersOpen(false) } },
+    { id: 'room-editor', open: Boolean(roomEditor), onClose: () => { setRoomEditor(null) } },
+    { id: 'join-room', open: Boolean(joinRoomOpen), onClose: () => { setJoinRoomOpen(false) } },
+    { id: 'passcode', open: Boolean(passcodeRoomId), onClose: () => { setPasscodeRoomId(null) } },
+    { id: 'auth', open: Boolean(authOpen), onClose: () => { setAuthOpen(false) } },
+    { id: 'playlist', open: Boolean(playlistDialog), onClose: () => { setPlaylistDialog(null); setPendingPlaylistTrack(null) } },
+    { id: 'add-playlist', open: Boolean(addTrack), onClose: () => { setAddTrack(null) } },
+  ])
+
+  return useStableActions({
+    queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -3196,6 +3219,6 @@ export function useEchoSyncController() {
     addTrack,
     setAddTrack,
     toast,
-  }
+  })
 
 }

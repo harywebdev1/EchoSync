@@ -4,11 +4,28 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/media.js": { "maxDuration": 30 },
-    "api/youtube-audio.js": { "maxDuration": 30 }
+    "api/media.js": {
+      "maxDuration": 30
+    },
+    "api/youtube-audio.js": {
+      "maxDuration": 30
+    },
+    "api/saavn.js": {
+      "maxDuration": 15
+    }
   },
   "rewrites": [
-    { "source": "/api/youtube/audio/:videoId", "destination": "/api/youtube-audio?videoId=:videoId" },
-    { "source": "/((?!api(?:/|$)|assets(?:/|$)).*)", "destination": "/index.html" }
+    {
+      "source": "/api/saavn/:route*",
+      "destination": "/api/saavn?route=:route*"
+    },
+    {
+      "source": "/api/youtube/audio/:videoId",
+      "destination": "/api/youtube-audio?videoId=:videoId"
+    },
+    {
+      "source": "/((?!api(?:/|$)|assets(?:/|$)).*)",
+      "destination": "/index.html"
+    }
   ]
 }
