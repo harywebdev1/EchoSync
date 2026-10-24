@@ -1,9 +1,11 @@
+import { RoomVote } from '../social/RoomSocialControls.jsx'
 import { QUEUE_FILTERS, filterUpcomingQueue } from '../../core/queueFilters.js'
 import { memo } from 'react'
 import { AudioLines, ChevronDown, ChevronUp, ListMusic, Shuffle, Trash2, X } from 'lucide-react'
 import { Cover } from '../Cover'
 
 export const QueueDrawer = memo(function QueueDrawer({
+  room = null,
   queue,
   filterMode = 'All', onFilter, liked, recent, tasteProfile,
   currentIndex,
@@ -16,7 +18,7 @@ export const QueueDrawer = memo(function QueueDrawer({
   onClear,
   onShuffle,
 }) {
-  const upcoming = filterUpcomingQueue(queue, currentIndex, filterMode, { liked, recent, tasteProfile })
+  const upcoming = filterUpcomingQueue(queue, currentIndex, room ? 'All' : filterMode, { liked, recent, tasteProfile })
   return (
     <aside className="social solo-queue-drawer mobile-open" data-testid="solo-queue-drawer" aria-label="Up Next queue">
       <div className="social-top">
@@ -33,14 +35,14 @@ export const QueueDrawer = memo(function QueueDrawer({
           <h3>Up Next</h3>
           <p>{queue.length ? `${queue.length} track${queue.length === 1 ? '' : 's'} in your listening session` : 'Your queue is empty'}</p>
         </div>
-        <div className="queue-drawer-actions">
+        {!room && <div className="queue-drawer-actions">
           <button className="text-btn" onClick={onShuffle} disabled={!queue.length}>
             <Shuffle size={12} /> Shuffle queue
           </button>
           <button className="text-btn queue-clear-btn" onClick={onClear} disabled={!queue.length}>
             <Trash2 size={12} /> Clear queue
           </button>
-        </div>
+        </div>}
       </div>
 
       <div className="queue-now-card" data-testid="queue-now-playing">
@@ -52,9 +54,9 @@ export const QueueDrawer = memo(function QueueDrawer({
         </div>
       </div>
 
-      <div className="queue-filter-chips" role="group" aria-label="Queue filters">
+      {!room && <div className="queue-filter-chips" role="group" aria-label="Queue filters">
         {QUEUE_FILTERS.map(mode => <button key={mode} type="button" aria-pressed={filterMode === mode} onClick={() => onFilter(mode)}>{mode}</button>)}
-      </div>
+      </div>}
       <div className="queue-drawer-list">
         <div className="queue-drawer-list-head">
           <span>Up next in queue</span>
@@ -75,13 +77,14 @@ export const QueueDrawer = memo(function QueueDrawer({
               aria-label={`Play ${item?.title || 'track'} now`}
             >
               <span className="queue-index">{String(index + 1).padStart(2, '0')}</span>
-              <Cover track={item} size="cover-size-sm" />
+            <Cover track={item} size="cover-size-sm" />
               <span className="queue-copy">
                 <strong>{item?.title || 'Untitled track'}</strong>
                 <small>{item?.artist || 'EchoSync'}</small>
               </span>
             </button>
-            <div className="queue-drawer-row-actions">
+            {room && <RoomVote room={room} trackId={item.id}/>}
+            {!room && <div className="queue-drawer-row-actions">
               <button
                 className="icon-btn"
                 onClick={() => onMove(index, -1)}
@@ -108,7 +111,7 @@ export const QueueDrawer = memo(function QueueDrawer({
               >
                 <X />
               </button>
-            </div>
+            </div>}
           </div>
         ))}
       </div>

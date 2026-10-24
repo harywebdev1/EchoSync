@@ -283,6 +283,30 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     }
     assert.equal(JSON.stringify([a, b, partial]), snapshot)
   })
+  await check('Home stems remove From suffixes and partial mood success survives failed queries', async () => {
+    const { songStem, collectMoodResults, mergeMoodCatalog } = await import('./src/core/moodFeed.js')
+    const first={id:'a',title:'Apna Bana Le (From "Bhediya")',artist:'Arijit Singh, Sachin',duration:180}
+    const duplicate={...first,id:'b',title:'  Apna Bana Le ',artist:'Arijit Singh'}
+    assert.equal(songStem(first),songStem(duplicate))
+    const result=collectMoodResults([{status:'rejected',reason:new Error('429')},{status:'fulfilled',value:[first,duplicate]}])
+    assert.equal(result.length,1)
+    assert.equal(mergeMoodCatalog([duplicate],[first]).length,1)
+    assert.deepEqual(collectMoodResults([{status:'rejected'}]),[])
+  })
+  await check('room votes pin the playing prefix, restore original ties and converge out of order', async () => {
+    const { mergeVote, rankRoomQueue, voteCount } = await import('./src/core/roomVotes.js')
+    const ids=['past','playing','first','second','third']
+    let votes=mergeVote({},'third','alice',{active:true,ts:10,op:'a'})
+    assert.deepEqual(rankRoomQueue(ids,1,votes,ids),['past','playing','third','first','second'])
+    votes=mergeVote(votes,'third','bob',{active:true,ts:11,op:'b'})
+    assert.equal(voteCount(votes.third),2)
+    votes=mergeVote(votes,'third','alice',{active:false,ts:12,op:'c'})
+    const before=JSON.stringify(votes)
+    assert.equal(mergeVote(votes,'third','alice',{active:true,ts:9,op:'old'}),votes)
+    assert.equal(JSON.stringify(votes),before)
+    votes=mergeVote(votes,'third','bob',{active:false,ts:13,op:'d'})
+    assert.deepEqual(rankRoomQueue(['past','playing','third','first','second'],1,votes,ids),ids)
+  })
   await check('core modules load without platform globals or UI imports', () => {
     for (const file of fs.readdirSync(__dirname + '/src/core').filter(file => file.endsWith('.js'))) {
       const source = read('src/core/' + file)

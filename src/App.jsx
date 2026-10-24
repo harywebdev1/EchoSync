@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useState, useEffect } from 'react'
 import { useEchoSyncController } from './hooks/useEchoSyncController.js'
+import { SocialContext } from './components/social/SocialContext.jsx'
 import { ArtworkContext } from './components/Cover'
 import { MembersContext } from './components/shared/MembersContext'
 import { AudioRootContainer } from './components/player/AudioRoot.jsx'
@@ -39,7 +40,7 @@ const AddToPlaylistModal = lazy(() => import('./components/modals/AddToPlaylistM
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    social, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -264,6 +265,7 @@ export default function App() {
   return (
     <ArtworkContext.Provider value={artworkContextValue}>
     <MembersContext.Provider value={memberIndex}>
+    <SocialContext.Provider value={social}>
       <div className={`app ${theme}`} style={rootStyle}>
         <div className="ambient" />
         <AudioRootContainer
@@ -511,7 +513,7 @@ export default function App() {
             />
           </main>
 
-          {inRoom && view === 'room' && !loungeOpen && (
+          {inRoom && view === 'room' && !loungeOpen && !shellQueueOpen && (
             <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <ChatPanel
               room={activeRoom}
               activeTab={activeTab}
@@ -565,7 +567,7 @@ export default function App() {
             /> </Suspense>
           )}
           {shellQueueOpen && (
-            <QueueDrawer
+            <QueueDrawer room={roomPlaybackActive ? activeRoom : null}
               filterMode={queueFilter} onFilter={setQueueFilter} liked={likedSet} recent={recent} tasteProfile={tasteProfile}
               queue={queue}
               currentIndex={currentIndex}
@@ -833,8 +835,10 @@ export default function App() {
           )}
         </ErrorBoundary>
 
+        {social.profileId && memberIndex[social.profileId] && <Suspense fallback={null}><LoungeUserCard member={memberIndex[social.profileId]} currentUser={currentUser} room={activeRoom} onClose={social.closeProfile} onInvite={member=>inviteLoungeUser(member.id)} /></Suspense>}
         <Toast toast={toast} />
       </div>
+    </SocialContext.Provider>
     </MembersContext.Provider>
     </ArtworkContext.Provider>
   )

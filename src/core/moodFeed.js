@@ -1,3 +1,15 @@
+export function songStem(track) {
+  const clean = value => String(value || '').normalize('NFKC').toLowerCase().replace(/\s*\(from\s+[^)]*\)\s*/gi, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  return clean(track?.title) + '::' + clean(String(track?.artist || track?.primaryArtists || '').split(/,|&| feat\.? /i)[0])
+}
+export function collectMoodResults(results) {
+  const seen = new Set()
+  return results.flatMap(result => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []).filter(track => {
+    const key = songStem(track)
+    if (!track?.id || seen.has(key) || track.preview || !(Number(track.duration) >= 60)) return false
+    seen.add(key); return true
+  })
+}
 export const MOOD_QUERIES = {
   all: ['trending Hindi hits', 'Pakistan Coke Studio hits', 'global pop hits', 'new Bollywood songs'],
   energize: ['upbeat Bollywood dance', 'Punjabi party hits', 'energetic pop'],
@@ -17,7 +29,7 @@ export function moodQueries(mood, artists = [], rotation = 0) {
 }
 // Refresh metadata/URLs without duplicating the same song or discarding user-owned IDs.
 export function mergeMoodCatalog(live, local) {
-  const key = track => `${String(track?.title || '').trim().toLowerCase()}::${String(track?.artist || '').trim().toLowerCase()}`
+  const key = songStem
   const existing = new Map(local.filter(track => track?.id).map(track => [key(track), track]))
   const seen = new Set(), result = []
   for (const track of [...live, ...local]) {

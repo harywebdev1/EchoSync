@@ -179,8 +179,8 @@ export function FullScreenPlayer({
                   className="icon-btn fp-queue-btn"
                   onClick={onToggleQueue}
                   aria-label={`Up Next queue, ${queueCount} tracks`}
-                  title={inRoom ? 'Queue is available outside rooms' : 'Playback queue'}
-                  disabled={inRoom}
+                  title={inRoom ? 'Room queue' : 'Playback queue'}
+
                 >
                   <ListMusic />
                   {queueCount > 0 && <SoloQueueBadge count={queueCount} />}

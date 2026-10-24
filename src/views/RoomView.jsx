@@ -1,3 +1,5 @@
+import { useSocial } from '../components/social/SocialContext.jsx'
+import { MemberDrift, RoomVote } from '../components/social/RoomSocialControls.jsx'
 import { useState } from 'react'
 import {
   Plus,
@@ -77,6 +79,7 @@ export function RoomView({
   onClearQueue,
   onImportPlaylist, onResync,
 }) {
+  const social = useSocial()
   const [importOpen, setImportOpen] = useState(false)
   const members = useMembers()
   const words = room.name.split(' ')
@@ -202,6 +205,7 @@ export function RoomView({
         </div>
       </section>}
 
+      <div className="room-member-strip" aria-label="Room member sync">{room.members.map(id=><button key={id} className="room-member" onClick={()=>social.openProfile(id)} aria-label={`Open ${members[id]?.name || id}'s profile`}><Avatar member={members[id]} size="sm"/><span>{members[id]?.name || id}</span><MemberDrift roomId={room.id} userId={id}/></button>)}{canControlRoom&&<button className="text-btn" onClick={social.forceResync}>⚡ Sync All</button>}</div>
       <div className="section-head">
         <div>
           <h3>The room queue</h3>
@@ -265,7 +269,7 @@ export function RoomView({
             <button className="text-btn" onClick={onSearch}><Plus size={12} /> Add a song</button>
           </div>
         )}
-        {queue.map((item, index) => {
+        {queue.map((item, index) => ({item,index})).filter(({index}) => index >= currentIndex).map(({item,index}) => {
           const active = index === currentIndex
           const itemReady = item?.status === 'ready' && Boolean(item?.streamUrl || item?.youtubeVideoId)
           const itemFailed = item?.status === 'error'
@@ -296,6 +300,7 @@ export function RoomView({
                   {itemFailed ? ' · Stream unavailable — tap to retry' : itemPending ? ' · Tuning into the room…' : ''}
                 </span>
               </div>
+              {index > currentIndex && <RoomVote room={room} trackId={item.id}/>}
               <div className="queue-right">
                 <span className="queue-dur">{itemReady ? formatTime(item.duration) : '—'}</span>
               </div>

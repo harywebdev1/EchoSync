@@ -1,3 +1,5 @@
+import { MemberDrift } from '../social/RoomSocialControls.jsx'
+import { useSocial } from '../social/SocialContext.jsx'
 import { useState } from 'react'
 import { ModalShell } from './ModalShell.jsx'
 import { X, Check, Copy, Link2, UserRoundPlus, Send, ShieldCheck, Disc3, Headphones, UserMinus, Shield } from 'lucide-react'
@@ -20,6 +22,7 @@ export function MembersModal({
   onAssignRole,
   onResolveRequest,
 }) {
+  const social=useSocial()
   const [query, setQuery] = useState('')
   const [copied, setCopied] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
@@ -141,7 +144,7 @@ export function MembersModal({
             const isSelf = id === currentUserId
             return (
               <div className="member-row" key={id}>
-                <Avatar member={member} size="sm" online={member?.online && member?.showActivity !== false} />
+                <button className="lounge-avatar-btn" onClick={()=>social.openProfile(id)} aria-label={`Open ${member?.name || id}'s profile`}><Avatar member={member} size="sm" online={member?.online && member?.showActivity !== false} /></button>
                 <span className="member-copy">
                   <strong>{member?.name || id} {isSelf && <em>you</em>}</strong>
                   <small>
@@ -149,7 +152,7 @@ export function MembersModal({
                     {member?.online && member?.showActivity !== false && (
                       <em className="member-live"><span className="live-dot" /> Listening</em>
                     )}
-                    <TelemetryPill compact className="member-sync-pill" />
+                    <MemberDrift roomId={room.id} userId={id}/>
                   </small>
                 </span>
                 {canModerate && !isSelf ? (

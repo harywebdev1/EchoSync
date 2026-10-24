@@ -1,3 +1,5 @@
+import { SongDrop } from './SongDrop.jsx'
+import { useSocial } from './SocialContext.jsx'
 import { useEffect, useRef, useState } from 'react'
 import {
   MoreHorizontal,
@@ -111,6 +113,7 @@ export function ChatDrawer({
   unreadLoungeCount = 0,
 }) {
   const members = useMembers()
+  const social = useSocial()
   const chatRef = useRef(null)
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
@@ -468,11 +471,11 @@ export function ChatDrawer({
                   key={message.id}
                   data-msg-id={message.id}
                 >
-                  {!mine && <Avatar member={author} size="sm" />}
+                  {!mine && <button className="lounge-avatar-btn" onClick={()=>social.openProfile(author.id)} aria-label={`Open ${author.name}'s profile`}><Avatar member={author} size="sm" /></button>}
                   <div className="msg-main">
                     {!mine && (
                       <div className="msg-author">
-                        {author.name}
+                        <button className="lounge-author-btn" onClick={()=>social.openProfile(author.id)}>{author.name}</button>
                         <span className="msg-handle">@{author.handle}</span>
                         {roleOf(message.author) === 'dj' && <span className="dj-tag">DJ</span>}
                       </div>
@@ -484,7 +487,7 @@ export function ChatDrawer({
                           <span>{message.replyTo.text || 'Voice note'}</span>
                         </button>
                       )}
-                      {message.type === 'voice' && message.voiceData ? (
+                      {message.type === 'song' && message.track ? <SongDrop track={message.track}/> : message.type === 'voice' && message.voiceData ? (
                         <VoiceNoteBubble
                           message={message}
                           isActive={voicePlayingId === message.id}
@@ -646,8 +649,8 @@ export function ChatDrawer({
                     placeholder={`Message the room as @${currentLabel}…`}
                     aria-label="Room message"
                   />
-                  <button
-                    className="voice-note-btn"
+                  <button className="share-song-btn" aria-label="Share song" title="Share current song" onClick={()=>social.shareSong('room')}>♫</button>
+                  <button className="voice-note-btn"
                     onClick={startRecording}
                     aria-label="Record voice note"
                     title="Record voice note"

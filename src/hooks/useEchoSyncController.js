@@ -1,6 +1,7 @@
+import { useSocialFeatures } from './useSocialFeatures.js'
 import { useOverlayHistory } from './useOverlayHistory.js'
 import { useStableActions } from './useStableActions.js'
-import { useEffect, useMemo, useCallback } from 'react'
+import { useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   consumeStorageFailure,
   accountDisplay,
@@ -428,7 +429,7 @@ export function useEchoSyncController() {
 
   const shellChatOpen = inRoom && view === 'room' && chatOpen
 
-  const shellQueueOpen = !roomPlaybackActive && queueOpen
+  const shellQueueOpen = queueOpen
 
   const shellDrawerOpen = shellChatOpen || loungeOpen || shellQueueOpen
 
@@ -2038,6 +2039,7 @@ export function useEchoSyncController() {
         description,
         trackIds: pendingPlaylistTrack ? [pendingPlaylistTrack.id] : [],
         createdAt: Date.now(),
+        visibility: 'public',
       }
       if (pendingPlaylistTrack) {
         rememberPlaylistTrack(pendingPlaylistTrack)
@@ -2533,6 +2535,13 @@ export function useEchoSyncController() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRoomId])
 
+  const social = useSocialFeatures({ currentUser, tasteProfile, library, playlists, recent, liked: likedSet, members:memberIndex, rooms, activeRoom, roomPlaybackActive, isPlaying, track,
+    channelRef, tabIdRef, roomsRef, activeRoomRef, roomClockRef, roomQueueRef, setRooms, setMessages, setPlaylists,
+    rememberTrack, toggleLike, queueSoloTrack, playSearchTrack: (candidate, context) => { searchTargetRef.current = { mode: 'solo', roomId: null }; viewRef.current = 'home'; setView('home'); return playSearchTrack(candidate, context) }, playPlaylist, joinRoom, inviteLoungeUser, showToast, upsertLoungeMessage,
+    getPlaybackTime: (...args)=>getPlaybackTime(...args), roomClockTime: (...args)=>roomClockTime(...args),
+    roomSnapshot: (...args)=>roomSnapshot(...args), applyRemoteState: (...args)=>applyRemoteState(...args),
+  })
+  const socialRef = useRef(social); socialRef.current = social
   const {
     broadcastRoom,
     requestRoomSync,
@@ -2597,6 +2606,7 @@ export function useEchoSyncController() {
       roomPlaybackActive,
     },
     actions: {
+      handleSocialEvent: data => socialRef.current.handleEvent(data),
       getPlaybackTime: (...args) => getPlaybackTime(...args),
       updatePlaybackProgress: (...args) => updatePlaybackProgress(...args),
       ensurePlayable: (...args) => ensurePlayable(...args),
@@ -3024,6 +3034,7 @@ export function useEchoSyncController() {
   ])
 
   return useStableActions({
+    social,
     queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     queueSoloTrack, startTasteRadio,
     startRoomTrack,

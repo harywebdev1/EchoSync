@@ -65,6 +65,7 @@ export function useRoomSync({
     roomPlaybackActive,
   },
   actions: {
+    handleSocialEvent,
     getPlaybackTime,
     updatePlaybackProgress,
     ensurePlayable,
@@ -342,6 +343,7 @@ export function useRoomSync({
     channel.onmessage = (event) => {
       const data = event.data
       if (!data || data.sender === tabIdRef.current) return
+      if (handleSocialEvent?.(data)) return
 
       if ((data.type === 'invite' || data.type === 'room-invite') && data.invite) {
         setInvites((previous) => (

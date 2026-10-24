@@ -1,3 +1,4 @@
+import { useSocial } from '../components/social/SocialContext.jsx'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Radio,
@@ -41,6 +42,7 @@ export function LibraryView({
   onOpenPlaylist,
   onImportPlaylist,
 }) {
+  const social=useSocial()
   const detailRef = useRef(null)
   useLayoutEffect(() => { if (activePlaylistId) detailRef.current?.closest('.stage-scroll')?.scrollTo({ top: 0, behavior: 'instant' }) }, [activePlaylistId])
   const [tab, setTab] = useState('playlists')
@@ -115,7 +117,7 @@ export function LibraryView({
               <span className="eyebrow"><span className="seg" /> PLAYLIST</span>
               <h2>{activePlaylist.name}</h2>
               <p>{activePlaylist.description || `Made by ${currentUser?.name || 'you'} · ${playlistTracks.length} track${playlistTracks.length === 1 ? '' : 's'}`}</p>
-              <div className="playlist-detail-actions">
+              <div className="playlist-detail-actions"><button className="text-btn" aria-label="Playlist visibility" onClick={()=>social.toggleVisibility(activePlaylist.id)}>{activePlaylist.visibility==='private'?'🔒 Private':'🌐 Public'}</button>
                 <button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button>
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onShufflePlaylist(activePlaylist)}><Shuffle size={12} /> Shuffle</button>
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>
@@ -266,11 +268,11 @@ export function LibraryView({
                       >
                         <Radio size={11} />
                       </span>
-                      <strong>{playlist.name}</strong>
+                      <span role="button" tabIndex={0} className="playlist-visibility" aria-label={`Visibility of ${playlist.name}`} onClick={event=>{event.stopPropagation();social.toggleVisibility(playlist.id)}} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();social.toggleVisibility(playlist.id)}}}>{playlist.visibility==='private'?'🔒 Private':'🌐 Public'}</span><strong>{playlist.name}</strong>
                       <span>{playlist.trackIds.length} track{playlist.trackIds.length === 1 ? '' : 's'}</span>
-                      <em onClick={(event) => { event.stopPropagation(); onPlayPlaylist(playlist) }} role="button" tabIndex={0}>
+                      {playlist.trackIds.length > 0 && <em onClick={(event) => { event.stopPropagation(); onPlayPlaylist(playlist) }} role="button" tabIndex={0}>
                         <Play size={11} /> Play
-                      </em>
+                      </em>}
                     </button>
                   )
                 })}

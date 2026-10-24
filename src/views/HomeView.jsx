@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Heart, ListPlus, Play, Plus, Radio, Shuffle, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, ListPlus, Music2, Play, Plus, Radio, Shuffle, Sparkles } from 'lucide-react'
 import { mergeMoodCatalog } from '../core/moodFeed.js'
 import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
 import { Cover } from '../components/Cover'
@@ -7,6 +7,7 @@ import { TrackCard } from '../components/TrackCard'
 import { HOME_MOODS, buildQuickPicksAndRadio, rankHomeTracks, topTasteLabels } from '../core/tasteEngine.js'
 
 function Collage({ tracks, className = '' }) {
+  if (!tracks.length) return <div className={`home-collage empty-playlist-cover ${className}`}><Music2/></div>
   return <div className={`home-collage ${className}`} aria-label="Your listening artwork">{Array.from({ length: 4 }, (_, i) => <Cover key={i} track={tracks[i % Math.max(tracks.length, 1)]} size="" />)}</div>
 }
 
@@ -65,7 +66,7 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
     <Shelf title="Fresh discoveries" subtitle="Make room for a new favorite" tracks={fresh.slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
     {liked.length > 0 && <Shelf title="Forgotten favorites" subtitle="A welcome return to your rotation" tracks={ranked.filter(track => liked.includes(track.id) && !recentIds.includes(track.id)).slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} />}
     {!tasteProfile?.events && <section className="home-taste-card"><Sparkles /><div><strong>Make this feel more like you</strong><span>Choose a few artists and moods you love.</span></div><button className="text-btn" onClick={onOpenTaste}>Tune your taste</button></section>}
-    <section className="home-section home-playlists"><div className="home-section-head"><h2>Your playlists</h2><button className="text-btn" onClick={onCreatePlaylist}><Plus size={16} /> New playlist</button></div>{!playlists.length ? <button className="playlist-create-card" onClick={onCreatePlaylist}><ListPlus /><strong>Make your first playlist</strong><span>A place for the songs that stay with you.</span></button> : <div className="playlist-grid">{playlists.map(playlist => <article className="home-playlist-item" key={playlist.id}><button onClick={() => onOpenPlaylist(playlist)}><Collage tracks={playlist.trackIds.map(id => library[id]).filter(Boolean)} /><strong>{playlist.name}</strong><span>{playlist.trackIds.length} tracks</span></button><button className="text-btn" onClick={() => onPlayPlaylist(playlist)}><Play size={16} /> Play playlist</button></article>)}</div>}</section>
+    <section className="home-section home-playlists"><div className="home-section-head"><h2>Your playlists</h2><button className="text-btn" onClick={onCreatePlaylist}><Plus size={16} /> New playlist</button></div>{!playlists.length ? <button className="playlist-create-card" onClick={onCreatePlaylist}><ListPlus /><strong>Make your first playlist</strong><span>A place for the songs that stay with you.</span></button> : <div className="playlist-grid">{playlists.map(playlist => <article className="home-playlist-item" key={playlist.id}><button onClick={() => onOpenPlaylist(playlist)}><Collage tracks={playlist.trackIds.map(id => library[id]).filter(Boolean)} /><strong>{playlist.name}</strong><span>{playlist.trackIds.length} tracks</span></button><button className="text-btn" disabled={!playlist.trackIds.length} onClick={() => onPlayPlaylist(playlist)}><Play size={16} /> Play playlist</button></article>)}</div>}</section>
   </div>
 })
 HomeView.displayName = 'HomeView'

@@ -101,7 +101,7 @@ export function SettingsModal({
                 <div>
                   <strong>{preview.name}</strong>
                   <span>@{preview.handle} · {preview.email}</span>
-                  <small>Your initials stay your badge. No avatar uploads, no bio.</small>
+                  <small>Your music, your rotation, your listening community.</small>
                 </div>
               </div>
               <div className="profile-stats">
@@ -147,7 +147,6 @@ export function SettingsModal({
               </div>
               {profileError && <span className="auth-error"><AlertCircle size={12} /> {profileError}</span>}
               <div className="modal-actions">
-                <button type="button" className="text-btn ghosted" onClick={onSignOut}><LogOut size={12} /> Sign out</button>
                 <button type="submit" className="primary-btn"><Save size={12} /> Save profile</button>
               </div>
             </form>

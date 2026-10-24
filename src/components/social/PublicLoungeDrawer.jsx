@@ -1,3 +1,5 @@
+import { SongDrop } from './SongDrop.jsx'
+import { useSocial } from './SocialContext.jsx'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AtSign,
@@ -46,6 +48,7 @@ export function PublicLoungeDrawer({
   onLogin,
   UserCard,
 }) {
+  const social = useSocial()
   const chatRef = useRef(null)
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
@@ -368,7 +371,7 @@ export function PublicLoungeDrawer({
                       <span>{message.replyTo.text || 'Voice note'}</span>
                     </button>
                   )}
-                  {message.type === 'voice' && message.voiceData ? (
+                  {message.type === 'song' && message.track ? <SongDrop track={message.track}/> : message.type === 'voice' && message.voiceData ? (
                     <VoiceNoteBubble
                       message={message}
                       isActive={voicePlayingId === message.id}
@@ -535,8 +538,8 @@ export function PublicLoungeDrawer({
                   aria-label="Public Lounge message"
                   data-testid="lounge-input"
                 />
-                <button
-                  className="voice-note-btn"
+                <button className="share-song-btn" aria-label="Share song" title="Share current song" onClick={()=>social.shareSong('lounge')}>♫</button>
+                <button className="voice-note-btn"
                   onClick={startRecording}
                   aria-label="Record a Lounge voice note"
                   title="Record a voice note"

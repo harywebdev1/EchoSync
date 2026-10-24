@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchJioSearch } from '../lib/appServices.js'
-import { moodQueries } from '../core/moodFeed.js'
+import { collectMoodResults, moodQueries } from '../core/moodFeed.js'
 import { topTasteLabels } from '../core/tasteEngine.js'
 
 // Immediate local ranking stays in Home. Only the latest mood request can publish.
@@ -15,11 +15,7 @@ export function useLiveMoodFeed(mood, profile) {
     Promise.allSettled(queries.map(query => fetchJioSearch(query, 30, { fresh: true, page: 1 + rotation.current % 2 })))
       .then(results => {
         if (cancelled) return
-        const seen = new Set()
-        const tracks = results.flatMap(result => result.status === 'fulfilled' ? result.value : []).filter(track => {
-          if (!track?.id || seen.has(track.id) || track.preview || !(Number(track.duration) >= 60)) return false
-          seen.add(track.id); return true
-        })
+        const tracks = collectMoodResults(results)
         setFeed({ mood, tracks, status: tracks.length ? 'ready' : 'error' })
       })
     return () => { cancelled = true }

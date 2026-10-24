@@ -120,9 +120,9 @@ export const PlayerDock = memo(function PlayerDock({
             className={`icon-btn dock-mode dock-queue ${queueOpen ? 'active' : ''}`}
             onClick={onToggleQueue}
             aria-label={`Up Next queue, ${queueCount} tracks`}
-            title={inRoom ? 'Queue is available outside rooms' : 'Playback queue'}
+            title={inRoom ? 'Room queue' : 'Playback queue'}
             data-testid="queue-btn"
-            disabled={inRoom}
+
           >
             <ListMusic />
             {queueCount > 0 && <QueueBadge count={queueCount} />}

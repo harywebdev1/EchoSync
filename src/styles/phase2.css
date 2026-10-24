@@ -1,0 +1,40 @@
+.app.light .home-v81 .home-chip.active, [data-theme="light"] .home-chip.active { background:#111827; color:#fff; border-color:#111827; }
+.app.light .stage-bar { background:rgba(255,255,255,.78); backdrop-filter:blur(18px); }
+.empty-playlist-cover { display:grid; place-items:center; background:linear-gradient(135deg,var(--surface-2),var(--song-surface)); }
+.empty-playlist-cover > svg { width:40px; height:40px; color:var(--text-2); }
+.playlist-mosaic:has(.mosaic-empty) { display:grid; grid-template-columns:1fr; }
+.mosaic-empty { grid-column:1/-1; grid-row:1/-1; display:grid; place-items:center; }
+.settings-subhead strong,.settings-subhead span { display:block; }
+.settings-subhead { margin:22px 0 14px; }
+.settings-subhead span { margin-top:6px; color:var(--text-2); }
+.settings-profile-top .avatar { display:grid; place-items:center; flex-shrink:0; }
+.settings-body { scrollbar-width:thin; scrollbar-color:var(--scrollbar) transparent; }
+.settings-body::-webkit-scrollbar { width:6px; }
+.settings-body::-webkit-scrollbar-thumb { background:var(--scrollbar); border-radius:20px; }
+.channel-profile { position:fixed; left:auto; bottom:auto; z-index:180; right:24px; top:80px; width:min(390px,calc(100vw - 32px)); max-height:calc(100dvh - 110px); overflow:auto; padding:24px; border:1px solid var(--line-strong); border-radius:20px; background:var(--surface-solid); box-shadow:var(--shadow); }
+.channel-profile h4 { margin:20px 0 10px; font-size:15px; }
+.channel-profile p { font-size:13.5px; color:var(--text-2); line-height:1.5; }
+.taste-match { border-radius:999px; padding:10px 12px; margin-top:18px; background:var(--song-surface); font-size:14px; font-weight:600; }
+.channel-track { display:flex; align-items:center; gap:10px; width:100%; padding:8px 0; background:none; border:0; text-align:left; }
+.channel-track > span { flex:1; min-width:0; }
+.channel-track strong,.channel-track small { display:block; overflow:hidden; text-overflow:ellipsis; }
+.channel-track small { font-size:12px; color:var(--text-2); margin-top:4px; }
+.channel-playlist { border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:8px; }
+.channel-playlist > span { margin-left:8px; color:var(--text-2); font-size:12px; }
+.channel-playlist > div { display:flex; gap:8px; margin-top:10px; }
+.channel-playlist button,.song-drop-actions button { display:inline-flex; gap:5px; align-items:center; border:1px solid var(--line-strong); border-radius:8px; padding:8px; background:var(--surface-2); font-size:12px; }
+.share-song-btn { flex-shrink:0; width:32px; min-height:36px; border:0; background:transparent; color:var(--text); font-size:22px; }
+.song-drop { display:grid; grid-template-columns:44px minmax(0,1fr); gap:10px; min-width:180px; }
+.song-drop .cover { width:44px; height:44px; }
+.song-drop-copy strong,.song-drop-copy span { display:block; overflow-wrap:anywhere; }
+.song-drop-copy span { font-size:12px; opacity:.8; margin-top:3px; }
+.song-drop-actions { grid-column:1/-1; display:flex; gap:5px; flex-wrap:wrap; }
+.room-member-strip { display:flex; gap:10px; flex-wrap:wrap; margin:18px 0; }
+.room-member { display:flex; gap:7px; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:12px; background:var(--surface); font-size:12px; }
+.member-drift { display:inline-flex; gap:5px; align-items:center; font-size:12px; color:var(--text-2); }
+.member-drift i { width:7px; height:7px; border-radius:50%; background:#9ca3af; }
+.member-drift.green i { background:#22c55e; }.member-drift.amber i { background:#f59e0b; }.member-drift.red i { background:#ef4444; }
+.room-vote { padding:7px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--text-2); font-size:12px; min-width:42px; }
+.room-vote[aria-pressed="true"] { color:var(--song-accent); border-color:currentColor; }
+.playlist-visibility { font-size:12px; padding:6px 0; color:var(--text-2); }
+@media(max-width:880px) { .channel-profile { top:60px; right:16px; } .room-member-strip { gap:6px; } .room-member { flex-wrap:wrap; } }

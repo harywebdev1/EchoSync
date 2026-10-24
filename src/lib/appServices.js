@@ -324,7 +324,8 @@ function normalizeLoungeMessage(raw) {
     author: safeText(raw.author),
     userName: safeText(raw.userName, 'Listener').slice(0, 80),
     authorHandle: safeText(raw.authorHandle, 'listener').slice(0, 32),
-    type: isVoice ? 'voice' : 'text',
+    type: isVoice ? 'voice' : raw.type === 'song' && raw.track?.id ? 'song' : 'text',
+    ...(raw.type === 'song' && raw.track?.id ? { track: sanitizeTrack(raw.track) } : {}),
     text: isVoice ? '' : text,
     voiceData,
     duration: Math.max(1, Math.min(45, Number(raw.duration) || 1)),
@@ -1500,12 +1501,13 @@ async function fetchJioSearch(query, limit = 12, options = {}) {
     try {
       const payload = await fetchJson(
         `${base}/api/search/songs?query=${encodeURIComponent(query)}&limit=${limit}&page=${options.page || 1}`,
-        { timeout: 4200 },
+        { timeout: 9500 },
       )
       const results = payload?.data?.results || payload?.data?.songs?.results || []
       if (Array.isArray(results) && results.length) {
         const tracks = results.map(normalizeSaavn).filter(Boolean)
         if (tracks.length) {
+          saavnBackoffUntil = 0
           cacheSearchEntry('jio', query, limit, tracks)
           return tracks
         }
