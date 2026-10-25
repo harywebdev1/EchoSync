@@ -15,6 +15,7 @@ export function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoi
       <h1 className="page-title">Find your <em>frequency.</em></h1>
       <p className="page-sub">Small rooms, shared speakers, and a queue that moves together. Start one, invite a friend, or join with a code.</p>
 
+      {!rooms.length&&<div className="rooms-empty-banner" role="status">No public rooms live right now — Start a room below to host a session, or click 'Join with code' if a friend shared a private invite code.</div>}
       <div className="rooms-grid">
         <button className="room-card create-room-card" onClick={onCreate}>
           <div className="rc-create-glyph"><Plus /></div>

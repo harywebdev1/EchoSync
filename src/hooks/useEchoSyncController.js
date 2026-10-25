@@ -648,7 +648,6 @@ export function useEchoSyncController() {
   }, [invites])
 
   useEffect(() => {
-    if (!currentUserId) return
     const visible = liked.filter((id) => library[id])
     if (visible.length !== liked.length) {
       setLiked(visible)
@@ -656,7 +655,7 @@ export function useEchoSyncController() {
     }
     writeUserValue(
       LIKES_KEY,
-      currentUserId,
+      currentUserId || 'guest',
       visible.map((id) => sanitizeTrack(library[id])),
     )
   }, [currentUserId, liked, library])
@@ -667,8 +666,7 @@ export function useEchoSyncController() {
   }, [currentUserId, playlists])
 
   useEffect(() => {
-    if (!currentUserId) return
-    writeUserValue(RECENT_KEY, currentUserId, recent)
+    writeUserValue(RECENT_KEY, currentUserId || 'guest', recent)
   }, [currentUserId, recent])
 
   useEffect(() => {
@@ -2560,6 +2558,7 @@ export function useEchoSyncController() {
       const likes=readUserValue(LIKES_KEY,id,[])
       return {likes:likes.map(item=>typeof item==='string'?library[item]:item).filter(Boolean),playlists:readUserValue(PLAYLISTS_KEY,id,[]),taste:loadTasteProfile(id),library}
     },
+    onPasswordRecovery:()=>{setAuthMode('recovery');setAuthReason('Choose a new password for your account.');setAuthOpen(true)},
     clearLocalIdentity:()=>{setCurrentUserId(null);setRooms(previous=>previous.filter(room=>room.cloud))},onSignedOut:localSignOut,
     onHydrate:(user,data)=>{
       const p=data.profile
@@ -2925,7 +2924,7 @@ export function useEchoSyncController() {
   }
 
   function requireAuth(action, reason = 'Log in to continue.', mode = 'signin', notice = '') {
-    if (currentUser) return false
+    if (currentUser || ['playSolo','queueSolo','togglePlay','next','previous','like'].includes(action?.type)) return false
     pendingAuthActionRef.current = action || null
     setAuthMode(mode === 'signup' ? 'signup' : 'signin')
     setAuthReason(reason)
@@ -3130,7 +3129,7 @@ export function useEchoSyncController() {
   ])
 
   return useStableActions({
-    social, googleSignIn:cloud.google, cloudMode:cloud.configured,
+    social, googleSignIn:cloud.google, cloudMode:cloud.configured, resetPassword:cloud.resetPassword, completePasswordRecovery:cloud.completePasswordRecovery,
     queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     queueSoloTrack, startTasteRadio,
     startRoomTrack,

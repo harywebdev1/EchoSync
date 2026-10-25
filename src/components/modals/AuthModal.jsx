@@ -3,14 +3,15 @@ import { ModalShell } from './ModalShell.jsx'
 import { Headphones, X, Radio, Mail, AtSign, Lock, AlertCircle, KeyRound, ArrowRight } from 'lucide-react'
 import { slugifyHandle } from '../../lib/appServices.js'
 
-export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch, onSignIn, onSignUp, onGoogle, cloudMode = false }) {
+export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch, onSignIn, onSignUp, onGoogle, onResetPassword, onCompleteRecovery, cloudMode = false }) {
   const [form, setForm] = useState({ email: '', username: '', identifier: '', password: '' })
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
   const [busy,setBusy]=useState(false)
+  const [resetView,setResetView]=useState(false),[feedback,setFeedback]=useState(''),[legal,setLegal]=useState(null)
 
   useEffect(() => {
-    setError('')
+    setError('');setFeedback('');setResetView(false)
   }, [mode])
 
   const submit = async (event) => {
@@ -18,6 +19,11 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
     if(busy)return
     setError('');setBusy(true)
     try {
+    if(resetView || mode==='recovery'){
+      const result=await(mode==='recovery'?onCompleteRecovery(form.password):onResetPassword(form.email))
+      if(result?.error)setError(result.error);else setFeedback(result?.message||'Check your email for recovery instructions.')
+      return
+    }
     const result = await (mode === 'signin'
       ? onSignIn({ identifier: form.identifier, password: form.password, remember })
       : onSignUp({
@@ -41,7 +47,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
       </div>
       <div className="auth-modal-copy">
         <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'WELCOME BACK' : 'THREE FIELDS. THAT’S IT.'}</span>
-        <h2>{mode === 'signin' ? 'Sign in to EchoSync' : 'Create your listening account'}</h2>
+        <h2>{mode==='recovery'?'Choose a new password':resetView?'Reset your password':mode === 'signin' ? 'Sign in to EchoSync' : 'Create your listening account'}</h2>
         <p>{reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'No display-name theatre. Pick a handle, add your email, and listen.')}</p>
       </div>
 
@@ -52,14 +58,14 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         </div>
       )}
 
-      <div className="auth-switch auth-switch-top">
+      {!resetView&&mode!=='recovery'&&<div className="auth-switch auth-switch-top">
         <button className={mode === 'signin' ? 'active' : ''} onClick={() => onSwitch('signin')}>Log in</button>
         <button className={mode === 'signup' ? 'active' : ''} onClick={() => onSwitch('signup')}>Sign up</button>
-      </div>
+      </div>}
 
-      <button className="secondary-btn full" onClick={onGoogle} disabled={busy}>Continue with Google</button>
+      {!resetView&&mode!=='recovery'&&<button className="secondary-btn full" onClick={onGoogle} disabled={busy}>Continue with Google</button>}
       <form className="auth-form" onSubmit={submit}>
-        {mode === 'signup' ? (
+        {resetView ? <label className="field"><span>Email</span><input type="email" required autoFocus autoComplete="email" value={form.email} onChange={e=>setForm(v=>({...v,email:e.target.value}))} placeholder="you@example.com"/></label> : mode==='recovery' ? <label className="field"><span>New password</span><input type="password" required minLength={8} autoComplete="new-password" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label> : mode === 'signup' ? (
           <>
             <label className="field">
               <span>Email</span>
@@ -148,26 +154,29 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
           </>
         )}
 
-        <label className="remember-row">
+        {!resetView&&mode==='signin'&&<button type="button" className="text-btn forgot-password" onClick={()=>{setResetView(true);setError('');setFeedback('');setForm(v=>({...v,email:v.identifier.includes('@')?v.identifier:''}))}}>Forgot password?</button>}
+        {!resetView&&mode!=='recovery'&&<label className="remember-row">
           <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
           <span>Remember me on this device</span>
-        </label>
+        </label>}
 
-        {error && <span className="auth-error"><AlertCircle size={12} /> {error}</span>}
+        {feedback&&<p role="status">{feedback}</p>}
+        {error && <span className="auth-error" role="alert"><AlertCircle size={12} /> {error}</span>}
 
         <button className="primary-btn full" type="submit" disabled={busy}>
           <KeyRound />
-          {mode === 'signin' ? 'Log in' : 'Create account'}
+          {mode==='recovery'?'Update password':resetView?'Send reset link':mode === 'signin' ? 'Log in' : 'Create account'}
           <ArrowRight size={16} />
         </button>
       </form>
 
-      <div className="auth-switch auth-switch-bottom">
+      {resetView ? <button className="text-btn" onClick={()=>{setResetView(false);setFeedback('');setError('')}}>Back to sign in</button> : mode==='recovery' ? <button className="text-btn" onClick={onClose}>Return to listening</button> : <div className="auth-switch auth-switch-bottom">
         <span>{mode === 'signin' ? 'New to EchoSync?' : 'Already have an account?'}</span>
         <button onClick={() => onSwitch(switching)}>{mode === 'signin' ? 'Create an account' : 'Log in'}</button>
-      </div>
+      </div>}
 
-      <p className="auth-legal">By continuing you agree to keep the aux cord democratic.</p>
+      <p className="auth-legal"><a href="#terms" onClick={e=>{e.preventDefault();setLegal('terms')}}>Terms of Service</a> · <a href="#privacy" onClick={e=>{e.preventDefault();setLegal('privacy')}}>Privacy Policy</a> · {cloudMode?'Encrypted via Supabase Auth':'Local device storage'}</p>
+      {legal&&<section className="auth-trust-summary" aria-label={legal==='terms'?'Terms of Service':'Privacy Policy'}><h3>{legal==='terms'?'Terms of Service':'Privacy Policy'}</h3><p>{legal==='terms'?'Use EchoSync respectfully. Share only content you have permission to share. Music availability depends on upstream providers; rooms and public posts must respect other listeners.':'Guest likes and listening preferences stay on this device. Signing in stores profile and library data in Supabase. Public profiles, Lounge posts and shared voice URLs can be read by others; keep private information out of public posts. Passwords are handled by Supabase Auth in cloud mode.'}</p><button className="text-btn" onClick={()=>setLegal(null)}>Close summary</button></section>}
     </ModalShell>
   )
 }

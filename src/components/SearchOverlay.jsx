@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, Fragment } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useMemo, Fragment } from 'react'
 import {
   AudioLines,
   Clock3,
@@ -31,6 +31,7 @@ export function SearchOverlay({
   onQueue,
   onAddToPlaylist,
   onSearch,
+  catalog = {},
   suggestions = [],
   recentSearches = [],
   onSearchCommit,
@@ -47,40 +48,29 @@ export function SearchOverlay({
   const [results, setResults] = useState([])
   const [status, setStatus] = useState('idle')
 
-  const latestQuery = useRef('')
-
-  useEffect(() => {
-
-    const onKey = (event) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  useEffect(() => {
-    const trimmed = query.trim()
-    latestQuery.current = trimmed
-    if (trimmed.length < 2) {
-      setStatus('idle')
-      setResults([])
-      return undefined
-    }
-    latestQuery.current = trimmed
-    setStatus('loading')
-    const timer = setTimeout(async () => {
-      onSearchCommit?.(trimmed)
-      try {
-        const found = await onSearch(trimmed)
-        if (latestQuery.current !== trimmed) return
-        setResults(found)
-        setStatus('ready')
-      } catch {
-        if (latestQuery.current === trimmed) setStatus('error')
-      }
-    }, 380)
-    return () => { clearTimeout(timer); latestQuery.current = null }
-  }, [query, onSearch, onSearchCommit])
+  const [retry,setRetry]=useState(0)
+  const callbacks=useRef({onSearch,onSearchCommit});callbacks.current={onSearch,onSearchCommit}
+  useEffect(()=>{const key=e=>{if(e.key==='Escape')onClose()};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[onClose])
+  useEffect(()=>{
+    const trimmed=query.trim();let cancelled=false,deadline
+    if(trimmed.length<2){setStatus('idle');setResults([]);return}
+    setStatus('loading');setResults([])
+    const controller=new AbortController()
+    const timeout=new Promise((_,reject)=>{deadline=setTimeout(()=>{controller.abort();reject(new Error('Search timed out'))},5000)})
+    const timer=setTimeout(async()=>{
+      callbacks.current.onSearchCommit?.(trimmed)
+      try{const found=await Promise.race([callbacks.current.onSearch(trimmed,{signal:controller.signal,retry:retry>0}),timeout]);if(!cancelled){setResults(found);setStatus('ready')}}
+      catch{if(!cancelled)setStatus('error')}
+      finally{clearTimeout(deadline)}
+    },150)
+    return()=>{cancelled=true;clearTimeout(timer);clearTimeout(deadline);controller.abort()}
+  },[query,retry])
+  const instant=useMemo(()=>{
+    const words=query.toLowerCase().trim().split(/\s+/).filter(Boolean)
+    if(query.trim().length<2)return[]
+    return Object.values(catalog).filter(t=>t?.id&&!t.preview&&!(t.duration>0&&t.duration<60)&&words.every(word=>(t.title+' '+t.artist).toLowerCase().includes(word))).slice(0,20)
+  },[catalog,query])
+  const visibleResults=[...new Map([...results,...instant].map(t=>[t.id,t])).values()]
 
   useLayoutEffect(() => {
     const place = () => {
@@ -169,7 +159,7 @@ export function SearchOverlay({
             <div className="search-loading"><span className="spinner" /> Searching the catalogue...</div>
           )}
 
-          {status === 'ready' && results.length === 0 && (
+          {status === 'ready' && visibleResults.length === 0 && (
             <div className="no-results">
               <span>No streams found for "{query}". Try another spelling or artist.</span>
               <button className="text-btn" onClick={onOpenTaste}><Sparkles size={12} /> Refine your taste</button>
@@ -177,13 +167,14 @@ export function SearchOverlay({
           )}
 
           {status === 'error' && (
-            <div className="no-results">Search is unavailable right now. Try again in a moment.</div>
+            <div className="search-recovery" role="status">Live search is taking too long or unavailable. Instant matches are still playable. <button className="text-btn" onClick={()=>setRetry(n=>n+1)}>↻ Retry search</button></div>
           )}
 
-          {status === 'ready' && results.length > 0 && (
+          {instant.length>0 && status!=='ready' && <h3 className="instant-label">Instant matches</h3>}
+          {visibleResults.length > 0 && (
             <>
               <div className="search-caption"><span>Top result</span><b>{results.length} streams</b></div>
-              {results.map((track, index) => (
+              {visibleResults.map((track, index) => (
                 <Fragment key={track.id}>{index === 1 && <h3 className="search-song-heading">Songs</h3>}<div
                   key={track.id}
                   className={`search-result ${index === 0 ? 'search-top-result' : ''}`}
@@ -191,8 +182,8 @@ export function SearchOverlay({
                   tabIndex={0}
                   data-provider={track.provider}
                   data-track-id={track.id}
-                  onClick={() => onPlay(track, results)}
-                  onKeyDown={(event) => event.key === 'Enter' && onPlay(track, results)}
+                  onClick={() => onPlay(track, visibleResults)}
+                  onKeyDown={(event) => event.key === 'Enter' && onPlay(track, visibleResults)}
                 >
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
@@ -205,7 +196,7 @@ export function SearchOverlay({
                     disabled={context.mode === 'room' && !canControlRoom}
                     onClick={(event) => {
                       event.stopPropagation()
-                      onPlay(track, results)
+                      onPlay(track, visibleResults)
                     }}
                     aria-label={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
                     title={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}

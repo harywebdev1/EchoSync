@@ -76,6 +76,14 @@ let passed = 0
       const limited = await endpoint(createSaavnHandler({ fetchImpl: async () => Response.json({ error: 'Rate limited' }, { status: 429 }) }))
       assert.equal((await fetch(limited + '/api/saavn/api/songs/test')).status, 429)
     })
+    await check('empty and malformed search responses fail over; all valid empty mirrors stay empty',async()=>{
+      const {createSaavnHandler}=await import('./server/saavn.js')
+      let calls=0
+      const base=await endpoint(createSaavnHandler({fetchImpl:async()=>{calls++;return Response.json(calls===1?{results:[]}:calls===2?{error:'unavailable'}:{data:{results:[{id:'mirror',duration:180}]}})}}))
+      const result=await fetch(base+'/api/saavn/api/search/songs?query=empty');assert.equal(result.status,200);assert.equal((await result.json()).data.results[0].id,'mirror');assert.equal(calls,3)
+      const empty=await endpoint(createSaavnHandler({fetchImpl:async url=>Response.json(new URL(url).hostname==='www.jiosaavn.com'?{results:[]}:{data:{results:[]}})}))
+      const response=await fetch(empty+'/api/saavn/api/search/songs?query=unmatched');assert.equal(response.status,200);assert.deepEqual((await response.json()).data.results,[])
+    })
     await check('serverless entrypoints import as Node handlers without initializing upstream clients', () => {
       assert.equal(typeof mediaRoute.default, 'function'); assert.equal(typeof youtubeRoute.default, 'function')
     })

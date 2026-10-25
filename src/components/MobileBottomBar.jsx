@@ -32,7 +32,7 @@ export function MobileMiniPlayer({
       <button type="button" className="mini-art" onClick={onOpenFull} aria-label="Open full player">
         <Cover track={track} size="" playing={isPlaying} />
       </button>
-      <button type="button" className="mini-copy" onClick={onOpenFull}>
+      <button type="button" className="mini-copy" aria-label={`Open full player for ${track.title || 'current track'}`} onClick={onOpenFull}>
         <strong>{track.title || 'Nothing playing'}</strong>
         <span>{track.artist || 'EchoSync'}</span>
       </button>

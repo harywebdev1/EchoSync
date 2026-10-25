@@ -45,17 +45,17 @@ const [activeRoomId, setActiveRoomId] = useState(null)
 const [tasteProfile, setTasteProfile] = useState(() => loadTasteProfile(currentUserId))
 const [library, setLibrary] = useState(() => {
     const base = buildInitialLibrary()
-    return mergeLikedTracks(base, readUserValue(LIKES_KEY, currentUserId, [])).library
+    return mergeLikedTracks(base, readUserValue(LIKES_KEY, currentUserId || 'guest', [])).library
   })
 const [liked, setLiked] = useState(() => (
-    likedIdsFrom(readUserValue(LIKES_KEY, currentUserId, []))
+    likedIdsFrom(readUserValue(LIKES_KEY, currentUserId || 'guest', []))
   ))
 const [playlists, setPlaylists] = useState(() => {
     const value = readUserValue(PLAYLISTS_KEY, currentUserId, [])
     return Array.isArray(value) ? value.map(sanitizePlaylist).filter(Boolean) : []
   })
 const [recent, setRecent] = useState(() => {
-    const value = readUserValue(RECENT_KEY, currentUserId, [])
+    const value = readUserValue(RECENT_KEY, currentUserId || 'guest', [])
     return Array.isArray(value) ? value.map((id) => safeText(id)).filter(Boolean) : []
   })
 const [settings, setSettings] = useState(() => ({

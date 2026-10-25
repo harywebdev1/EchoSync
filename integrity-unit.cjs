@@ -307,6 +307,14 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     votes=mergeVote(votes,'third','bob',{active:false,ts:13,op:'d'})
     assert.deepEqual(rankRoomQueue(['past','playing','third','first','second'],1,votes,ids),ids)
   })
+  await check('Home allocates only visible stems across disjoint shelves and preserves candidates',async()=>{
+    const {allocateHomeShelves,songStem}=await import('./src/core/moodFeed.js')
+    const tracks=Array.from({length:30},(_,i)=>({id:String(i),title:'Song '+i,artist:'Artist'}))
+    const before=JSON.stringify(tracks),duplicate={...tracks[0],id:'duplicate',title:'Song 0 (From "Album")'}
+    const sections=allocateHomeShelves([...tracks,duplicate],[duplicate,...tracks],tracks)
+    assert.equal(sections.quickPicks.length,12);assert.equal(sections.familiar.length,10);assert.equal(sections.fresh.length,8)
+    const all=[...sections.quickPicks,...sections.familiar,...sections.fresh];assert.equal(new Set(all.map(songStem)).size,30);assert.equal(JSON.stringify(tracks),before)
+  })
   await check('core modules load without platform globals or UI imports', () => {
     for (const file of fs.readdirSync(__dirname + '/src/core').filter(file => file.endsWith('.js'))) {
       const source = read('src/core/' + file)

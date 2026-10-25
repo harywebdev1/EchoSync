@@ -93,7 +93,7 @@ async function verifyPart1A(browser) {
       const url = new global.URL(route.request().url()), query = url.searchParams.get('query'); queries.push(query)
       const mood = /workout|gym|tempo/.test(query) ? 'Workout' : /acoustic|ballad|unplugged/.test(query) ? 'Relax' : /qawwali|Sufi|Coke Studio|soulful/.test(query) ? 'Sufi' : 'Live'
       if (mood === 'Workout') await new Promise(resolve => setTimeout(resolve, 120))
-      const songs = Array.from({ length: 18 }, (_, i) => ({ id: mood.toLowerCase() + '-' + i, name: mood + ' fresh ' + i, duration: i === 17 ? 30 : 180, primaryArtists: 'Atif Aslam', image: [{ quality: '500x500', url: 'https://c.saavncdn.com/fixture-' + (i % 2 ? 'orange' : 'blue') + '.jpg' }], downloadUrl: [{ quality: '320kbps', url: 'https://aac.saavncdn.com/integrity/chaleya.wav?seconds=180' }] }))
+      const songs = Array.from({ length: 18 }, (_, i) => ({ id: mood.toLowerCase() + '-' + i, name: mood + ' fresh ' + i, album: { name: mood === 'Relax' ? 'Acoustic unplugged ballads' : mood + ' hits' }, duration: i === 17 ? 30 : 180, primaryArtists: 'Atif Aslam', image: [{ quality: '500x500', url: 'https://c.saavncdn.com/fixture-' + (i % 2 ? 'orange' : 'blue') + '.jpg' }], downloadUrl: [{ quality: '320kbps', url: 'https://aac.saavncdn.com/integrity/chaleya.wav?seconds=180' }] }))
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: { results: songs } }) })
     })
     await page.goto(URL, { waitUntil: 'domcontentloaded' })

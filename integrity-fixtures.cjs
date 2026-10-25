@@ -18,9 +18,9 @@ function wav(seconds = 180) {
   return data
 }
 
-function fixtureState({ duration = 180, streamSeconds = 180 } = {}) {
+function fixtureState({ duration = 180, streamSeconds = 180, trackOverrides = {} } = {}) {
   const ordered = [...seeds.filter(track => ['chaleya', 'excuses'].includes(track.id)), ...seeds.filter(track => !['chaleya', 'excuses'].includes(track.id))]
-  const tracks = ordered.map(track => ({ ...track, duration, streamUrl: `https://aac.saavncdn.com/integrity/${track.id}.wav?seconds=${streamSeconds}`, preview: false, status: 'ready' }))
+  const tracks = ordered.map(track => ({ ...track, duration, streamUrl: `https://aac.saavncdn.com/integrity/${track.id}.wav?seconds=${streamSeconds}`, preview: false, status: 'ready', ...trackOverrides[track.id] }))
   const user = { id: 'integrity', name: 'Integrity Tester', handle: 'integrity', email: 'integrity@example.test', password: 'test-only', showActivity: true, allowInvites: true }
   const date = new Date().toISOString().slice(0, 10)
   const values = {
@@ -36,6 +36,8 @@ function fixtureState({ duration = 180, streamSeconds = 180 } = {}) {
 }
 
 async function installFixtures(context) {
+  // Fixture accounts stay local even when the production build has cloud env vars.
+  await context.addInitScript(()=>{window.__ECHOSYNC_SUPABASE__ ||= {url:'',key:''}})
   const stored = (await context.storageState()).origins.find(origin => origin.origin === APP_URL)?.localStorage || []
   const configured = JSON.parse(stored.find(entry => entry.name === 'echosync.library.v1')?.value || '{}')
   const audio = new Map()

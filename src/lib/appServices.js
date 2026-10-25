@@ -516,6 +516,18 @@ const SEED_TRACKS = [
   { id: 'afreen-afreen', title: 'Afreen Afreen', artist: 'Rahat Fateh Ali Khan', album: 'Coke Studio Season 9', duration: 400, c1: '#2f2a1d', c2: '#b28e4a', cover: 'https://is1-ssl.mzstatic.com/image/thumb/Music71/v4/95/ff/b0/95ffb0d1-ba72-767e-a4e4-6e7989524b03/190394811402.jpg/600x600bb.jpg' },
   { id: 'raataan-lambiyan', title: 'Raataan Lambiyan', artist: 'Jubin Nautiyal', album: 'Shershaah', duration: 230, c1: '#232b35', c2: '#a06a6a', cover: 'https://c.saavncdn.com/238/Shershaah-Original-Motion-Picture-Soundtrack--Hindi-2021-20210815181610-500x500.jpg' },
   { id: 'kabira', title: 'Kabira', artist: 'Tochi Raina', album: 'Yeh Jawaani Hai Deewani', duration: 224, c1: '#2d2a20', c2: '#a88654', cover: 'https://c.saavncdn.com/440/Yeh-Jawaani-Hai-Deewani-2013-500x500.jpg' },
+  {"id":"channa-mereya","title":"Channa Mereya","artist":"Arijit Singh","duration":0,"status":"pending"},
+  {"id":"tera-hone-laga-hoon","title":"Tera Hone Laga Hoon","artist":"Atif Aslam","duration":0,"status":"pending"},
+  {"id":"pehli-nazar-mein","title":"Pehli Nazar Mein","artist":"Atif Aslam","duration":0,"status":"pending"},
+  {"id":"dil-diyan-gallan","title":"Dil Diyan Gallan","artist":"Atif Aslam","duration":0,"status":"pending"},
+  {"id":"kun-faya-kun","title":"Kun Faya Kun","artist":"A.R. Rahman","duration":0,"status":"pending"},
+  {"id":"iktara","title":"Iktara","artist":"Kavita Seth","duration":0,"status":"pending"},
+  {"id":"agar-tum-saath-ho","title":"Agar Tum Saath Ho","artist":"Alka Yagnik","duration":0,"status":"pending"},
+  {"id":"sajni","title":"Sajni","artist":"Arijit Singh","duration":0,"status":"pending"},
+  {"id":"husn","title":"Husn","artist":"Anuv Jain","duration":0,"status":"pending"},
+  {"id":"jo-tum-mere-ho","title":"Jo Tum Mere Ho","artist":"Anuv Jain","duration":0,"status":"pending"},
+  {"id":"tu-jhoom","title":"Tu Jhoom","artist":"Naseebo Lal & Abida Parveen","duration":0,"status":"pending"},
+  {"id":"kahani-suno","title":"Kahani Suno 2.0","artist":"Kaifi Khalil","duration":0,"status":"pending"},
 ]
 
 const SEED_BY_ID = Object.fromEntries(SEED_TRACKS.map((track) => [track.id, track]))
@@ -1317,7 +1329,7 @@ function mirrorKeyFromUrl(url) {
 }
 
 async function fetchJson(url, options = {}) {
-  const { timeout = 4500, ...rest } = options
+  const { timeout = 4500, signal: externalSignal, ...rest } = options
   const mirrorKey = mirrorKeyFromUrl(url)
   if (!url.startsWith('/api/') && deadMirrors.has(mirrorKey)) {
     const error = new Error('Mirror unavailable')
@@ -1326,6 +1338,9 @@ async function fetchJson(url, options = {}) {
     throw error
   }
   const controller = new AbortController()
+  const abortExternal = () => controller.abort()
+  if(externalSignal?.aborted)controller.abort()
+  externalSignal?.addEventListener('abort',abortExternal,{once:true})
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
     const response = await fetch(url, { ...rest, credentials: 'omit', signal: controller.signal })
@@ -1338,6 +1353,7 @@ async function fetchJson(url, options = {}) {
     return await response.json()
   } finally {
     clearTimeout(timer)
+    externalSignal?.removeEventListener('abort',abortExternal)
   }
 }
 
@@ -1502,7 +1518,7 @@ async function fetchJioSearch(query, limit = 12, options = {}) {
     try {
       const payload = await fetchJson(
         `${base}/api/search/songs?query=${encodeURIComponent(query)}&limit=${limit}&page=${options.page || 1}`,
-        { timeout: 9500 },
+        { timeout: options.timeout || 4500, signal: options.signal },
       )
       const results = payload?.data?.results || payload?.data?.songs?.results || []
       if (Array.isArray(results) && results.length) {
@@ -1514,6 +1530,7 @@ async function fetchJioSearch(query, limit = 12, options = {}) {
         }
       }
     } catch (error) {
+      if(options.throwOnFailure)throw error
       if (error?.status === 429) {
         saavnBackoffUntil = Date.now() + 15000
         return []
@@ -1847,35 +1864,19 @@ async function resolveYouTubeTrack(seed) {
   return null
 }
 
-async function searchEverything(query) {
-  const cached = cachedSearchEntry('everything', query, 30)
+async function searchEverything(query, options = {}) {
+  const cached = !options.retry && cachedSearchEntry('everything', query, 30)
   if (cached) return cached
-  const [jioResult, youtubeResult, itunesResult] = await Promise.allSettled([
-    fetchJioSearch(query, 30),
-    searchYouTubeCandidates(query),
-    fetchItunesSearch(query, 24),
-  ])
-  const jio = jioResult.status === 'fulfilled' ? jioResult.value : []
-  const youtube = youtubeResult.status === 'fulfilled' ? youtubeResult.value : []
-  const itunes = itunesResult.status === 'fulfilled' ? itunesResult.value : []
+  // The same-origin route owns mirror failover; unrelated providers must not hold up catalog search.
+  const tracks = await fetchJioSearch(query, 30, {signal:options.signal,timeout:4500,fresh:options.retry,throwOnFailure:true})
   const seen = new Set()
-  const combined = []
-  const sources = [jio, youtube.slice(0, 16), itunes]
-  const maxLength = Math.max(...sources.map((source) => source.length))
-  for (let index = 0; index < maxLength; index += 1) {
-    sources.forEach((source) => {
-      const track = source[index]
-      if (!track) return
-      const safeTrack = sanitizeTrack(track)
-      if (!safeTrack || isPreviewTrack(safeTrack) || !isFullLengthTrack(safeTrack)) return
-      const key = `${normalize(safeTrack.title)}::${normalize(safeTrack.artist)}`
-      if (seen.has(key)) return
-      seen.add(key)
-      combined.push(safeTrack)
-    })
-  }
-  const result = combined.slice(0, 30)
-  cacheSearchEntry('everything', query, 30, result)
+  const result = tracks.map(sanitizeTrack).filter(track=>{
+    if(!track || !isFullLengthTrack(track))return false
+    const key=normalize(track.title)+'::'+normalize(track.artist)
+    if(seen.has(key))return false
+    seen.add(key);return true
+  }).slice(0,30)
+  cacheSearchEntry('everything',query,30,result)
   return result
 }
 

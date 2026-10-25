@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useState, useEffect } from 'react'
+import { makeLazySurface } from './components/shell/LazySurface.jsx'
+import { useCallback, useState, useEffect } from 'react'
 import { useEchoSyncController } from './hooks/useEchoSyncController.js'
 import { SocialContext } from './components/social/SocialContext.jsx'
 import { ArtworkContext } from './components/Cover'
@@ -19,28 +20,34 @@ import { InviteBanner } from './components/shell/InviteBanner.jsx'
 import { RoleRequestPopup } from './components/shell/RoleRequestPopup.jsx'
 import { Toast } from './components/shell/Toast.jsx'
 
-const RoomsView = lazy(() => import('./views/RoomsView').then(module => ({ default: module.RoomsView })))
-const LibraryView = lazy(() => import('./views/LibraryView').then(module => ({ default: module.LibraryView })))
-const RoomView = lazy(() => import('./views/RoomView').then(module => ({ default: module.RoomView })))
-const ChatPanel = lazy(() => import('./components/social/ChatDrawer').then(module => ({ default: module.ChatDrawer })))
-const PublicLoungeDrawer = lazy(() => import('./components/social/PublicLoungeDrawer').then(module => ({ default: module.PublicLoungeDrawer })))
-const LoungeUserCard = lazy(() => import('./components/social/LoungeUserCard.jsx').then(module => ({ default: module.LoungeUserCard })))
-const SearchOverlay = lazy(() => import('./components/SearchOverlay').then(module => ({ default: module.SearchOverlay })))
-const FullPlayer = lazy(() => import('./components/player/FullScreenPlayer').then(module => ({ default: module.FullScreenPlayer })))
-const TasteModal = lazy(() => import('./components/modals/TasteModal.jsx').then(module => ({ default: module.TasteModal })))
-const SettingsModal = lazy(() => import('./components/modals/SettingsModal.jsx').then(module => ({ default: module.SettingsModal })))
-const MembersModal = lazy(() => import('./components/modals/MembersModal.jsx').then(module => ({ default: module.MembersModal })))
-const RoomModal = lazy(() => import('./components/modals/RoomModal.jsx').then(module => ({ default: module.RoomModal })))
-const JoinRoomModal = lazy(() => import('./components/modals/JoinRoomModal.jsx').then(module => ({ default: module.JoinRoomModal })))
-const PasscodeModal = lazy(() => import('./components/modals/PasscodeModal.jsx').then(module => ({ default: module.PasscodeModal })))
-const AuthModal = lazy(() => import('./components/modals/AuthModal.jsx').then(module => ({ default: module.AuthModal })))
-const PlaylistModal = lazy(() => import('./components/modals/PlaylistModal.jsx').then(module => ({ default: module.PlaylistModal })))
-const AddToPlaylistModal = lazy(() => import('./components/modals/AddToPlaylistModal.jsx').then(module => ({ default: module.AddToPlaylistModal })))
+const RoomsView = makeLazySurface(() => import('./views/RoomsView'), 'RoomsView', 'view', () => import('./views/RoomsView?retry=1'))
+const LibraryView = makeLazySurface(() => import('./views/LibraryView'), 'LibraryView', 'view', () => import('./views/LibraryView?retry=1'))
+const RoomView = makeLazySurface(() => import('./views/RoomView'), 'RoomView', 'view', () => import('./views/RoomView?retry=1'))
+const ChatPanel = makeLazySurface(() => import('./components/social/ChatDrawer'), 'ChatDrawer', 'drawer', () => import('./components/social/ChatDrawer?retry=1'))
+const PublicLoungeDrawer = makeLazySurface(() => import('./components/social/PublicLoungeDrawer'), 'PublicLoungeDrawer', 'drawer', () => import('./components/social/PublicLoungeDrawer?retry=1'))
+const LoungeUserCard = makeLazySurface(() => import('./components/social/LoungeUserCard.jsx'), 'LoungeUserCard', 'modal', () => import('./components/social/LoungeUserCard.jsx?retry=1'))
+const SearchOverlay = makeLazySurface(() => import('./components/SearchOverlay'), 'SearchOverlay', 'search', () => import('./components/SearchOverlay?retry=1'))
+const FullPlayer = makeLazySurface(() => import('./components/player/FullScreenPlayer'), 'FullScreenPlayer', 'modal', () => import('./components/player/FullScreenPlayer?retry=1'))
+const TasteModal = makeLazySurface(() => import('./components/modals/TasteModal.jsx'), 'TasteModal', 'modal', () => import('./components/modals/TasteModal.jsx?retry=1'))
+const SettingsModal = makeLazySurface(() => import('./components/modals/SettingsModal.jsx'), 'SettingsModal', 'modal', () => import('./components/modals/SettingsModal.jsx?retry=1'))
+const MembersModal = makeLazySurface(() => import('./components/modals/MembersModal.jsx'), 'MembersModal', 'modal', () => import('./components/modals/MembersModal.jsx?retry=1'))
+const RoomModal = makeLazySurface(() => import('./components/modals/RoomModal.jsx'), 'RoomModal', 'modal', () => import('./components/modals/RoomModal.jsx?retry=1'))
+const JoinRoomModal = makeLazySurface(() => import('./components/modals/JoinRoomModal.jsx'), 'JoinRoomModal', 'modal', () => import('./components/modals/JoinRoomModal.jsx?retry=1'))
+const PasscodeModal = makeLazySurface(() => import('./components/modals/PasscodeModal.jsx'), 'PasscodeModal', 'modal', () => import('./components/modals/PasscodeModal.jsx?retry=1'))
+const AuthModal = makeLazySurface(() => import('./components/modals/AuthModal.jsx'), 'AuthModal', 'modal', () => import('./components/modals/AuthModal.jsx?retry=1'))
+const PlaylistModal = makeLazySurface(() => import('./components/modals/PlaylistModal.jsx'), 'PlaylistModal', 'modal', () => import('./components/modals/PlaylistModal.jsx?retry=1'))
+const AddToPlaylistModal = makeLazySurface(() => import('./components/modals/AddToPlaylistModal.jsx'), 'AddToPlaylistModal', 'modal', () => import('./components/modals/AddToPlaylistModal.jsx?retry=1'))
 
 export default function App() {
+  useEffect(()=>{
+    const preload=()=>{SearchOverlay.preload();AuthModal.preload();RoomsView.preload();PublicLoungeDrawer.preload()}
+    if(window.requestIdleCallback){const id=window.requestIdleCallback(preload,{timeout:400});return()=>window.cancelIdleCallback(id)}
+    const id=setTimeout(preload,400);return()=>clearTimeout(id)
+  },[])
+
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    social, googleSignIn, cloudMode, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -372,18 +379,18 @@ export default function App() {
               )}
 
               {view === 'rooms' && (
-                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomsView
+                <RoomsView
                   rooms={rooms}
                   library={library}
                   currentRoom={activeRoom}
                   onJoin={joinRoom}
                   onCreate={requestCreateRoom}
                   onJoinCode={requestJoinCode}
-                /> </Suspense>
+                />
               )}
 
               {view === 'library' && (
-                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <LibraryView
+                <LibraryView
                   searchTracks={searchEverything}
                   library={library}
                   liked={likedSet}
@@ -408,11 +415,11 @@ export default function App() {
                   onShufflePlaylist={shufflePlaylist}
                   onOpenPlaylist={openPlaylist}
                   onImportPlaylist={importPlaylistToRoom}
-                /> </Suspense>
+                />
               )}
 
               {view === 'room' && activeRoom && (
-                <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomView starterTracks={searchTasteTracks} onStartTrack={startRoomTrack} onResync={acceptJoin}
+                <RoomView starterTracks={searchTasteTracks} onStartTrack={startRoomTrack} onResync={acceptJoin}
                   room={activeRoom}
                   track={track}
                   queue={queue}
@@ -453,7 +460,7 @@ export default function App() {
                   onRemoveQueueTrack={removeRoomQueueTrack}
                   onClearQueue={clearRoomQueue}
                   onImportPlaylist={importPlaylistToRoom}
-                /> </Suspense>
+                />
               )}
               </div>
             </ErrorBoundary>
@@ -514,7 +521,7 @@ export default function App() {
           </main>
 
           {inRoom && view === 'room' && !loungeOpen && !shellQueueOpen && (
-            <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <ChatPanel
+            <ChatPanel
               room={activeRoom}
               activeTab={activeTab}
               onTab={(tab) => {
@@ -564,7 +571,7 @@ export default function App() {
               open={chatOpen}
               onOpenLounge={openLounge}
               unreadLoungeCount={loungeUnreadCount}
-            /> </Suspense>
+            />
           )}
           {/* Keep the queue DOM ready so opening does not build every row in the click task. */}
             <QueueDrawer open={shellQueueOpen} room={roomPlaybackActive ? activeRoom : null}
@@ -581,7 +588,7 @@ export default function App() {
               onShuffle={shuffleSoloQueue}
             />
           {loungeOpen && (
-            <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PublicLoungeDrawer
+            <PublicLoungeDrawer
               open={loungeOpen}
               messages={loungeMessages}
               currentUser={currentUser}
@@ -612,7 +619,7 @@ export default function App() {
               invitingId={loungeInvitingId}
               onLogin={() => openAuth('signin', 'Log in to join the Public Lounge conversation.')}
               UserCard={LoungeUserCard}
-            /> </Suspense>
+            />
           )}
           {shellDrawerOpen && (
             <div
@@ -646,13 +653,14 @@ export default function App() {
         )}
 
         {searchOpen && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <SearchOverlay
+          <SearchOverlay
             query={searchQuery} onQueryChange={setSearchQuery} liked={likedSet} onLike={toggleLike}
             onClose={closeSearchExperience}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
             onAddToPlaylist={requestAddToPlaylist}
             onSearch={searchEverything}
+            catalog={library}
             suggestions={searchSuggestions}
             recentSearches={recentSearches}
             onSearchCommit={recordSearchQuery}
@@ -666,11 +674,11 @@ export default function App() {
               closeSearchExperience()
               setTasteOpen(true)
             }}
-          /> </Suspense>
+          />
         )}
 
         {fullPlayer && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <FullPlayer
+          <FullPlayer
             sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
             room={displayRoom}
             inRoom={roomPlaybackActive}
@@ -704,19 +712,19 @@ export default function App() {
             translateOn={translateOn}
             translating={translating}
             onToggleTranslate={toggleTranslation}
-          /> </Suspense>
+          />
         )}
 
         {tasteOpen && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <TasteModal
+          <TasteModal
             profile={tasteProfile}
             onClose={() => setTasteOpen(false)}
             onSave={saveTasteVibes}
-          /> </Suspense>
+          />
         )}
 
         {settingsOpen && currentUser && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <SettingsModal
+          <SettingsModal
             user={currentUser}
             settings={settings}
             cacheInfo={cacheInfo}
@@ -732,11 +740,11 @@ export default function App() {
             onSaveTaste={saveTasteVibes}
             onClearCache={clearAllCaches}
             onSignOut={signOut}
-          /> </Suspense>
+          />
         )}
 
         {membersOpen && activeRoom && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <MembersModal
+          <MembersModal
             room={activeRoom}
             currentUserId={currentUserId}
             canModerate={canModerate}
@@ -750,44 +758,44 @@ export default function App() {
             onKick={kickMember}
             onAssignRole={assignRole}
             onResolveRequest={resolveRoleRequest}
-          /> </Suspense>
+          />
         )}
 
         {roomEditor === 'edit' && activeRoom && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal starterTracks={searchTasteTracks}
+          <RoomModal starterTracks={searchTasteTracks}
             mode="edit"
             room={activeRoom}
             onClose={() => setRoomEditor(null)}
             onUpdate={updateRoom}
             onDelete={deleteRoom}
-          /> </Suspense>
+          />
         )}
 
         {roomEditor === 'create' && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <RoomModal starterTracks={searchTasteTracks}
+          <RoomModal starterTracks={searchTasteTracks}
             mode="create"
             onClose={() => setRoomEditor(null)}
             onCreate={createRoom}
-          /> </Suspense>
+          />
         )}
 
         {joinRoomOpen && currentUser && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <JoinRoomModal
+          <JoinRoomModal
             onClose={() => setJoinRoomOpen(false)}
             onJoin={joinRoomByCode}
-          /> </Suspense>
+          />
         )}
 
         {passcodeRoomId && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PasscodeModal
+          <PasscodeModal
             room={rooms.find((room) => room.id === passcodeRoomId)}
             onClose={() => setPasscodeRoomId(null)}
             onUnlock={unlockPrivateRoom}
-          /> </Suspense>
+          />
         )}
 
         {authOpen && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <AuthModal
+          <AuthModal
             mode={authMode}
             reason={authReason}
             notice={authNotice}
@@ -803,14 +811,14 @@ export default function App() {
               setAuthReason('')
               setAuthNotice('')
             }}
-            onGoogle={googleSignIn} cloudMode={cloudMode}
+            onResetPassword={resetPassword} onCompleteRecovery={completePasswordRecovery} onGoogle={googleSignIn} cloudMode={cloudMode}
             onSignIn={signIn}
             onSignUp={signUp}
-          /> </Suspense>
+          />
         )}
 
         {playlistDialog && (
-          <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PlaylistModal
+          <PlaylistModal
             mode={playlistDialog.mode}
             playlist={playlistDialog.playlist}
             onClose={() => {
@@ -818,11 +826,11 @@ export default function App() {
               setPendingPlaylistTrack(null)
             }}
             onSubmit={submitPlaylist}
-          /> </Suspense>
+          />
         )}
 
           {addTrack && (
-            <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <AddToPlaylistModal
+            <AddToPlaylistModal
               track={addTrack}
               playlists={playlists}
               onClose={() => setAddTrack(null)}
@@ -831,11 +839,11 @@ export default function App() {
                 setAddTrack(null)
                 openCreatePlaylist(candidate)
               }}
-            /> </Suspense>
+            />
           )}
         </ErrorBoundary>
 
-        {social.profileId && memberIndex[social.profileId] && <Suspense fallback={null}><LoungeUserCard member={memberIndex[social.profileId]} currentUser={currentUser} room={activeRoom} onClose={social.closeProfile} onInvite={member=>inviteLoungeUser(member.id)} /></Suspense>}
+        {social.profileId && memberIndex[social.profileId] && <LoungeUserCard member={memberIndex[social.profileId]} currentUser={currentUser} room={activeRoom} onClose={social.closeProfile} onInvite={member=>inviteLoungeUser(member.id)} />}
         <Toast toast={toast} />
       </div>
     </SocialContext.Provider>

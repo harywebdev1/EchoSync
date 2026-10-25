@@ -40,3 +40,10 @@ export function mergeMoodCatalog(live, local) {
   }
   return result
 }
+
+export function allocateHomeShelves(quick, familiar, fresh) {
+  const usedTrackStems=new Set()
+  // Only reserve the tracks actually displayed, not the entire candidate pool.
+  const allocate=(tracks,limit)=>{const result=[];for(const track of tracks){const stem=songStem(track);if(!track?.id||usedTrackStems.has(stem))continue;usedTrackStems.add(stem);result.push(track);if(result.length===limit)break}return result}
+  return {quickPicks:allocate(quick,12),familiar:allocate(familiar,10),fresh:allocate(fresh,12)}
+}

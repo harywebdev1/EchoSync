@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { isSupabaseConfigured, getSupabaseClient } from '../lib/supabaseClient.js'
-import { createCloudAdapter, cloudFingerprint } from '../cloud/cloudAdapter.js'
+import { createCloudAdapter, cloudFingerprint, mergeMigrationTaste } from '../cloud/cloudAdapter.js'
 
 export function useCloudBackend(options) {
   const latest=useRef(options);latest.current=options
   const configured=isSupabaseConfigured(), [readyId,setReadyId]=useState(null)
   const adapterRef=useRef(null), applied=useRef(null), pending=useRef(null), privacy=useRef({}), mounted=useRef(true)
-  const migration=useRef(null)
+  const migration=useRef(null), migrationDone=useRef(false)
   const epoch=useRef(0), seenOwn=useRef(''), dirty=useRef(false)
   const ownSignature=data=>cloudFingerprint({likes:data.profile?.liked_tracks,taste:data.profile?.taste_profile,privacy:data.profile?.privacy_settings,recent:data.profile?.activity_status?.recent,playlists:[...(data.playlists||[])].sort((a,b)=>a.id.localeCompare(b.id)).map(p=>({id:p.id,name:p.name,description:p.description||'',visibility:p.visibility,tracks:p.tracks}))})
   if(!migration.current)migration.current=(options.currentUser?.cloud?{likes:[],playlists:[],taste:{},library:{}}:options.legacyMigration?.() || {likes:options.liked.map(id=>options.library[id]).filter(Boolean),playlists:options.playlists,taste:options.tasteProfile,library:options.library})
@@ -18,10 +18,11 @@ export function useCloudBackend(options) {
     const ticket=++epoch.current
     pending.current=(async()=>{
       const client=await getSupabaseClient(),adapter=createCloudAdapter(client);adapterRef.current=adapter
+      if(!migrationDone.current&&!latest.current.currentUser?.cloud){const o=latest.current;migration.current={...migration.current,likes:[...(migration.current?.likes||[]),...o.liked.map(id=>o.library[id]).filter(Boolean)],taste:mergeMigrationTaste(migration.current?.taste,o.tasteProfile),library:o.library,playlists:o.playlists.length?o.playlists:migration.current?.playlists||[]}}
       const data=await adapter.hydrate(user,migration.current)
       if(!mounted.current || ticket!==epoch.current)return
       seenOwn.current=ownSignature(data)
-      migration.current={likes:[],playlists:[],taste:{},library:{}}
+      migration.current={likes:[],playlists:[],taste:{},library:{}};migrationDone.current=true
       privacy.current=data.profile.privacy_settings||{}
       applied.current=user.id
       latest.current.onHydrate(user,data)
@@ -36,7 +37,7 @@ export function useCloudBackend(options) {
     getSupabaseClient().then(async client=>{
       if(!mounted.current)return
       adapterRef.current=createCloudAdapter(client)
-      const auth=client.auth.onAuthStateChange((_event,session)=>{setTimeout(()=>{if(mounted.current)accept(session).catch(()=>{})},0)})
+      const auth=client.auth.onAuthStateChange((event,session)=>{setTimeout(()=>{if(mounted.current)accept(session).then(()=>{if(event==='PASSWORD_RECOVERY')latest.current.onPasswordRecovery?.()}).catch(()=>{})},0)})
       subscription=auth.data?.subscription
       const result=await client.auth.getSession();if(result.error)throw result.error
       await accept(result.data?.session)
@@ -71,6 +72,11 @@ export function useCloudBackend(options) {
       return {}
     }catch(error){return {error:error.message}}
   }
+  async function resetPassword(email) {
+    if(!configured)return {message:'Local accounts cannot receive reset emails. Your listening data stays on this device; enable cloud sign-in for email recovery.'}
+    try{const client=await getSupabaseClient();const result=await client.auth.resetPasswordForEmail(email,{redirectTo:window.location.origin});if(result.error)throw result.error;return {message:'If an account exists for this email, a password reset link is on its way.'}}catch(error){return{error:error.message}}
+  }
+  async function completePasswordRecovery(password){try{const client=await getSupabaseClient();const result=await client.auth.updateUser({password});if(result.error)throw result.error;return{message:'Password updated. You can keep listening.'}}catch(error){return{error:error.message}}}
   async function google() {
     if(!configured){latest.current.showToast('Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable Google Sign-In');return}
     try {const client=await getSupabaseClient();await createCloudAdapter(client).google(window.location.origin)}catch(error){latest.current.showToast(error.message)}
@@ -98,5 +104,5 @@ export function useCloudBackend(options) {
     if(!id)throw new Error('Sign in before sending a voice note')
     return createCloudAdapter(client).uploadVoice(dataUrl,id)
   }
-  return {configured,readyId,auth,google,signOut,saveProfile,uploadVoice,handleOwn,join}
+  return {configured,readyId,auth,resetPassword,completePasswordRecovery,google,signOut,saveProfile,uploadVoice,handleOwn,join}
 }

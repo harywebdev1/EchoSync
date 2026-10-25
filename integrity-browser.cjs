@@ -246,12 +246,13 @@ let passed = 0
       assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node, previous) => node === previous, audio), true)
       await page.evaluate(() => window.__peer.close())
     })
-    await check('Queue filter chips select deterministic upcoming rows and preserve playing audio', {}, async page => {
+    await check('Queue filter chips select deterministic upcoming rows and preserve playing audio', { trackOverrides: { kesariya: { duration: 360 } } }, async page => {
       await page.addInitScript(() => {
         localStorage.setItem('echosync.likes.v1', JSON.stringify({ integrity: ['kesariya'] }))
         localStorage.setItem('echosync_recent_v1', JSON.stringify({ integrity: ['excuses'] }))
         const library = JSON.parse(localStorage.getItem('echosync.library.v1'))
         library['tajdar'].track.genre = 'Sufi'
+        library['kesariya'].track.duration = 360
         localStorage.setItem('echosync.library.v1', JSON.stringify(library))
       })
       await open(page)
@@ -271,7 +272,7 @@ let passed = 0
       assert.ok(!(await titles()).includes('Kesariya'))
       assert.ok(!(await titles()).includes('Excuses'))
       await drawer.getByRole('button', { name: 'Deep Cuts', exact: true }).click()
-      assert.ok((await titles()).includes('Tajdar-e-Haram'))
+      assert.ok((await titles()).includes('Kesariya'))
       await drawer.getByRole('button', { name: 'All', exact: true }).click()
       assert.deepEqual(await titles(), all)
       assert.match(await drawer.locator('[data-testid=queue-now-playing]').innerText(), /Chaleya/)

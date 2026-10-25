@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioLines } from 'lucide-react'
 import { initials, resolveTrackArtwork, trackArtworkSources } from '../lib/media'
 
 export const ArtworkContext = createContext({ heal: () => {}, fallback: null })
 
-export function Cover({ track, size = 'cover-size-sm', className = '', showQuality = false, playing = false }) {
+export const Cover = memo(function Cover({ track, size = 'cover-size-sm', className = '', showQuality = false, playing = false }) {
   const artwork = useContext(ArtworkContext)
   const canonical = resolveTrackArtwork(track)
   const signature = JSON.stringify(trackArtworkSources(track))
@@ -32,4 +32,4 @@ export function Cover({ track, size = 'cover-size-sm', className = '', showQuali
     {imageSrc ? <img src={imageSrc} alt="" loading={playing || size === 'cover-size-hero' ? 'eager' : 'lazy'} decoding="async" referrerPolicy="no-referrer" onError={() => setAttempt({ key, index: state.index + 1, fallback: null })} /> : <div className="cover-fallback"><span className="cover-glyph">{initials(track?.title || 'Echo')}</span></div>}
     {showQuality && track?.quality && <span className="quality-badge"><AudioLines /> {track.quality}</span>}
   </div>
-}
+})

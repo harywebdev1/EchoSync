@@ -27,7 +27,7 @@ export function StageBar({
       <button className="icon-btn mobile-menu-btn" onClick={onOpenSidebar} aria-label="Open navigation">
         <Menu />
       </button>
-      <div className="mobile-brand" onClick={onHome} role="button" tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && onHome()}>
+      <div className="mobile-brand" aria-label="EchoSync Home" onClick={onHome} role="button" tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && onHome()}>
         <div className="brand-glyph" style={{ width: 25, height: 25, borderRadius: 8 }}>
           <span className="bars" style={{ transform: 'scale(0.78)' }}><i /><i /><i /><i /></span>
         </div>

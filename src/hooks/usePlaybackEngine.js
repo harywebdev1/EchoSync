@@ -1604,7 +1604,6 @@ export function usePlaybackEngine({
   }, [youtubeActive, track?.youtubeVideoId])
 
   useEffect(() => {
-    if (!currentUser) return
     const audio = audioRef.current
     if (youtubeActive) {
       audio?.pause()
@@ -1744,7 +1743,7 @@ export function usePlaybackEngine({
   }, [youtubeActive])
 
   useEffect(() => {
-    if (!currentUserId || !isPlaying || !track?.id || track.id === 'empty') return
+    if (!isPlaying || !track?.id || track.id === 'empty') return
     addRecent(track.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, isPlaying, track?.id])

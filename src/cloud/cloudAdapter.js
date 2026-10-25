@@ -1,3 +1,8 @@
+export function mergeMigrationTaste(a={},b={}) {
+  const result={...a,...b,tuned:[...new Set([...(a.tuned||[]),...(b.tuned||[])])],events:Math.max(a.events||0,b.events||0),searches:[...new Map([...(a.searches||[]),...(b.searches||[])].map(x=>[x.query,x])).values()].slice(-12)}
+  for(const field of ['artists','genres','vibes','languages']){result[field]={...a[field]};for(const [key,value]of Object.entries(b[field]||{})){if(!result[field][key]||Number(value.weight)>Number(result[field][key].weight))result[field][key]=value}}
+  return result
+}
 export const cloudFingerprint=value=>JSON.stringify(value,(_key,entry)=>entry&&typeof entry==='object'&&!Array.isArray(entry)?Object.fromEntries(Object.entries(entry).sort(([a],[b])=>a.localeCompare(b))):entry)
 const unwrap = result => { if(result?.error) throw new Error(result.error.message || 'Cloud request failed'); return result?.data }
 const unique = items => [...new Map(items.filter(t=>t?.id).map(t=>[t.id,t])).values()]

@@ -9,7 +9,7 @@ async function readJson(response) {
   } finally { reader.releaseLock() }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
-export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 8000 } = {}) {
+export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 4800 } = {}) {
   return async function saavnHandler(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS'); res.setHeader('Cache-Control', 'no-store')
     const fail = (status, error) => { if (!res.destroyed) { res.statusCode = status; res.end(JSON.stringify({ error })) } }
@@ -26,25 +26,28 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 8
     for (const [key, max] of [['limit', 50], ['page', 100]]) if (params.has(key) && (!/^\d+$/.test(params.get(key)) || +params.get(key) < 1 || +params.get(key) > max)) { fail(400, 'Invalid catalog pagination'); return }
     const controller = new AbortController(), abort = () => controller.abort()
     res.once('close', abort); const timer = setTimeout(abort, timeoutMs)
-    let lastStatus = 502
+    let lastStatus = 502, validEmpty=false
     try {
       const targets = [officialUrl(route, params), ...FALLBACKS.map(base => new URL('/' + route + (params.size ? '?' + params : ''), base))]
       for (let index = 0; index < targets.length && !controller.signal.aborted; index++) {
         const attempt = new AbortController(), cancel = () => attempt.abort()
         controller.signal.addEventListener('abort', cancel, { once: true })
-        const deadline = setTimeout(cancel, index === 0 ? Math.min(4500, timeoutMs) : 1700)
+        const deadline = setTimeout(cancel, index === 0 ? Math.min(3200, timeoutMs) : 650)
         try {
-          const response = await fetchImpl(targets[index], { signal: attempt.signal, redirect: 'error', headers: { accept: 'application/json', 'user-agent': 'Mozilla/5.0', referer: 'https://www.jiosaavn.com/' } })
+          const response = await fetchImpl(targets[index], { signal: attempt.signal, redirect: 'error', headers: { accept: 'application/json', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36', 'accept-language':'en-US,en;q=0.9', referer: 'https://www.jiosaavn.com/' } })
           if (!response.ok) { lastStatus = response.status; await response.body?.cancel(); continue }
           const raw = await readJson(response)
           const data = index === 0 ? normalizeOfficialPayload(raw, route === 'api/search/songs') : raw
           if (index === 0 && route === 'api/search/songs' && raw?.results?.length && !data.data.results.length) throw new Error('Official media unavailable')
-          // A valid empty search is authoritative; malformed/error payloads are not.
+          if(route==='api/search/songs' && !Array.isArray(data?.data?.results))throw new Error('Invalid catalog response')
+          if(route==='api/search/songs' && Array.isArray(data?.data?.results) && !data.data.results.length) {validEmpty=true;lastStatus=502;continue}
+          // Empty/error responses advance to another fixed-origin provider.
           if (index === 0 && !(Array.isArray(raw?.results) || raw?.songs || (route !== 'api/search/songs' && raw && typeof raw === 'object' && Object.values(raw).some(x => x?.id)))) throw new Error('Invalid official response')
           if (!res.destroyed) { res.setHeader('X-EchoSync-Catalog', index === 0 ? 'jiosaavn-direct' : 'mirror-fallback'); res.statusCode = 200; res.end(JSON.stringify(data)) }; return
         } catch { if (lastStatus === 200) lastStatus = 502 }
         finally { clearTimeout(deadline); controller.signal.removeEventListener('abort', cancel) }
       }
+      if(validEmpty&&!controller.signal.aborted){res.statusCode=200;res.end(JSON.stringify({data:{results:[],total:0}}));return}
       fail(controller.signal.aborted ? 504 : lastStatus, controller.signal.aborted ? 'Catalog request timed out' : 'Catalog provider unavailable')
     } finally { clearTimeout(timer); res.off('close', abort); controller.abort() }
   }
