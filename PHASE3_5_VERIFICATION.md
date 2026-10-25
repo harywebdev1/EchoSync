@@ -23,6 +23,15 @@ Supabase Auth now permits recovery redirects to both production domains, preserv
 
 ## External provider / production status
 
-Pending production deployment and live audit. Controlled tests do not establish upstream availability. Live reset-email testing intercepts the Auth request to verify its method and redirect origin; it does not send email or prove inbox delivery.
+Application commit: 556bbc2. Deployment: dpl_BcYm5SievSMfhuePUgMMaa3yUS8U, https://echosync-gootsgceg-dev-haris-projects.vercel.app (READY).
+
+- https://echosync-social.vercel.app: final live audit 22/22 passed.
+- https://echosync-two.vercel.app: final live audit 22/22 passed.
+- Both runs used real catalog and full-length audio providers, without catalog/audio fixtures. Guest search rendered playable matches within four seconds on desktop and mobile.
+- The second hostname initially reached Vercel login because it was only a manual alias. Registering it as a production project domain restored public access; deployment protection was not disabled.
+- Earlier second-domain probes recorded one five-second catalog timeout and one response exceeding four seconds. The final run passed, but upstream latency remains variable; these earlier failures are retained in local logs and are not claimed as an application pass. The audit now continues other application checks after an upstream-probe failure while preserving a nonzero exit status.
+- Live feed updates can preserve a carousel song anchor on a later page. The audit uses real Previous controls to establish page 1 before checking all four rows and page navigation.
+
+Controlled tests do not establish continuous upstream availability. Live reset-email testing intercepts the Auth request to verify its method and redirect origin; it does not send email or prove inbox delivery.
 
 Local raw traces, screenshots and logs are under ignored performance-results.local/ and are excluded from deployment. No private credentials are included in this report.
