@@ -5,3 +5,9 @@ dist/
 *.local
 
 !.env.example
+
+.vercel/
+supabase/.temp/
+.cloud-provision.local
+.vercel
+.env*
