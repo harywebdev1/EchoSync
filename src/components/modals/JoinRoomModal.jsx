@@ -16,9 +16,9 @@ export function JoinRoomModal({ onClose, onJoin }) {
       </div>
       <form
         className="modal-body"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault()
-          const result = onJoin(code)
+          const result = await onJoin(code)
           if (result?.error) setError(result.error)
         }}
       >

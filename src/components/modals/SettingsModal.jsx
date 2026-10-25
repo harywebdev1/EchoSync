@@ -51,9 +51,9 @@ export function SettingsModal({
     initials: initials(displayNameFromHandle(form.handle || user.handle)),
   })
 
-  const submitProfile = (event) => {
+  const submitProfile = async (event) => {
     event.preventDefault()
-    const result = onSaveProfile({
+    const result = await onSaveProfile({
       name: displayNameFromHandle(form.handle),
       handle: form.handle,
       email: form.email,

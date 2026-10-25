@@ -1,3 +1,4 @@
+import { isCloudVoiceUrl, isSupabaseConfigured } from './supabaseClient.js'
 import { createStorageAdapter } from '../core/storageAdapter.js'
 import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
 import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/tasteEngine.js'
@@ -24,15 +25,15 @@ const THEME_KEY = 'echosync.theme.v1'
 
 const USERS_KEY = 'echosync_users_db'
 
-const ACTIVE_USER_ID_KEY = 'echosync_active_user_id'
+const ACTIVE_USER_ID_KEY = isSupabaseConfigured() ? 'echosync_active_user_id_cloud' : 'echosync_active_user_id'
 
-const REMEMBER_USER_KEY = 'echosync_remember_user_id'
+const REMEMBER_USER_KEY = isSupabaseConfigured() ? 'echosync_remember_user_id_cloud' : 'echosync_remember_user_id'
 
-const ROOMS_KEY = 'echosync_rooms_v3'
+const ROOMS_KEY = isSupabaseConfigured() ? 'echosync_rooms_v3_cloud' : 'echosync_rooms_v3'
 
-const ROOM_STATE_KEY = 'echosync_room_state_v3'
+const ROOM_STATE_KEY = isSupabaseConfigured() ? 'echosync_room_state_v3_cloud' : 'echosync_room_state_v3'
 
-const MESSAGES_KEY = 'echosync_messages_v3'
+const MESSAGES_KEY = isSupabaseConfigured() ? 'echosync_messages_v3_cloud' : 'echosync_messages_v3'
 
 const PLAYLISTS_KEY = 'echosync_playlists_v1'
 
@@ -48,9 +49,9 @@ const STREAM_CACHE_KEY = 'echosync_stream_cache_v4'
 
 const TRANSLATION_CACHE_KEY = 'echosync_lyrics_trans_cache'
 
-const INVITES_KEY = 'echosync_invites_v1'
+const INVITES_KEY = isSupabaseConfigured() ? 'echosync_invites_v1_cloud' : 'echosync_invites_v1'
 
-const PUBLIC_LOUNGE_KEY = 'echosync_public_lounge_v1'
+const PUBLIC_LOUNGE_KEY = isSupabaseConfigured() ? 'echosync_public_lounge_v1_cloud' : 'echosync_public_lounge_v1'
 
 const LOUNGE_MESSAGE_LIMIT = 120
 
@@ -293,7 +294,7 @@ function normalizeLoungeMessage(raw) {
   if (!raw?.id || !raw?.author) return null
   const isVoice = raw.type === 'voice'
   const text = safeText(raw.text).slice(0, 1000)
-  const voiceData = typeof raw.voiceData === 'string' && raw.voiceData.startsWith('data:audio/')
+  const voiceData = typeof raw.voiceData === 'string' && (raw.voiceData.startsWith('data:audio/') || isCloudVoiceUrl(raw.voiceData))
     ? raw.voiceData
     : ''
   if (!isVoice && !text) return null

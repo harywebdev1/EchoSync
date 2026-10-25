@@ -177,7 +177,7 @@ async function verifyPart1A(browser) {
       await page.waitForFunction(() => document.querySelectorAll('[data-testid=queue-drawer-row]').length === 15)
       assert.equal(await page.getByTestId('root-audio').evaluate(a => a === window.__radioAudio && !a.paused), true)
       await page.getByRole('button', { name: 'Close queue', exact: true }).click()
-      await page.getByTestId('solo-queue-drawer').waitFor({ state: 'detached' })
+      await page.getByTestId('solo-queue-drawer').waitFor({ state: 'hidden' })
       console.log(`PASS ${width}px Home: collage, mood ranking, 12 Quick Picks and 15 automatic upcoming tracks`)
       for (const shelf of await page.locator('.home-shelf .shelf-scroll').all()) {
         const heights = await shelf.locator('.track-card').evaluateAll(els => els.map(x => x.getBoundingClientRect().height))

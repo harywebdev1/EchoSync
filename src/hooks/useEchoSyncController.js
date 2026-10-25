@@ -1,3 +1,7 @@
+import { roomFromCloud, cloudFingerprint, messageFromCloud } from '../cloud/cloudAdapter.js'
+import { normalizeTasteProfile } from '../core/tasteEngine.js'
+import { useCloudBackend } from './useCloudBackend.js'
+import { isCloudVoiceUrl, isSupabaseConfigured } from '../lib/supabaseClient.js'
 import { useSocialFeatures } from './useSocialFeatures.js'
 import { useOverlayHistory } from './useOverlayHistory.js'
 import { useStableActions } from './useStableActions.js'
@@ -406,7 +410,7 @@ export function useEchoSyncController() {
   const publicUsers = useMemo(() => {
     const next = {}
     Object.entries(accounts).forEach(([id, account]) => {
-      next[id] = publicAccount(accountDisplay({ ...account, online: id === currentUserId }), id === currentUserId)
+      next[id] = publicAccount(accountDisplay({ ...account, online: id === currentUserId || Boolean(account.cloud && account.online) }), id === currentUserId || Boolean(account.cloud && account.online))
     })
     return next
   }, [accounts, currentUserId])
@@ -843,6 +847,7 @@ export function useEchoSyncController() {
     if (!currentUser || !pendingRoomCode) return
     const code = normalizeRoomCode(pendingRoomCode)
     const room = rooms.find((candidate) => normalizeRoomCode(candidate.code) === code)
+    if (!room && isSupabaseConfigured()) {setPendingRoomCode('');joinRoomByCode(code).then(result=>{if(result?.error)showToast(result.error)});return}
     if (!room) {
       setJoinRoomOpen(true)
       return
@@ -937,6 +942,7 @@ export function useEchoSyncController() {
   }
 
   function signIn({ identifier, email, password, remember }) {
+    if(cloud.configured)return cloud.auth('signin',{identifier:identifier||email,password,remember})
     const typed = String(identifier ?? email ?? '').trim().toLowerCase().replace(/^@/, '')
     const cleanHandle = slugifyHandle(typed)
     if (!typed || !password) return { error: 'Enter your email or username and password.' }
@@ -952,6 +958,7 @@ export function useEchoSyncController() {
   }
 
   function signUp({ email, username, handle, password, remember }) {
+    if(cloud.configured)return cloud.auth('signup',{email,username,handle,password,remember})
     const typed = String(email || '').trim().toLowerCase()
     const cleanHandle = slugifyHandle(username || handle || handleFromEmail(typed))
     if (!typed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return { error: 'Enter a valid email address.' }
@@ -991,6 +998,11 @@ export function useEchoSyncController() {
   }
 
   function signOut() {
+    if(cloud.configured)return cloud.signOut()
+    localSignOut()
+  }
+
+  function localSignOut() {
     clearActiveSession()
     clearPreloadSession()
     setIsPlaying(false)
@@ -1032,6 +1044,7 @@ export function useEchoSyncController() {
   }
 
   function saveProfile(patch) {
+    if(cloud.configured)return cloud.saveProfile(patch)
     if (!currentUserId || !accounts[currentUserId]) return { error: 'Sign in to edit your profile.' }
     const account = accounts[currentUserId]
     const cleanHandle = slugifyHandle(patch.handle || account.handle)
@@ -1194,7 +1207,8 @@ export function useEchoSyncController() {
     showToast(changed ? `Joined ${candidate.name}` : `You are already in ${candidate.name}`)
   }
 
-  function joinRoomByCode(value) {
+  async function joinRoomByCode(value) {
+    if(cloud.configured){try{const row=await cloud.join(normalizeRoomCode(value));const room=roomFromCloud(row);(row.queue||[]).forEach(rememberTrack);roomsRef.current=[...roomsRef.current.filter(r=>r.id!==room.id),room];setRooms(previous=>[...previous.filter(r=>r.id!==room.id),room]);joinRoom(room);setJoinRoomOpen(false);setPendingRoomCode('');return {}}catch(error){return {error:error.message}}}
     const compact = normalizeRoomCode(value)
     if (!compact) return { error: 'Enter a room code like ES-4829.' }
     const room = rooms.find((candidate) => (
@@ -1826,7 +1840,8 @@ export function useEchoSyncController() {
     setLoungeReplyTo(null)
   }
 
-  function sendLoungeVoiceNote({ dataUrl, duration, waveform }) {
+  async function sendLoungeVoiceNote({ dataUrl, duration, waveform }) {
+    if(cloud.configured)dataUrl=await cloud.uploadVoice(dataUrl)
     if (!dataUrl) return
     if (requireAuth(null, 'Log in to send a voice note in the Public Lounge.')) return
     if (!currentUser) return
@@ -1930,7 +1945,8 @@ export function useEchoSyncController() {
     broadcastTyping(false)
   }
 
-  function sendVoiceNote({ dataUrl, duration, waveform }) {
+  async function sendVoiceNote({ dataUrl, duration, waveform }) {
+    if(cloud.configured)dataUrl=await cloud.uploadVoice(dataUrl)
     if (!activeRoom || !currentUserId || !dataUrl) return
     const replySnapshot = replyTo
       ? { id: replyTo.id, name: replyTo.name, handle: replyTo.handle, text: replyTo.text || 'Voice note' }
@@ -1981,6 +1997,7 @@ export function useEchoSyncController() {
     const list = messagesRef.current[activeRoomId] || []
     const message = list.find((item) => item.id === messageId)
     if (!message) return
+    if(cloud.configured){const existing=(message.reactions||[]).find(r=>r.emoji===emoji);channelRef.current?.postMessage({type:'chat-reaction',roomId:activeRoomId,sender:tabIdRef.current,messageId,emoji,active:!existing?.userIds?.includes(currentUserId)});return}
     const reactions = (message.reactions || []).map((reaction) => ({ ...reaction }))
     const found = reactions.findIndex((reaction) => reaction.emoji === emoji)
     if (found >= 0) {
@@ -2535,6 +2552,82 @@ export function useEchoSyncController() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRoomId])
 
+  const cloud=useCloudBackend({currentUser,liked:likedSet,playlists,tasteProfile,library,recent,isPlaying,track,activeRoom,roomPlaybackActive,showToast,
+    legacyMigration:()=>{
+      if(!isSupabaseConfigured() || currentUser?.cloud)return null
+      let id;try{id=sessionStorage.getItem('echosync_active_user_id')||localStorage.getItem('echosync_remember_user_id')}catch{return null}
+      if(!id||accounts[id]?.cloud)return null
+      const likes=readUserValue(LIKES_KEY,id,[])
+      return {likes:likes.map(item=>typeof item==='string'?library[item]:item).filter(Boolean),playlists:readUserValue(PLAYLISTS_KEY,id,[]),taste:loadTasteProfile(id),library}
+    },
+    clearLocalIdentity:()=>{setCurrentUserId(null);setRooms(previous=>previous.filter(room=>room.cloud))},onSignedOut:localSignOut,
+    onHydrate:(user,data)=>{
+      const p=data.profile
+      const account=accountDisplay({id:user.id,handle:p.username,name:p.display_name,email:user.email,showActivity:p.privacy_settings?.showActivity!==false,allowInvites:p.privacy_settings?.allowInvites!==false,cloud:true})
+      setAccounts(previous=>({...previous,[user.id]:account}))
+      const tracks=[...(p.liked_tracks||[]),...data.playlists.flatMap(list=>list.tracks||[])]
+      tracks.forEach(rememberTrack)
+      writeUserValue(LIKES_KEY,user.id,p.liked_tracks||[])
+      writeUserValue(TASTE_PROFILE_KEY,user.id,p.taste_profile||{})
+      writeUserValue(RECENT_KEY,user.id,p.activity_status?.recent||[])
+      writeUserValue(PLAYLISTS_KEY,user.id,data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
+      finishAuth(user.id,true)
+      // PostgreSQL hydration must not depend on a successful local cache write.
+      setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(normalizeTasteProfile(p.taste_profile));setRecent(p.activity_status?.recent||[])
+      setPlaylists(data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
+      setRooms([]);setMessages({});setLoungeMessages([])
+    },
+    onRemoteLibrary:data=>{
+      const p=data.profile;[...(p.liked_tracks||[]),...data.playlists.flatMap(list=>list.tracks||[])].forEach(rememberCloudTrack)
+      setRecent(p.activity_status?.recent||[])
+      setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(normalizeTasteProfile(p.taste_profile));setPlaylists(data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
+      setAccounts(previous=>({...previous,[p.id]:{...previous[p.id],handle:p.username,name:p.display_name,showActivity:p.privacy_settings?.showActivity!==false,allowInvites:p.privacy_settings?.allowInvites!==false}}))
+    },
+    updatePublicAccount:patch=>setAccounts(previous=>({...previous,[currentUserId]:{...previous[currentUserId],handle:patch.handle,name:patch.handle,showActivity:patch.showActivity,allowInvites:patch.allowInvites}})),
+  })
+  function rememberCloudTrack(track){const previous=libraryRef.current[track?.id];const incoming=previous?.streamUrl?{...track,streamUrl:previous.streamUrl,status:previous.status,quality:previous.quality}:track;if(incoming?.title&&cloudFingerprint(sanitizeTrack(incoming))!==cloudFingerprint(sanitizeTrack(previous||{})))rememberTrack(incoming)}
+  function handleCloudEvent(data){
+    if(data.type==='cloud-rooms'){
+      const incoming=data.rooms.map(roomFromCloud),pending=new Set(data.pending),ids=new Set(incoming.map(r=>r.id))
+      const active=incoming.find(r=>r.id===activeRoomRef.current)
+      if(activeRoomRef.current&&!pending.has(activeRoomRef.current)&&(!active||!active.members.includes(currentUserId))){activeRoomRef.current=null;setActiveRoomId(null);setView('home');setIsPlaying(false);audioRef.current?.pause();showToast('Room access changed — returned to your player')}
+      setRooms(previous=>{const next=[...incoming,...previous.filter(r=>pending.has(r.id)&&!ids.has(r.id))];return cloudFingerprint(next)===cloudFingerprint(previous)?previous:next})
+      return true
+    }
+    if(data.type==='cloud-history'){
+      const pending=new Set(data.pending),lounge=[],grouped={}
+      for(const row of data.rows){const message=messageFromCloud(row);if(row.context_type==='lounge')lounge.push(message);else(grouped[row.context_id] ||= []).push(message)}
+      const combine=(saved,old)=>[...saved,...old.filter(m=>pending.has(m.id)&&!saved.some(item=>item.id===m.id))]
+      setLoungeMessages(previous=>{const next=combine(lounge,previous);return cloudFingerprint(next)===cloudFingerprint(previous)?previous:next})
+      setMessages(previous=>{const next={};for(const key of new Set([...Object.keys(grouped),...Object.keys(previous)]))next[key]=combine(grouped[key]||[],previous[key]||[]);return cloudFingerprint(next)===cloudFingerprint(previous)?previous:next})
+      return true
+    }
+    if(data.type==='cloud-own'){cloud.handleOwn(data);return true}
+    if(data.type==='cloud-tracks'){data.tracks.filter(t=>t.title).forEach(rememberCloudTrack);return true}
+    if(data.type==='cloud-directory'){
+      const entries={}
+      for(const profile of data.profiles||[]){
+        if(profile.id!==currentUserId)entries[profile.id]=accountDisplay({id:profile.id,handle:profile.username,name:profile.display_name,showActivity:profile.privacy_settings?.showActivity!==false,allowInvites:profile.privacy_settings?.allowInvites!==false,cloud:true})
+        if(profile.id!==currentUserId){
+          writeUserValue(TASTE_PROFILE_KEY,profile.id,profile.taste_profile||{})
+          ;(profile.activity_status?.rotation||[]).forEach(rememberCloudTrack)
+          const lists=(data.playlists||[]).filter(p=>p.owner_id===profile.id&&p.visibility==='public')
+          lists.flatMap(p=>p.tracks||[]).forEach(rememberCloudTrack)
+          writeUserValue(PLAYLISTS_KEY,profile.id,lists.map(p=>({...p,trackIds:(p.tracks||[]).map(t=>t.id)})))
+          writeUserValue(RECENT_KEY,profile.id,profile.activity_status?.recent||[])
+        }
+      }
+      setAccounts(previous=>{const next={...previous};for(const [id,entry]of Object.entries(entries))next[id]={...previous[id],...entry,online:previous[id]?.online};return JSON.stringify(next)===JSON.stringify(previous)?previous:next})
+      return true
+    }
+    if(data.type==='cloud-presence'){
+      const online=new Set(data.people.map(p=>p.userId))
+      setAccounts(previous=>{let changed=false;const next=Object.fromEntries(Object.entries(previous).map(([id,p])=>{if(p.cloud&&p.online!==online.has(id)){changed=true;return[id,{...p,online:online.has(id)}]}return[id,p]}));return changed?next:previous})
+      return true
+    }
+    return false
+  }
+  const cloudEventRef=useRef(handleCloudEvent);cloudEventRef.current=handleCloudEvent
   const social = useSocialFeatures({ currentUser, tasteProfile, library, playlists, recent, liked: likedSet, members:memberIndex, rooms, activeRoom, roomPlaybackActive, isPlaying, track,
     channelRef, tabIdRef, roomsRef, activeRoomRef, roomClockRef, roomQueueRef, setRooms, setMessages, setPlaylists,
     rememberTrack, toggleLike, queueSoloTrack, playSearchTrack: (candidate, context) => { searchTargetRef.current = { mode: 'solo', roomId: null }; viewRef.current = 'home'; setView('home'); return playSearchTrack(candidate, context) }, playPlaylist, joinRoom, inviteLoungeUser, showToast, upsertLoungeMessage,
@@ -2566,6 +2659,8 @@ export function useEchoSyncController() {
       setDuration,
       setView,
       activeRoomId,
+      currentUserId,
+      showActivity:currentUser?.showActivity!==false,
       setInvites,
       setLoungeTyping,
       setRooms,
@@ -2606,6 +2701,7 @@ export function useEchoSyncController() {
       roomPlaybackActive,
     },
     actions: {
+      handleCloudEvent: data => cloudEventRef.current(data),
       handleSocialEvent: data => socialRef.current.handleEvent(data),
       getPlaybackTime: (...args) => getPlaybackTime(...args),
       updatePlaybackProgress: (...args) => updatePlaybackProgress(...args),
@@ -3034,7 +3130,7 @@ export function useEchoSyncController() {
   ])
 
   return useStableActions({
-    social,
+    social, googleSignIn:cloud.google, cloudMode:cloud.configured,
     queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     queueSoloTrack, startTasteRadio,
     startRoomTrack,

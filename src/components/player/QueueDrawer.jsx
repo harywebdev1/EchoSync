@@ -5,6 +5,7 @@ import { AudioLines, ChevronDown, ChevronUp, ListMusic, Shuffle, Trash2, X } fro
 import { Cover } from '../Cover'
 
 export const QueueDrawer = memo(function QueueDrawer({
+  open = true,
   room = null,
   queue,
   filterMode = 'All', onFilter, liked, recent, tasteProfile,
@@ -20,7 +21,7 @@ export const QueueDrawer = memo(function QueueDrawer({
 }) {
   const upcoming = filterUpcomingQueue(queue, currentIndex, room ? 'All' : filterMode, { liked, recent, tasteProfile })
   return (
-    <aside className="social solo-queue-drawer mobile-open" data-testid="solo-queue-drawer" aria-label="Up Next queue">
+    <aside hidden={!open} style={!open ? { display: 'none' } : undefined} className={`${open ? 'social ' : ''}solo-queue-drawer mobile-open`} data-testid="solo-queue-drawer" aria-label="Up Next queue">
       <div className="social-top">
         <div className="social-tabs">
           <span className="social-tab active"><ListMusic /> Up Next</span>

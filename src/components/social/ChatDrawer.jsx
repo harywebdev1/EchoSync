@@ -240,11 +240,11 @@ export function ChatDrawer({
     resetRecording()
   }
 
-  const failRecording = () => {
+  const failRecording = (reason) => {
     resetRecording()
     recordCancelledRef.current = true
     recordFailedRef.current = true
-    setRecordHint('Microphone access blocked or no audio captured — voice note was not sent.')
+    setRecordHint(typeof reason==='string'?reason:'Microphone access blocked or no audio captured — voice note was not sent.')
   }
 
   const startRecording = async () => {
@@ -335,11 +335,11 @@ export function ChatDrawer({
     stopRecordingHardware()
     const sentDuration = duration
     const seed = `${room.id}-${Date.now()}-${dataUrl.length}`
-    onSendVoice?.({
+    try { await onSendVoice?.({
       dataUrl,
       duration: Number(sentDuration.toFixed(1)),
       waveform: makeVoiceWaveform(seed),
-    })
+    }) } catch { failRecording('Voice note upload failed — nothing was sent. Retry.'); return }
     recordStartedAtRef.current = 0
     recordCancelledRef.current = false
     finishingRef.current = false

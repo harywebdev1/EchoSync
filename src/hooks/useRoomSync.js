@@ -1,3 +1,4 @@
+import { createRealtimeTransport } from '../cloud/realtimeTransport.js'
 import {
   loadRoomStateSnapshot,
   SEED_BY_ID,
@@ -25,6 +26,8 @@ export function useRoomSync({
     setDuration,
     setView,
     activeRoomId,
+    currentUserId,
+    showActivity,
     setInvites,
     setLoungeTyping,
     setRooms,
@@ -66,6 +69,7 @@ export function useRoomSync({
   },
   actions: {
     handleSocialEvent,
+    handleCloudEvent,
     getPlaybackTime,
     updatePlaybackProgress,
     ensurePlayable,
@@ -336,13 +340,13 @@ export function useRoomSync({
   }, [roomPlaybackActive, activeRoomId])
 
   useEffect(() => {
-    if (typeof BroadcastChannel === 'undefined') return undefined
-    const channel = new BroadcastChannel('echosync-room-sync')
+    const channel = createRealtimeTransport({onError: error=>showToast('Cloud sync failed — '+error.message),getContext:()=>({library:libraryRef.current})})
     channelRef.current = channel
 
     channel.onmessage = (event) => {
       const data = event.data
       if (!data || data.sender === tabIdRef.current) return
+      if (handleCloudEvent?.(data)) return
       if (handleSocialEvent?.(data)) return
 
       if ((data.type === 'invite' || data.type === 'room-invite') && data.invite) {
@@ -548,6 +552,7 @@ export function useRoomSync({
       }
 
       if (data.type === 'chat-updated' && data.roomId && data.message) {
+        data.message.reactions=(data.message.reactions||[]).map(reaction=>({...reaction,mine:reaction.userIds?.includes(currentUserRef.current?.id)||false}))
         setMessages((previous) => ({
           ...previous,
           [data.roomId]: (previous[data.roomId] || []).map((message) => (
@@ -626,6 +631,8 @@ export function useRoomSync({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(()=>{const room=roomsRef.current.find(r=>r.id===activeRoomId);channelRef.current?.setContext?.({roomId:activeRoomId,roomCode:room?.code,userId:currentUserId,sharing:showActivity})},[activeRoomId,currentUserId,showActivity])
 
   useEffect(() => {
     const timer = setInterval(() => {

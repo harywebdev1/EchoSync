@@ -3,19 +3,22 @@ import { ModalShell } from './ModalShell.jsx'
 import { Headphones, X, Radio, Mail, AtSign, Lock, AlertCircle, KeyRound, ArrowRight } from 'lucide-react'
 import { slugifyHandle } from '../../lib/appServices.js'
 
-export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch, onSignIn, onSignUp }) {
+export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch, onSignIn, onSignUp, onGoogle, cloudMode = false }) {
   const [form, setForm] = useState({ email: '', username: '', identifier: '', password: '' })
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
+  const [busy,setBusy]=useState(false)
 
   useEffect(() => {
     setError('')
   }, [mode])
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault()
-    setError('')
-    const result = mode === 'signin'
+    if(busy)return
+    setError('');setBusy(true)
+    try {
+    const result = await (mode === 'signin'
       ? onSignIn({ identifier: form.identifier, password: form.password, remember })
       : onSignUp({
         email: form.email,
@@ -23,8 +26,9 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         handle: form.username,
         password: form.password,
         remember,
-      })
+      }))
     if (result?.error) setError(result.error)
+    }catch(error){setError(error.message)}finally{setBusy(false)}
   }
 
   const switching = mode === 'signin' ? 'signup' : 'signin'
@@ -53,6 +57,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         <button className={mode === 'signup' ? 'active' : ''} onClick={() => onSwitch('signup')}>Sign up</button>
       </div>
 
+      <button className="secondary-btn full" onClick={onGoogle} disabled={busy}>Continue with Google</button>
       <form className="auth-form" onSubmit={submit}>
         {mode === 'signup' ? (
           <>
@@ -109,7 +114,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         ) : (
           <>
             <label className="field">
-              <span>Email or username</span>
+              <span>{cloudMode?'Email':'Email or username'}</span>
               <div className="field-with-icon">
                 <AtSign />
                 <input
@@ -150,7 +155,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
 
         {error && <span className="auth-error"><AlertCircle size={12} /> {error}</span>}
 
-        <button className="primary-btn full" type="submit">
+        <button className="primary-btn full" type="submit" disabled={busy}>
           <KeyRound />
           {mode === 'signin' ? 'Log in' : 'Create account'}
           <ArrowRight size={16} />

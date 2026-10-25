@@ -340,7 +340,7 @@ let passed = 0
       await page.locator('[data-testid=solo-queue-drawer]').waitFor()
       await page.waitForFunction(() => history.state?.__echoOverlay?.stack.includes('queue'))
       await page.goBack()
-      await page.locator('[data-testid=solo-queue-drawer]').waitFor({ state: 'detached' })
+      await page.locator('[data-testid=solo-queue-drawer]').waitFor({ state: 'hidden' })
       await page.waitForFunction(() => !history.state?.__echoOverlay)
       assert.deepEqual(await page.evaluate(() => history.state), { sentinel: 'original' })
       assert.equal(page.url(), url)

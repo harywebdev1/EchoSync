@@ -40,7 +40,7 @@ const AddToPlaylistModal = lazy(() => import('./components/modals/AddToPlaylistM
 export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    social, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    social, googleSignIn, cloudMode, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     theme,
@@ -566,8 +566,8 @@ export default function App() {
               unreadLoungeCount={loungeUnreadCount}
             /> </Suspense>
           )}
-          {shellQueueOpen && (
-            <QueueDrawer room={roomPlaybackActive ? activeRoom : null}
+          {/* Keep the queue DOM ready so opening does not build every row in the click task. */}
+            <QueueDrawer open={shellQueueOpen} room={roomPlaybackActive ? activeRoom : null}
               filterMode={queueFilter} onFilter={setQueueFilter} liked={likedSet} recent={recent} tasteProfile={tasteProfile}
               queue={queue}
               currentIndex={currentIndex}
@@ -580,7 +580,6 @@ export default function App() {
               onClear={clearSoloQueue}
               onShuffle={shuffleSoloQueue}
             />
-          )}
           {loungeOpen && (
             <Suspense fallback={<div className="surface-loading" role="status">Loading…</div>}> <PublicLoungeDrawer
               open={loungeOpen}
@@ -804,6 +803,7 @@ export default function App() {
               setAuthReason('')
               setAuthNotice('')
             }}
+            onGoogle={googleSignIn} cloudMode={cloudMode}
             onSignIn={signIn}
             onSignUp={signUp}
           /> </Suspense>
