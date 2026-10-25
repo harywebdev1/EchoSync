@@ -9,5 +9,3 @@ dist/
 .vercel/
 supabase/.temp/
 .cloud-provision.local
-.vercel
-.env*

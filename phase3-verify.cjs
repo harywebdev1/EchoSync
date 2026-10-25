@@ -115,6 +115,19 @@ const check=async(name,fn)=>{await fn();passed++;console.log('PASS '+name)}
  const cleanup=fs.readFileSync('supabase/functions/cleanup-voice-notes/index.ts','utf8');assert.match(cleanup,/\.remove\(paths\)/);assert.doesNotMatch(cleanup,/delete from storage.objects/i)
  })
  ta.close();tb.close();await serial
+ await check('cleanup Edge authorization requires its dedicated secret when configured and preserves legacy fallback',async()=>{
+ const vm=require('node:vm'),{stripTypeScriptTypes}=require('node:module');let handler,calls=0;const env={SUPABASE_URL:'https://cloud.test',SUPABASE_SERVICE_ROLE_KEY:'server-key',ECHOSYNC_CLEANUP_SECRET:'cleanup-secret'};
+ const source=stripTypeScriptTypes(fs.readFileSync('supabase/functions/cleanup-voice-notes/index.ts','utf8').replace(/^import[^\n]*\n/,''));
+ vm.runInNewContext(source,{Deno:{env:{get:key=>env[key]},serve:fn=>handler=fn},Response,createClient:()=>({rpc:async()=>{calls++;return{data:[],error:null}}})});
+ const request=headers=>new Request('https://cloud.test/functions/v1/cleanup-voice-notes',{method:'POST',headers});
+ assert.equal((await handler(request({}))).status,401);
+ assert.equal((await handler(request({authorization:'Bearer server-key'}))).status,401);
+ assert.equal((await handler(request({'x-echosync-cleanup-secret':'wrong'}))).status,401);assert.equal(calls,0);
+ assert.equal((await handler(request({'x-echosync-cleanup-secret':'cleanup-secret'}))).status,200);assert.equal(calls,1);
+ delete env.ECHOSYNC_CLEANUP_SECRET;
+ assert.equal((await handler(request({authorization:'Bearer server-key'}))).status,200);
+ assert.equal((await handler(request({authorization:'Bearer wrong'}))).status,401);
+ })
  await check('unconfigured transport is inert without BroadcastChannel and never loads the SDK',async()=>{
  assert.equal(isSupabaseConfigured(),false);let calls=0;const local=createRealtimeTransport({configured:false,Broadcast:null,getClient:()=>{calls++;throw Error('must not load')}});local.postMessage({type:'state'});await local.flush();local.close();assert.equal(calls,0)
  })

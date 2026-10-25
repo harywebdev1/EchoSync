@@ -1,7 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0'
 Deno.serve(async request => {
  const key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')||''
- if(!key || request.headers.get('authorization')!==`Bearer ${key}`)return new Response('Unauthorized',{status:401})
+ const cleanupSecret=Deno.env.get('ECHOSYNC_CLEANUP_SECRET')
+ const authorized=cleanupSecret ? request.headers.get('x-echosync-cleanup-secret')===cleanupSecret : request.headers.get('authorization')===`Bearer ${key}`
+ if(!key || !authorized)return new Response('Unauthorized',{status:401})
  const client=createClient(Deno.env.get('SUPABASE_URL')!,key,{auth:{persistSession:false}})
  const {data,error}=await client.rpc('echosync_expired_voice_notes')
  if(error)return Response.json({error:error.message},{status:500})

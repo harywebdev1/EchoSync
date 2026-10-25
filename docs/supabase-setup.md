@@ -27,15 +27,15 @@ Deploy the included cleanup function with the Supabase CLI:
 supabase functions deploy cleanup-voice-notes
 ```
 
-The function uses the server-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` automatically supplied to Edge Functions. It verifies its service-role Authorization header. It selects objects older than 24 hours using `echosync_expired_voice_notes()`, removes the actual bytes with the Storage API, and preserves the chat row as an expiry notice. At most 500 objects are processed per call; schedule more frequently for higher volume. Retention is hourly, so physical expiry occurs between 24 and 25 hours under normal operation.
+The function uses the server-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` automatically supplied to Edge Functions. JWT verification remains enabled. When ECHOSYNC_CLEANUP_SECRET is configured as an Edge secret, the caller must also send the matching x-echosync-cleanup-secret header; without that extra configuration it uses its original service-role Authorization check. It selects objects older than 24 hours using `echosync_expired_voice_notes()`, removes the actual bytes with the Storage API, and preserves the chat row as an expiry notice. At most 500 objects are processed per call; schedule more frequently for higher volume. Retention is hourly, so physical expiry occurs between 24 and 25 hours under normal operation.
 
-Enable `pg_cron` and `pg_net` under Database → Extensions. In Vault create `echosync_project_url` (your project URL) and `echosync_cleanup_service_key` (server-only legacy service-role JWT). Schedule the function from the SQL Editor:
+Enable `pg_cron` and `pg_net` under Database → Extensions. In Vault create `echosync_project_url` (your project URL) and `echosync_cleanup_service_key` (server-only legacy service-role JWT). For a provisioned cleanup secret, also store `echosync_cleanup_secret` in Vault and include it as the `x-echosync-cleanup-secret` header. Schedule the function from the SQL Editor:
 
 ```sql
 select cron.schedule('echosync-voice-cleanup', '0 * * * *', $job$
   select net.http_post(
     url := (select decrypted_secret from vault.decrypted_secrets where name='echosync_project_url') || '/functions/v1/cleanup-voice-notes',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name='echosync_cleanup_service_key')),
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name='echosync_cleanup_service_key'),'x-echosync-cleanup-secret',(select decrypted_secret from vault.decrypted_secrets where name='echosync_cleanup_secret')),
     body := '{}'::jsonb
   );
 $job$);

@@ -258,10 +258,10 @@ commit;
 -- The function removes bytes through Storage API, then preserves chat with an expiry notice.
 
 -- Optional hourly scheduler after deploying cleanup-voice-notes and enabling
--- pg_cron/pg_net. Put the URL and server-only key in Vault first (see setup doc).
+-- pg_cron/pg_net. Put the URL, server-only key and cleanup secret in Vault first (see setup doc).
 -- select cron.schedule('echosync-voice-cleanup','0 * * * *',$job$
 -- select net.http_post(
 --   url := (select decrypted_secret from vault.decrypted_secrets where name='echosync_project_url') || '/functions/v1/cleanup-voice-notes',
---   headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name='echosync_cleanup_service_key')),
+--   headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name='echosync_cleanup_service_key'),'x-echosync-cleanup-secret',(select decrypted_secret from vault.decrypted_secrets where name='echosync_cleanup_secret')),
 --   body := '{}'::jsonb);
 -- $job$);
