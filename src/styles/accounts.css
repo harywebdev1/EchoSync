@@ -274,8 +274,6 @@
   text-align: left;
   cursor: pointer;
 }
-
-.app.light .reply-quote { background: rgba(20, 30, 35, 0.06); }
 .reply-quote strong { display: block; color: var(--wa-tick); font-size: 12px; font-weight: 650; }
 .reply-quote span {
   display: block;

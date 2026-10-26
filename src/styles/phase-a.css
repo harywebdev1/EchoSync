@@ -1,0 +1,360 @@
+/* Phase A: pure dark canvas, open stage, editorial Home showcase and auth polish. */
+
+@property --song-accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #f16b73;
+}
+
+@property --song-glow {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(241, 107, 115, 0.3);
+}
+
+@property --song-accent-rgb {
+  syntax: '<number>#';
+  inherits: true;
+  initial-value: 241, 107, 115;
+}
+
+@property --song-surface {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgba(241, 107, 115, 0.13);
+}
+
+html {
+  background: #030303;
+  color-scheme: dark;
+}
+
+.app {
+  background: #030303;
+  transition:
+    --song-accent 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-accent-rgb 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-accent-2 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-glow 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-surface 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The centre stage is part of the canvas, not a card inside it. */
+.stage {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.stage::before {
+  height: 420px;
+  transition:
+    background 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-accent 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-glow 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.stage-bar {
+  border-bottom: 0;
+  background: transparent;
+}
+
+/* Home: open canvas, chips at the top, large editorial showcase. */
+.home-v81 {
+  --hero-showcase: 260px;
+}
+
+.home-v81 .home-chips {
+  position: relative;
+  top: auto;
+  z-index: 3;
+  gap: 8px;
+  margin: 0;
+  padding: 18px 0 4px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.home-v81 .home-chip {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.home-v81 .home-chip:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.home-v81 .home-chip.active {
+  border-color: transparent;
+  background: var(--text);
+  color: #080808;
+}
+
+.home-v81 .home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 32px;
+  align-items: center;
+  overflow: visible;
+  padding: 24px 0 32px;
+  border: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.home-v81 .home-hero-copy {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.home-v81 .home-hero h1 {
+  max-width: min(100%, 620px);
+  overflow-wrap: anywhere;
+}
+
+.home-v81 .home-hero-copy > p {
+  max-width: 52ch;
+  overflow-wrap: anywhere;
+}
+
+.home-v81 .home-hero-actions {
+  flex-wrap: wrap;
+}
+
+.home-v81 .hero-showcase {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: var(--hero-showcase);
+  height: var(--hero-showcase);
+  flex: 0 0 auto;
+  justify-self: end;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+
+/* The stage owns the 420px ambient bleed; a second Home layer would cut a rectangle. */
+.home-v81::before {
+  display: none;
+}
+
+.home-v81 .hero-showcase::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -22px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, var(--song-glow, rgba(241, 107, 115, 0.32)), transparent 68%);
+  filter: blur(26px);
+  opacity: 0.85;
+  transition: background 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.home-v81 .hero-showcase-tile {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
+}
+
+.home-v81 .hero-showcase-tile .cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  border-radius: 0;
+}
+
+.home-v81 .hero-showcase-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.54));
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.home-v81 .hero-showcase-play svg {
+  width: 22px;
+  height: 22px;
+  padding: 8px;
+  box-sizing: content-box;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: #080808;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.home-v81 .hero-showcase-tile:hover .hero-showcase-play,
+.home-v81 .hero-showcase-tile:focus-visible .hero-showcase-play {
+  opacity: 1;
+}
+
+.shell:not(.chat-collapsed) .home-v81 {
+  --hero-showcase: 220px;
+}
+
+/* Full screen player keeps the same 600ms ambient palette transition. */
+.fp-scrim,
+.full-player .fp-art-wrap .cover {
+  transition:
+    background 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-accent 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    --song-glow 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Auth modal: roomy scrolling shell, real Google button, safe legal footer. */
+.modal.modal-auth {
+  width: min(408px, calc(100vw - 24px));
+  max-height: min(90vh, 680px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+}
+
+/* Let the shell scroll; never squeeze the Google button or fields to fit. */
+.modal.modal-auth > * {
+  flex-shrink: 0;
+}
+
+.modal-auth .auth-modal-head {
+  padding: 0;
+}
+
+.modal-auth .auth-modal-copy {
+  padding: 10px 0 0;
+}
+
+.modal-auth .auth-switch-top {
+  margin: 14px 0 0;
+}
+
+.modal-auth .auth-form {
+  padding: 13px 0 0;
+  gap: 11px;
+}
+
+.modal-auth .auth-switch.auth-switch-bottom {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.modal-auth .auth-legal {
+  margin: 14px 0 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.auth-google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 44px;
+  margin: 14px 0;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.auth-google-btn:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.auth-google-btn:disabled {
+  opacity: 0.6;
+}
+
+.auth-google-btn .google-g {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+@media (max-width: 1050px) {
+  .home-v81 {
+    --hero-showcase: 240px;
+  }
+}
+
+@media (max-width: 880px) {
+  .home-v81,
+  .shell:not(.chat-collapsed) .home-v81 {
+    --hero-showcase: 220px;
+  }
+
+  .home-v81 .home-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+    padding: 18px 0 24px;
+  }
+
+  .home-v81 .home-hero-copy {
+    display: block;
+  }
+
+  .home-v81 .hero-showcase {
+    width: var(--hero-showcase);
+    height: var(--hero-showcase);
+    justify-self: start;
+  }
+}
+
+@media (max-width: 560px) {
+  .modal.modal-auth {
+    width: calc(100vw - 18px);
+    max-height: min(90vh, 680px);
+    padding: 24px;
+  }
+
+  .modal-auth .auth-modal-copy,
+  .modal-auth .auth-form,
+  .modal-auth .auth-modal-head,
+  .modal-auth .auth-legal {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .modal-auth .auth-form {
+    padding-top: 12px;
+  }
+}

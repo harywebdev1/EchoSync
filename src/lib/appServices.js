@@ -21,8 +21,6 @@ const LYRIC_CACHE_KEY = 'echosync.lyrics.v1'
 
 const LIKES_KEY = 'echosync.likes.v1'
 
-const THEME_KEY = 'echosync.theme.v1'
-
 const USERS_KEY = 'echosync_users_db'
 
 const ACTIVE_USER_ID_KEY = isSupabaseConfigured() ? 'echosync_active_user_id_cloud' : 'echosync_active_user_id'
@@ -2426,7 +2424,6 @@ export {
   LIBRARY_CACHE_KEY,
   LYRIC_CACHE_KEY,
   LIKES_KEY,
-  THEME_KEY,
   USERS_KEY,
   ACTIVE_USER_ID_KEY,
   REMEMBER_USER_KEY,

@@ -1,12 +1,10 @@
-import { Menu, ChevronRight, Search, Globe2, Sun, Moon, MessageCircle, X } from 'lucide-react'
+import { Menu, ChevronRight, Search, Globe2, MessageCircle, UserRound, X } from 'lucide-react'
 import { Avatar } from '../Avatar'
 
 export function StageBar({
   room,
   view,
   inRoom,
-  theme,
-  onToggleTheme,
   onSearch,
   searchQuery, onSearchQuery, searchOpen,
   onToggleChat,
@@ -47,8 +45,8 @@ export function StageBar({
             <button className="primary-btn guest-signup" onClick={onSignUp}>Sign up</button>
           </div>
         )}
-        <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label="Account and profile">
-          <Avatar member={currentUser} />
+        <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label={currentUser ? 'Account and profile' : 'Log in or sign up'}>
+          {currentUser ? <Avatar member={currentUser} /> : <UserRound />}
         </button>
         <button
           className={`lounge-header-btn ${loungeOpen ? 'active' : ''}`}
@@ -65,9 +63,6 @@ export function StageBar({
               {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
             </b>
           )}
-        </button>
-        <button className="icon-btn" onClick={onToggleTheme} aria-label="Toggle theme">
-          {theme === 'dark' ? <Sun /> : <Moon />}
         </button>
         {inRoom && view === 'room' && (
           <button

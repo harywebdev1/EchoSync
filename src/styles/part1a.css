@@ -17,16 +17,14 @@
 .app *::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 20px; }
 .home-v81 .home-chips { position: relative; background: transparent; top: auto; }
 .home-v81 .home-chip { background: rgba(255,255,255,.07); backdrop-filter: blur(10px); }
-.app.light .home-v81 .home-chip { background: rgba(0,0,0,.045); }
 .home-v81 .home-chip.active { background: var(--text); color: var(--bg); }
 .home-hero h1 em { font-family: var(--font-serif); font-weight: 500; font-style: italic; color: var(--song-accent); }
 .home-hero-copy > p { max-width: 52ch; text-wrap: pretty; }
 .home-hero { gap: 24px; }
 .hero-collage { border: 0; gap: 2px; }
 .home-hero-actions .secondary-btn, .home-hero-actions .text-btn { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: var(--text); }
-.app.light .home-hero-actions .secondary-btn, .app.light .home-hero-actions .text-btn { background: rgba(0,0,0,.04); border-color: var(--line-strong); }
 .home-v81::before { background: radial-gradient(ellipse at 75% 5%, var(--song-glow), transparent 68%), radial-gradient(ellipse at 10% 20%, color-mix(in srgb, var(--mood-tint) 12%, transparent), transparent 70%); }
-.stage { background: radial-gradient(ellipse at 70% 0%, var(--song-surface), transparent 65%), var(--surface); transition: background 600ms cubic-bezier(.22,1,.36,1); }
+.stage { background: transparent; transition: background 600ms cubic-bezier(.22,1,.36,1); }
 .player-dock { background: radial-gradient(ellipse at 10% 0%, var(--song-glow), transparent 78%), var(--surface-solid); transition: background 600ms cubic-bezier(.22,1,.36,1); }
 .library-view { padding-top: 0; }
 .library-hero { padding: 20px 0 16px; }

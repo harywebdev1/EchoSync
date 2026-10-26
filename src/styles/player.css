@@ -29,19 +29,6 @@
   isolation: isolate;
   transition: background 0.9s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.8s ease, box-shadow 0.8s ease;
 }
-
-.app.light .player-dock {
-  --dock-title: #17181c;
-  --dock-sub: rgba(23, 24, 28, 0.62);
-  --dock-track: rgba(21, 22, 26, 0.13);
-  border-color: rgba(21, 22, 26, 0.09);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(247, 245, 240, 0.96) 100%);
-  box-shadow:
-    0 24px 56px rgba(69, 58, 42, 0.17),
-    0 3px 14px rgba(69, 58, 42, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
 @keyframes dockin {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
@@ -143,11 +130,6 @@
   border-color: transparent;
   background: rgba(255, 255, 255, 0.08);
 }
-
-.app.light .dock-buttons .icon-btn.dock-skip:hover {
-  background: rgba(21, 22, 26, 0.06);
-}
-
 .dock-play {
   display: grid;
   place-items: center;
@@ -172,12 +154,6 @@
   height: 16px;
   fill: currentColor;
 }
-
-.app.light .dock-play {
-  color: #fff;
-  background: #17181c;
-}
-
 .dock-time {
   display: flex;
   align-items: center;
@@ -281,11 +257,6 @@
   border-color: transparent;
   background: rgba(255, 255, 255, 0.08);
 }
-
-.app.light .dock-actions .icon-btn:hover {
-  background: rgba(21, 22, 26, 0.06);
-}
-
 .dock-sync {
   display: inline-flex;
   flex: 0 0 auto;

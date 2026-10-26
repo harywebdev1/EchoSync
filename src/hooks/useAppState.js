@@ -1,7 +1,5 @@
 import { useState, useRef } from 'react'
 import {
-  readStorage,
-  THEME_KEY,
   loadUsers,
   readActiveUserId,
   clearActiveSession,
@@ -31,7 +29,6 @@ import { usePlaybackState } from './usePlaybackState.js'
 
 export function useAppState() {
   const [queueFilter, setQueueFilter] = useState('All')
-const [theme, setTheme] = useState(() => (readStorage(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark'))
 const [accounts, setAccounts] = useState(loadUsers)
 const [currentUserId, setCurrentUserId] = useState(() => {
     const id = readActiveUserId()
@@ -165,8 +162,7 @@ const chatOpenRef = useRef(chatOpen)
 const searchRoomRef = useRef(null)
 const searchTargetRef = useRef({ mode: 'solo', roomId: null })
   const playback = usePlaybackState()
-  return { ...playback, queueFilter, setQueueFilter, theme,
-    setTheme,
+  return { ...playback, queueFilter, setQueueFilter,
     accounts,
     setAccounts,
     currentUserId,

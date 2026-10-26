@@ -150,11 +150,6 @@
 .lounge-body {
   background-color: color-mix(in srgb, var(--wa-canvas) 94%, #0d2721);
 }
-
-.app.light .lounge-body {
-  background-color: color-mix(in srgb, var(--wa-canvas) 95%, #e9fff6);
-}
-
 .lounge-empty {
   display: flex;
   flex-direction: column;
@@ -333,23 +328,6 @@
   font-size: 12px;
   font-weight: 800;
 }
-
-.app.light .lounge-user-card {
-  border-color: rgba(15, 23, 42, 0.1);
-  background:
-    linear-gradient(150deg, rgba(16, 185, 129, 0.07), transparent 48%),
-    rgba(255, 255, 255, 0.97);
-  box-shadow: 0 24px 55px rgba(15, 23, 42, 0.14);
-}
-
-.app.light .lounge-chat-preview {
-  border-color: rgba(5, 150, 105, 0.2);
-  background: linear-gradient(135deg, rgba(236, 253, 245, 0.99), rgba(209, 250, 229, 0.99));
-}
-
-.app.light .lounge-chat-preview > svg,
-.app.light .lounge-chat-preview .room-chat-preview-copy b { color: #047857; }
-
 @media (max-width: 1050px) {
   .lounge-user-card { top: 112px; }
 }
@@ -396,11 +374,6 @@
   border-color: color-mix(in srgb, var(--accent-2) 30%, transparent);
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
 }
-
-.app.light .dock-buttons .icon-btn.dock-mode:hover {
-  background: rgba(21, 22, 26, 0.06);
-}
-
 .queue-count-badge {
   position: absolute;
   top: -3px;

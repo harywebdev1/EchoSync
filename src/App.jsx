@@ -50,7 +50,6 @@ export default function App() {
     social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
-    theme,
     rootStyle,
     audioRef,
     ytContainerRef,
@@ -94,7 +93,6 @@ export default function App() {
     acceptJoin,
     chatOpen,
     activeRoomUnread,
-    setTheme,
     setChatOpen,
     openAuth,
     closeLounge,
@@ -273,7 +271,7 @@ export default function App() {
     <ArtworkContext.Provider value={artworkContextValue}>
     <MembersContext.Provider value={memberIndex}>
     <SocialContext.Provider value={social}>
-      <div className={`app ${theme}`} style={rootStyle}>
+      <div className="app" style={rootStyle}>
         <div className="ambient" />
         <AudioRootContainer
           audioRef={audioRef}
@@ -334,12 +332,10 @@ export default function App() {
               room={displayRoom}
               view={view}
               inRoom={roomPlaybackActive}
-              theme={theme}
               currentUser={currentUser}
               chatOpen={chatOpen}
               unreadCount={activeRoomUnread}
               onOpenProfile={openProfile}
-              onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
               onSearch={openSearchExperience}
               onToggleChat={() => setChatOpen((value) => !value)}
               onHome={() => navigateView('home')}

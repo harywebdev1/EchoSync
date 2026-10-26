@@ -22,6 +22,8 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+  background: #030303;
+  color-scheme: dark;
 }
 
 button,
@@ -45,9 +47,9 @@ img {
 }
 
 .app {
-  --bg: #090a0d;
-  --bg-2: #0d0f14;
-  --surface: rgba(21, 23, 30, 0.68);
+  --bg: #030303;
+  --bg-2: #060607;
+  --surface: rgba(21, 23, 30, 0.62);
   --surface-solid: #14161d;
   --surface-2: rgba(255, 255, 255, 0.055);
   --surface-3: rgba(255, 255, 255, 0.09);
@@ -76,33 +78,6 @@ img {
   background: var(--bg);
   transition: background 0.35s ease, color 0.35s ease;
 }
-
-.app.light {
-  --bg: #f2efe9;
-  --bg-2: #e9e5dc;
-  --surface: rgba(255, 255, 255, 0.68);
-  --surface-solid: #fbfaf6;
-  --surface-2: rgba(21, 22, 26, 0.045);
-  --surface-3: rgba(21, 22, 26, 0.075);
-  --line: rgba(21, 22, 26, 0.09);
-  --line-strong: rgba(21, 22, 26, 0.16);
-  --text: #17181c;
-  --text-2: #595751;
-  --muted: #6f6b63;
-  --accent: #c62f3c;
-  --accent-2: #a94f2b;
-  --accent-contrast: #fff8f5;
-  --shadow: 0 30px 80px rgba(69, 58, 42, 0.16);
-  --wa-canvas: #efeae2;
-  --wa-in: #ffffff;
-  --wa-out: #d9fdd3;
-  --wa-text: #111b21;
-  --wa-meta: #667781;
-  --wa-tick: #34a4d1;
-  --wa-line: rgba(20, 30, 35, 0.055);
-  --scrollbar: rgba(20, 22, 26, 0.16);
-}
-
 .ambient {
   position: absolute;
   inset: 0;
@@ -124,12 +99,6 @@ img {
   background-size: 5px 5px;
   mask-image: radial-gradient(70% 60% at 70% 20%, #000 0%, transparent 100%);
 }
-
-.app.light .ambient::before {
-  background-image: radial-gradient(rgba(30, 30, 30, 0.22) 0.6px, transparent 0.6px);
-  opacity: 0.14;
-}
-
 .ambient::after {
   content: "";
   position: absolute;

@@ -283,9 +283,7 @@
   .stage {
     border: 0;
     border-radius: 0;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 24%),
-      var(--surface);
+    background: transparent;
   }
   .stage-bar {
     min-height: 58px;

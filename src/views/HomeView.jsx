@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Heart, ListPlus, Music2, Play, Plus, Radio, Shuffle, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, Music2, Play, Plus, Radio, Shuffle, Sparkles } from 'lucide-react'
 import { mergeMoodCatalog, allocateHomeShelves } from '../core/moodFeed.js'
 import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
 import { Cover } from '../components/Cover'
@@ -9,6 +9,19 @@ import { HOME_MOODS, buildQuickPicksAndRadio, rankHomeTracks, topTasteLabels } f
 function Collage({ tracks, className = '' }) {
   if (!tracks.length) return <div className={`home-collage empty-playlist-cover ${className}`}><Music2/></div>
   return <div className={`home-collage ${className}`} aria-label="Your listening artwork">{Array.from({ length: 4 }, (_, i) => <Cover key={i} track={tracks[i % Math.max(tracks.length, 1)]} size="" />)}</div>
+}
+
+function HeroShowcase({ tracks, onPlay }) {
+  if (!tracks.length) return null
+  return <div className="hero-showcase" aria-label="Featured tracks">
+    {Array.from({ length: 4 }, (_, index) => {
+      const track = tracks[index % tracks.length]
+      return <button key={`${track.id}-${index}`} type="button" className="hero-showcase-tile" onClick={() => onPlay(track)} aria-label={`Play ${track.title} by ${track.artist}`}>
+        <Cover track={track} size="" />
+        <span className="hero-showcase-play" aria-hidden="true"><Play /></span>
+      </button>
+    })}
+  </div>
 }
 
 function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
@@ -40,6 +53,15 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
   const pages=Math.max(1,Math.ceil(quickPicks.length/4))
   const movePage=direction=>{const node=quickGrid.current;if(node)node.scrollTo({left:(node.clientWidth+16)*Math.max(0,Math.min(pages-1,quickPage+direction)),behavior:'smooth'})}
   const collage = recent.length >= 4 ? recent : ranked
+  const showcaseTracks = useMemo(() => {
+    const seen = new Set()
+    return [...recent, ...ranked].filter((track) => {
+      if (!track?.id || seen.has(track.id)) return false
+      seen.add(track.id)
+      return true
+    }).slice(0, 4)
+  }, [recent, ranked])
+  const playHero = track => onPlayTrack(track, ranked)
   const firstName = currentUser?.name?.trim().split(/\s+/)[0] || 'music lover'
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
@@ -57,7 +79,8 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
     <header className="home-hero">
       <div className="home-hero-copy"><span className="home-kicker">Made for your moment</span><h1>{!currentUser ? 'Welcome to EchoSync.' : <>{greeting}, <em>{firstName}.</em></>}</h1><p>{!currentUser ? 'Stream full tracks instantly, explore curated mixes, or jump into a live listening room.' : artists.length ? `A little ${artists.join(', ')}, a few familiar favorites, and something new to fall for.` : 'The songs you come back to. The ones you haven’t met yet. All in one place.'}</p>
         <div className="home-hero-actions"><button className="primary-btn" disabled={!radio.length} onClick={() => onPlayTrack(radio[0], radio)}><Play /> Play Supermix</button><button className="secondary-btn" disabled={!radio.length} onClick={() => onStartRadio(radio[0], radio)}><Shuffle /> Start Radio</button><button className="text-btn" onClick={onCreateRoom}><Radio /> Create Room</button></div>
-      {!currentUser&&<small className="guest-room-caption">Free account required to host rooms</small>}</div><Collage tracks={collage} className="hero-collage" />
+      </div>
+      <HeroShowcase tracks={showcaseTracks} onPlay={playHero} />
     </header>
     {live.status === 'error' && <p className="mood-notice" role="status">Live picks are unavailable. Enjoy your saved rotation while we reconnect.</p>}
     <section className="home-section quick-picks-section"><div className="home-section-head"><div><p>Your next great listen</p><h2>Quick picks</h2></div><span className="quick-radio-note"><Radio size={16} /> A song starts a radio</span></div>
@@ -73,7 +96,7 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
     <Shelf title="Fresh discoveries" subtitle="Make room for a new favorite" tracks={sections.fresh} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
     {liked.length > 0 && <Shelf title="Forgotten favorites" subtitle="A welcome return to your rotation" tracks={ranked.filter(track => liked.includes(track.id) && !recentIds.includes(track.id)).slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} />}
     {!tasteProfile?.events && <section className="home-taste-card"><Sparkles /><div><strong>Make this feel more like you</strong><span>Choose a few artists and moods you love.</span></div><button className="text-btn" onClick={onOpenTaste}>Tune your taste</button></section>}
-    <section className="home-section home-playlists"><div className="home-section-head"><h2>Your playlists</h2><button className="text-btn" onClick={onCreatePlaylist}><Plus size={16} /> New playlist</button></div>{!playlists.length ? <button className="playlist-create-card" onClick={onCreatePlaylist}><ListPlus /><strong>Make your first playlist</strong><span>A place for the songs that stay with you.</span></button> : <div className="playlist-grid">{playlists.map(playlist => <article className="home-playlist-item" key={playlist.id}><button onClick={() => onOpenPlaylist(playlist)}><Collage tracks={playlist.trackIds.map(id => library[id]).filter(Boolean)} /><strong>{playlist.name}</strong><span>{playlist.trackIds.length} tracks</span></button><button className="text-btn" disabled={!playlist.trackIds.length} onClick={() => onPlayPlaylist(playlist)}><Play size={16} /> Play playlist</button></article>)}</div>}</section>
+    {playlists.length > 0 && <section className="home-section home-playlists"><div className="home-section-head"><h2>Your playlists</h2><button className="text-btn" onClick={onCreatePlaylist}><Plus size={16} /> New playlist</button></div><div className="playlist-grid">{playlists.map(playlist => <article className="home-playlist-item" key={playlist.id}><button onClick={() => onOpenPlaylist(playlist)}><Collage tracks={playlist.trackIds.map(id => library[id]).filter(Boolean)} /><strong>{playlist.name}</strong><span>{playlist.trackIds.length} tracks</span></button><button className="text-btn" disabled={!playlist.trackIds.length} onClick={() => onPlayPlaylist(playlist)}><Play size={16} /> Play playlist</button></article>)}</div></section>}
   </div>
 })
 HomeView.displayName = 'HomeView'

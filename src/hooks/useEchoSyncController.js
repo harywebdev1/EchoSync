@@ -17,7 +17,6 @@ import {
   writeStorage,
   PUBLIC_LOUNGE_KEY,
   trimBoundedSet,
-  THEME_KEY,
   USERS_KEY,
   ROOMS_KEY,
   MESSAGES_KEY,
@@ -99,8 +98,6 @@ export function useEchoSyncController() {
   }, [])
 
   const { queueFilter, setQueueFilter, sleepPausedRef,
-    theme,
-    setTheme,
     accounts,
     setAccounts,
     currentUserId,
@@ -595,11 +592,6 @@ export function useEchoSyncController() {
   useEffect(() => {
     invitesRef.current = invites
   }, [invites])
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    writeStorage(THEME_KEY, theme)
-  }, [theme])
 
   useEffect(() => {
     const raw = JSON.stringify(accounts)
@@ -1769,6 +1761,7 @@ export function useEchoSyncController() {
   }
 
   function openLounge() {
+    if (requireAuth({ type: 'lounge' }, 'Log in to join the Public Lounge conversation.')) return
     setLoungeOpen(true)
     setChatOpen(false)
     setSidebarOpen(false)
@@ -2924,7 +2917,7 @@ export function useEchoSyncController() {
   }
 
   function requireAuth(action, reason = 'Log in to continue.', mode = 'signin', notice = '') {
-    if (currentUser || ['playSolo','queueSolo','togglePlay','next','previous','like'].includes(action?.type)) return false
+    if (currentUser) return false
     pendingAuthActionRef.current = action || null
     setAuthMode(mode === 'signup' ? 'signup' : 'signin')
     setAuthReason(reason)
@@ -3135,7 +3128,6 @@ export function useEchoSyncController() {
     startRoomTrack,
     artworkContextValue,
     memberIndex,
-    theme,
     rootStyle,
     audioRef,
     ytContainerRef,
@@ -3179,7 +3171,6 @@ export function useEchoSyncController() {
     acceptJoin,
     chatOpen,
     activeRoomUnread,
-    setTheme,
     setChatOpen,
     openAuth,
     closeLounge,

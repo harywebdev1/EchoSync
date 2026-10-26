@@ -190,38 +190,6 @@
   background: var(--line-strong);
   background-clip: padding-box;
 }
-
-.app.light .home-card,
-.app.light .playlist-card,
-.app.light .room-card,
-.app.light .queue,
-.app.light .playlist-detail-head,
-.app.light .taste-invite-card {
-  border-color: rgba(15, 23, 42, 0.07);
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
-}
-.app.light .home-card:hover,
-.app.light .playlist-card:hover {
-  border-color: rgba(15, 23, 42, 0.11);
-  box-shadow: 0 16px 38px -8px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.05);
-}
-.app.light .player-dock,
-.app.light .modal,
-.app.light .search-modal {
-  border-color: rgba(15, 23, 42, 0.07);
-  box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.05);
-}
-.app.light .room-import-popover {
-  border-color: rgba(15, 23, 42, 0.08);
-  box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.05);
-}
-.app.light .playlist-room-btn {
-  color: var(--text);
-  border-color: rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.82);
-}
-.app.light .playlist-room-btn:hover { background: #fff; }
-
 @media (max-width: 560px) {
   .search-add span { font-size: 12px; }
   .search-context-pill { font-size: 12px; }
