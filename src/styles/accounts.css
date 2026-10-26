@@ -153,11 +153,8 @@
   justify-content: center;
   gap: 6px;
   margin: 9px 12px;
-  padding: 6px 9px;
   border-radius: 8px;
-  color: var(--wa-meta);
   background: color-mix(in srgb, var(--wa-in) 45%, transparent);
-  font-size: 12px;
   line-height: 1.4;
   text-align: center;
 }
@@ -413,8 +410,6 @@
   display: flex;
   flex-direction: column;
   width: min(520px, 100%);
-  max-height: 86vh;
-  overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 22px;
   background: color-mix(in srgb, var(--surface-solid) 96%, transparent);
@@ -509,13 +504,9 @@
 .field select,
 .field textarea {
   width: 100%;
-  min-height: 34px;
   padding: 7px 10px;
-  border: 1px solid var(--line);
   border-radius: 8px;
   outline: 0;
-  color: var(--text);
-  background: var(--surface-2);
   font-family: var(--font-body);
   font-size: 12px;
   resize: vertical;
@@ -537,8 +528,6 @@
   padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 8px;
-  color: var(--accent-contrast);
-  background: var(--text);
   font-size: 12px;
   font-weight: 600;
   transition: 0.2s;
@@ -914,3 +903,16 @@
 
 .auth-form .google-quick { justify-content: center; height: 31px; border: 1px dashed var(--line-strong); border-radius: 9px; background: var(--surface-2); }
 .auth-form .google-quick:hover { border-style: solid; }
+/* Shared dialog and form patterns. */
+.modal { background:var(--surface-solid); }
+.modal-scrim { background:rgba(5,7,10,.65); padding:16px; }
+.google-auth-button { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; min-height:48px; padding:12px; border:1px solid var(--line-strong); border-radius:12px; background:var(--surface-2); font-weight:600; }
+.google-mark { font-family:Arial,sans-serif; font-size:20px; font-weight:700; color:var(--text); }
+.auth-divider { display:flex; gap:12px; align-items:center; margin:20px 0; color:var(--text-2); font-size:13px; }
+.auth-divider::before,.auth-divider::after { content:''; flex:1; height:1px; background:var(--line); }
+.auth-legal,.field>span,.settings-section .field>span { font-family:var(--font-body); letter-spacing:0; text-transform:none; line-height:1.5; }
+.auth-legal { white-space:normal; font-size:12px; padding-bottom:8px; }
+.theme-preference { margin-bottom:20px; }
+@media(max-width:640px){
+ .auth-modal-head { padding-top:16px; }
+}

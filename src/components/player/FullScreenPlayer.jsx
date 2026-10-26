@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { usePanelFocus } from '../../hooks/usePanelFocus.js'
 import { SleepTimerControl } from './SleepTimerControl.jsx'
 import {
   Heart,
@@ -68,7 +70,7 @@ function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
       </div>
       <div className="time-row">
         <b>{formatTime(progress)}</b>
-        <span>{canControl ? 'CLICK TO SEEK' : 'SYNCED TO ROOM'}</span>
+        <span>{!canControl ? 'Room playback' : ''}</span>
         <span>{formatTime(total)}</span>
       </div>
     </>
@@ -110,21 +112,25 @@ export function FullScreenPlayer({
   translating,
   onToggleTranslate,
 }) {
+  const [panel,setPanel] = useState("player")
+  const panelRef = usePanelFocus()
   const total = duration || track?.duration || 0
+  if (!track?.id || ['empty', 'room-empty'].includes(track.id)) return <section className="full-player"><div className="fp-inner"><h2>Find your next song</h2><p>Choose music from Home or Search to start listening.</p><button className="primary-btn" onClick={onClose}>Explore music</button></div></section>
   return (
-    <div className="full-player">
+    <div ref={panelRef} className={`full-player fp-panel-${panel}`} role="dialog" aria-modal="true" aria-label="Now playing">
       {track?.cover && <div className="fp-bg" style={{ backgroundImage: `url(${track.cover})` }} />}
       <div className="fp-scrim" />
       <div className="fp-inner">
         <header className="fp-head">
           <button className="icon-btn" onClick={onClose} aria-label="Close full player"><ChevronDown /></button>
           <div className="fp-head-copy">
-            <span>{inRoom ? `Playing in ${room.name}` : 'Your listening session'}</span>
-            <strong>{inRoom ? `${queue.length} tracks in the room queue · ${room.members.length} listeners` : `${queue.length} tracks in your queue`}</strong>
+            <span>{inRoom ? `Playing in ${room.name}` : 'Now playing'}</span>
+            <strong>{queueCount} upcoming{inRoom ? ` · ${room.members.length} listeners` : ''}</strong>
           </div>
           <div className="head-spacer" />
         </header>
 
+        <nav className="fp-mobile-tabs"><button aria-pressed={panel==="player"} onClick={()=>setPanel("player")}>Player</button><button aria-pressed={panel==="lyrics"} onClick={()=>setPanel("lyrics")}>Lyrics</button><button onClick={onToggleQueue}>Queue</button></nav>
         <div className="fp-body">
           <div className="fp-left">
             <div className="fp-art-wrap">
@@ -133,10 +139,10 @@ export function FullScreenPlayer({
             <div className="fp-info">
               <div className="fp-kicker">
                 <span className="live-dot" style={{ color: room.accent }} />
-                <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}{track?.quality ? ' · ' + track.quality : ''}</span>
+                <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}</span>
               </div>
               <h2 className="fp-title">{track?.title}</h2>
-              <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
+              <p className="fp-artist">{track?.artist}</p>
 
 
               <div className="fp-timeline">
@@ -185,11 +191,11 @@ export function FullScreenPlayer({
                   <ListMusic />
                   {queueCount > 0 && <SoloQueueBadge count={queueCount} />}
                 </button>
-                <SleepTimerControl compact timer={sleepTimer} onChange={onSleepTimer} />
-                <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track"><Heart /></button>
+                <details className="player-actions-menu"><summary>More</summary><SleepTimerControl compact timer={sleepTimer} onChange={onSleepTimer} /><p>{track?.title}</p><p>{track?.artist}</p>{track?.album && track.album !== track.title && <p>{track.album}</p>}{track?.quality && <small>{track.quality}</small>}</details>
+                <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label={liked.includes(track?.id) ? "Unlike track" : "Like track"}><Heart /></button>
                 <button className="icon-btn" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
                 <div className="volume-box">
-                  <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
+                  <button className="icon-btn" onClick={onToggleMute} aria-label={muted || volume === 0 ? "Unmute" : "Mute"}>
                     {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
                   </button>
                   <input
@@ -211,7 +217,7 @@ export function FullScreenPlayer({
           <div className="fp-right">
             <div className="social-head">
               <div className="social-head-copy">
-                <h3>Live lyrics</h3>
+                <h3>Lyrics</h3>
                 <p>
                   <Sparkles size={10} />
                   {' '}
@@ -219,7 +225,7 @@ export function FullScreenPlayer({
                     ? (inRoom ? 'Following the room, line by line' : 'Following along, line by line')
                     : lyrics?.status === 'ready' && lyrics.type === 'plain'
                       ? (inRoom ? 'Read along with the room' : 'Read along with playback')
-                      : 'Time-synced with playback'}
+                      : lyrics?.status === 'loading' ? 'Loading lyrics' : lyrics?.status === 'idle' ? 'Choose a song to read along' : 'Lyrics unavailable'}
                 </p>
               </div>
             </div>

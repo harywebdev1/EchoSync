@@ -1,4 +1,5 @@
 import { SongDrop } from './SongDrop.jsx'
+import { conversationEntries } from '../../core/chatEvents.js'
 import { useSocial } from './SocialContext.jsx'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -47,12 +48,8 @@ function VoiceRow({
     <div className="voice-row">
       <button className={`voice-btn ${micOn ? 'on' : ''}`} onClick={onToggleMic}>
         {micOn ? <Mic /> : <MicOff />}
-        <span>{micOn ? 'Mic live' : 'Join mic'}</span>
+        <span>{micOn ? 'Mic live' : 'Join voice'}</span>
         {micOn && <i className="voice-live-dot" />}
-      </button>
-      <button className={`voice-test ${duckTest ? 'busy' : ''}`} onClick={onDuckTest} disabled={duckTest}>
-        {duckTest ? <span className="spinner" /> : <Sparkles />}
-        <span>{duckTest ? 'Ducking…' : 'Duck test'}</span>
       </button>
       {speaking && (
         <span className="duck-indicator on">
@@ -453,12 +450,12 @@ export function ChatDrawer({
         <>
           <div className="chat-body" ref={chatRef}>
             <div className="chat-day"><span>Today · {room.name}</span></div>
-            {messages.map((message) => {
+            {conversationEntries(messages).map((message) => {
               if (message.system) {
                 return (
-                  <div className="msg-system" key={message.id}>
+                    <div className="msg-system" key={message.id}>
                     <ShieldCheck />
-                    <span><MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} /></span>
+                      {message.notices.length > 1 ? <details><summary>{message.notices.length} room updates</summary>{message.notices.map(notice => <p key={notice.id}><MessageText text={notice.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} /></p>)}</details> : <span><MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} /></span>}
                   </div>
                 )
               }

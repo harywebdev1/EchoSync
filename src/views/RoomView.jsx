@@ -25,6 +25,7 @@ import {
   Clock3,
   ListPlus,
   DoorOpen,
+  MessageCircle,
   ArrowRight,
 } from 'lucide-react'
 import { formatTime } from '../lib/time'
@@ -66,6 +67,7 @@ export function RoomView({
   pendingRequest,
   onRequestRole,
   onOpenMembers,
+  onOpenChat,
   onOpenSettings,
   roleRequests,
   onResolveRequest,
@@ -122,8 +124,9 @@ export function RoomView({
             </button>
           )}
           <button className="text-btn" onClick={onOpenMembers}>
-            <UsersRound size={12} /> {room.members.length} {room.members.length === 1 ? 'member' : 'members'} · Manage roles
+            <UsersRound size={12} /> {room.members.length} {room.members.length === 1 ? 'member' : 'members'}{role === 'admin' ? ' · Manage roles' : ''}
           </button>
+          <button className="text-btn room-chat-action" onClick={onOpenChat}><MessageCircle size={14} /> Chat</button>
           {role === 'admin' && (
             <button className="text-btn" onClick={onOpenSettings}>
               <Settings size={12} /> Room settings
@@ -172,11 +175,11 @@ export function RoomView({
 
 
       {!hasTrack ? <section className="room-stage-empty"><h2>Room stage is ready</h2><p>Pick a starter song below or search above to kick off the session</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span>{item.artist}</span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
-        <Cover track={track} size="cover-size-hero" showQuality playing={isPlaying} />
+        <Cover track={track} size="cover-size-hero" playing={isPlaying} />
         <div className="now-main">
           <div className="now-kicker">
             <span className={isPlaying ? 'live-dot' : ''} style={isPlaying ? { color: room.accent } : undefined} />
-            <span>{isPlaying ? 'PLAYING NOW' : 'UP NEXT IN THE ROOM'}</span>
+            <span>{isPlaying ? 'Now playing' : 'Paused'}</span>
             {pending && <span className="source-badge"><span className="spinner" style={{ width: 8, height: 8 }} /> Tuning</span>}
           </div>
 
@@ -186,19 +189,19 @@ export function RoomView({
             {track?.album && <><span> · </span><span className="album">{track.album}</span></>}
           </p>
 
-          <div className="room-stage-attribution">Hosted by {members[room.dj || room.createdBy]?.name || 'the room admin'} · {ROLE_COPY[role]?.label}</div>
+          <div className="room-stage-attribution">Hosted by {members[room.createdBy || room.host_id || Object.keys(room.roles || {}).find(id => room.roles[id] === 'admin')]?.name || 'the room admin'} · You: {ROLE_COPY[role]?.label}</div>
           <div className="room-sync-actions"><TelemetryPill className="room-transport-sync" /><button className="text-btn" onClick={onResync}><RefreshCw size={14} /> Resync</button><button className="text-btn" onClick={onOpenFull}><Maximize2 size={14} /> Open full player</button></div>
           <div className="now-foot">
-            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full-length stream' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
+            <span>{failed ? 'Source unavailable' : pending ? 'Loading audio…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full-length stream' : ready ? `${track?.quality || 'Full-length audio'}` : 'Ready in the room'}</span>
             <span className="dot" />
             <span>{canControl ? 'You have control' : 'Listen-only mode'}</span>
             <span className="grow" />
             {(failed || track?.needsHydration) && (
               <button className="text-btn find-full" onClick={() => onRetryFull(track)}>
-                <RefreshCw size={11} /> Retry Full Stream
+                <RefreshCw size={11} /> Retry playback
               </button>
             )}
-            <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track">
+            <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label={liked.includes(track?.id) ? "Unlike track" : "Like track"}>
               <Heart />
             </button>
           </div>
@@ -310,7 +313,7 @@ export function RoomView({
                   event.stopPropagation()
                   onLike(item)
                 }}
-                aria-label="Like track"
+                aria-label={liked.includes(track?.id) ? "Unlike track" : "Like track"}
               >
                 <Heart />
               </button>

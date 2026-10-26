@@ -47,8 +47,6 @@ img {
 .app {
   --bg: #090a0d;
   --bg-2: #0d0f14;
-  --surface: rgba(21, 23, 30, 0.68);
-  --surface-solid: #14161d;
   --surface-2: rgba(255, 255, 255, 0.055);
   --surface-3: rgba(255, 255, 255, 0.09);
   --line: rgba(255, 255, 255, 0.085);
@@ -60,12 +58,6 @@ img {
   --accent-2: #f3b58d;
   --accent-contrast: #180709;
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-  --wa-canvas: #0b141a;
-  --wa-in: #202c33;
-  --wa-out: #005c4b;
-  --wa-text: #e9edef;
-  --wa-meta: #8ea1ab;
-  --wa-tick: #53bdeb;
   --wa-line: rgba(255, 255, 255, 0.055);
   --scrollbar: rgba(255, 255, 255, 0.13);
 
@@ -78,10 +70,6 @@ img {
 }
 
 .app.light {
-  --bg: #f2efe9;
-  --bg-2: #e9e5dc;
-  --surface: rgba(255, 255, 255, 0.68);
-  --surface-solid: #fbfaf6;
   --surface-2: rgba(21, 22, 26, 0.045);
   --surface-3: rgba(21, 22, 26, 0.075);
   --line: rgba(21, 22, 26, 0.09);
@@ -93,11 +81,6 @@ img {
   --accent-2: #a94f2b;
   --accent-contrast: #fff8f5;
   --shadow: 0 30px 80px rgba(69, 58, 42, 0.16);
-  --wa-canvas: #efeae2;
-  --wa-in: #ffffff;
-  --wa-out: #d9fdd3;
-  --wa-text: #111b21;
-  --wa-meta: #667781;
   --wa-tick: #34a4d1;
   --wa-line: rgba(20, 30, 35, 0.055);
   --scrollbar: rgba(20, 22, 26, 0.16);
@@ -148,3 +131,13 @@ img {
   from { transform: translate3d(0, 0, 0) scale(1); }
   to { transform: translate3d(-4vw, -6vh, 0) scale(1.16); }
 }
+/* Shared interaction tokens and accessible control states. */
+:root { --radius-control:12px; --radius-panel:22px; --space-page:24px; --success:#27845e; --error:#c63849; --warning:#aa721d; }
+button,select,textarea { font:inherit; }
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,[tabindex]:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+button:disabled { cursor:not-allowed; }
+.app { --surface:#17191f; --surface-solid:#1c1e25; --wa-canvas:var(--bg-2); --wa-in:var(--surface-solid); --wa-out:#493036; --wa-text:var(--text); --wa-meta:var(--text-2); --wa-tick:var(--accent); }
+.app.light { --bg:#faf8f4; --bg-2:#f2efe9; --surface:#fffdfa; --surface-solid:#fffdfa; --wa-canvas:var(--bg-2); --wa-in:var(--surface-solid); --wa-out:#f7dfd9; --wa-text:var(--text); --wa-meta:var(--text-2); }
+.app.light .ambient { background:var(--bg); }
+.app.light .ambient::before { display:none; }
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}}

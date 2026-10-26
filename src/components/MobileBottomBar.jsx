@@ -40,7 +40,7 @@ export function MobileMiniPlayer({
         type="button"
         className={`mini-like ${liked.includes(track.id) ? 'liked' : ''}`}
         onClick={() => onLike(track)}
-        aria-label="Like track"
+        aria-label={liked.includes(track?.id) ? "Unlike track" : "Like track"}
       >
         <Heart />
       </button>

@@ -1,4 +1,4 @@
-import { songStem } from './moodFeed.js'
+import { createRecordingIndex } from './moodFeed.js'
 export const ARTIST_LANGUAGE = {
   'atif aslam': 'Urdu',
   'arijit singh': 'Hindi',
@@ -269,12 +269,12 @@ export const HOME_MOODS = [
 ]
 
 export function rankHomeTracks(tracks, { profile, liked = [], recent = [], mood = 'all' } = {}) {
-  const known = new Set(liked), played = new Set(recent), seen = new Set()
+  const known = new Set(liked), played = new Set(recent), seen = createRecordingIndex()
   const pattern = HOME_MOODS.find(item => item.id === mood)?.pattern
   return tracks.filter(track => {
     const duration = Number(track?.duration)
-    if (!track?.id || seen.has(songStem(track)) || track.preview || (duration > 0 && duration < 60)) return false
-    seen.add(songStem(track)); return true
+    if (!track?.id || track.preview || (duration > 0 && duration < 60)) return false
+    return seen.add(track)
   }).map((track, index) => {
     const artistWeight = artistNames(track).reduce((sum, artist) => sum + (profile?.artists?.[normalize(artist)]?.weight || 0), 0)
     const genreWeight = genresForTrack(track).reduce((sum, genre) => sum + (profile?.genres?.[normalize(genre)]?.weight || 0), 0)

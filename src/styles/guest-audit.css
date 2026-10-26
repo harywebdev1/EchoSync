@@ -1,4 +1,3 @@
-.quick-pagination { display:none; }
 .guest-room-caption { display:block; margin-top:8px; font-size:12px; color:var(--text-2); }
 .rooms-empty-banner,.search-recovery { background:var(--surface-2); border:1px solid var(--line); border-radius:14px; padding:16px; margin:12px 0; line-height:1.5; }
 .instant-label { font-size:15px; margin:12px 0; }
@@ -16,30 +15,6 @@
 .auth-trust-summary { padding:18px; line-height:1.6; background:var(--surface-2); border-radius:12px; }
 @keyframes surface-shimmer { to {background-position:-150% 0;} }
 @media(prefers-reduced-motion:reduce){.skeleton-shapes i,.skeleton-shapes span{animation:none;}}
-@media(max-width:640px){
- .home-v81 { padding-left:16px; padding-right:16px; }
- .home-v81 .home-chips { gap:6px; margin-bottom:0; padding-top:6px; padding-bottom:6px; }
- .home-v81 .home-chip { min-height:32px; padding:6px 12px; }
- .home-v81 .home-hero { padding:16px 0; grid-template-columns:minmax(0,1fr) 72px; gap:6px 10px; }
- .home-v81 .home-kicker { display:none; }
- .home-v81 .home-hero h1 { font-size:22px; line-height:1.12; }
- .home-v81 .home-hero-copy > p { font-size:12px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
- .home-v81 .hero-collage { width:72px; height:72px; margin:0; grid-row:1/3; border-width:2px; }
- .home-v81 .home-hero-actions { gap:6px; margin-top:6px; flex-wrap:nowrap; }
- .home-v81 .home-hero-actions button { padding:8px; font-size:12px; min-height:36px; letter-spacing:0; white-space:nowrap; gap:4px; }
- .home-v81 .home-hero-actions svg { width:14px; height:14px; }
- .home-v81 .guest-room-caption { font-size:12px; grid-column:1/-1; margin:0; }
- .home-v81 .quick-grid { grid-auto-columns:100%; column-gap:16px; padding-bottom:0; scrollbar-width:none; }
- .home-v81 .quick-card { min-width:0; max-width:100%; }
- .quick-pagination { display:flex; align-items:center; justify-content:center; gap:12px; margin-top:8px; font-size:12px; }
- .quick-pagination .icon-btn { width:32px; height:32px; }
- .home-v81 .quick-picks-section { margin-top:12px; }
- .home-v81 .quick-picks-section .home-section-head { margin-bottom:10px; }
-}
-@media(max-width:640px){
- .home-v81 .home-hero { padding-top:8px; padding-bottom:8px; row-gap:4px; }
- .home-v81 .quick-picks-section { margin-top:4px; }
-}
 
 /* Keep offscreen Up Next rows out of drawer-open layout work. */
 .solo-queue-drawer .queue-drawer-row { content-visibility: auto; contain-intrinsic-block-size: auto 60px; }

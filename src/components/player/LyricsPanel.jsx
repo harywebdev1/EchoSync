@@ -97,7 +97,7 @@ export function LyricsPanel({
           </div>
         )}
 
-        {lyrics?.status === 'error' && (
+        {['error', 'none'].includes(lyrics?.status) && (
           <div className="lyrics-placeholder">
             <AlertCircle />
             <h4>Lyrics aren't available for this track yet</h4>
@@ -187,7 +187,7 @@ export function LyricsPanel({
         )}
         {lyrics?.status === 'ready' && lyrics.type === 'synced' && <button className={`auto-toggle ${autoScroll ? 'on' : ''}`} onClick={() => setAutoScroll((value) => !value)}>
           <Sparkles />
-          {pausedHint && autoScroll ? 'Auto-scroll paused' : autoScroll ? 'Auto-scroll' : 'Synced'}
+          {pausedHint && autoScroll ? 'Auto-scroll paused' : autoScroll ? 'Auto-scroll' : 'Auto-scroll off'}
         </button>}
       </div>
     </div>

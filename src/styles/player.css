@@ -15,9 +15,6 @@
   padding: 12px 20px;
   border: 1px solid color-mix(in srgb, var(--song-accent, var(--accent)) 34%, rgba(255, 255, 255, 0.08));
   border-radius: 20px;
-  background:
-    linear-gradient(110deg, color-mix(in srgb, var(--song-accent, var(--accent)) 13%, transparent), transparent 44%),
-    linear-gradient(180deg, rgba(22, 24, 32, 0.94) 0%, rgba(14, 16, 22, 0.97) 100%);
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.42),
     0 0 42px -24px var(--song-glow, transparent),
@@ -393,3 +390,5 @@
   from { opacity: 0; transform: translate(-50%, -12px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+
+@media(min-width:881px){.dock-quick-actions { display: none; }}

@@ -1,3 +1,4 @@
+import { useThemePreference } from './useThemePreference.js'
 import { useState, useRef } from 'react'
 import {
   readStorage,
@@ -31,7 +32,7 @@ import { usePlaybackState } from './usePlaybackState.js'
 
 export function useAppState() {
   const [queueFilter, setQueueFilter] = useState('All')
-const [theme, setTheme] = useState(() => (readStorage(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark'))
+const {theme, themePreference, setTheme} = useThemePreference()
 const [accounts, setAccounts] = useState(loadUsers)
 const [currentUserId, setCurrentUserId] = useState(() => {
     const id = readActiveUserId()
@@ -165,7 +166,7 @@ const chatOpenRef = useRef(chatOpen)
 const searchRoomRef = useRef(null)
 const searchTargetRef = useRef({ mode: 'solo', roomId: null })
   const playback = usePlaybackState()
-  return { ...playback, queueFilter, setQueueFilter, theme,
+  return { ...playback, queueFilter, setQueueFilter, theme, themePreference,
     setTheme,
     accounts,
     setAccounts,

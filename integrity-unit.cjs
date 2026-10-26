@@ -13,6 +13,15 @@ let passed = 0
 async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}`) }
 
 ;(async () => {
+  await check('Like/catalog metadata refresh retains active audio source while refreshing credits',async()=>{
+    const controller=read('src/hooks/useEchoSyncController.js')
+    const source=section(controller,'  function rememberTrack(candidate) {','  function pushSystemMessage')
+    let library={playing:{id:'playing',artist:'Artist',streamUrl:'active-url',duration:180,status:'ready'}}
+    let saved
+    const context={libraryRef:{current:library},queueIdsRef:{current:['playing']},currentIndexRef:{current:0},loadedUrlRef:{current:'active-url'},sanitizeTrack:x=>x,setLibrary:fn=>{library=fn(library)},saveLibraryEntry:(_id,x)=>{saved=x}}
+    vm.runInNewContext(source+';rememberTrack({id:"playing",artist:"Artist, Collaborator",streamUrl:"catalog-url",duration:175})',context)
+    assert.equal(library.playing.streamUrl,'active-url');assert.equal(saved.streamUrl,'active-url');assert.equal(library.playing.artist,'Artist, Collaborator');assert.equal(library.playing.duration,180)
+  })
   const [lrc, room, taste, storage] = await Promise.all([
     import('./src/core/lrcParser.js'), import('./src/core/roomSyncMath.js'),
     import('./src/core/tasteEngine.js'), import('./src/core/storageAdapter.js'),
@@ -284,10 +293,19 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     assert.equal(JSON.stringify([a, b, partial]), snapshot)
   })
   await check('Home stems remove From suffixes and partial mood success survives failed queries', async () => {
-    const { songStem, collectMoodResults, mergeMoodCatalog } = await import('./src/core/moodFeed.js')
+    const { songStem, sameRecording, collectMoodResults, mergeMoodCatalog } = await import('./src/core/moodFeed.js')
     const first={id:'a',title:'Apna Bana Le (From "Bhediya")',artist:'Arijit Singh, Sachin',duration:180}
-    const duplicate={...first,id:'b',title:'  Apna Bana Le ',artist:'Arijit Singh'}
+    const duplicate={...first,id:'b',title:'  Apna Bana Le ',artist:'Sachin, Arijit Singh'}
     assert.equal(songStem(first),songStem(duplicate))
+    assert.notEqual(songStem(first),songStem({...first,artist:'Unrelated artist'}))
+    assert.notEqual(songStem(first),songStem({...first,title:'Apna Bana Le (Live)'}))
+    assert.notEqual(songStem(first),songStem({...first,title:'Apna Bana Le (Remix)'}))
+    assert.equal(sameRecording(first,{...first,id:'partial',artist:'Arijit Singh'}),true)
+    assert.equal(sameRecording(first,{...first,id:'other',artist:'Other artist'}),false)
+    assert.equal(sameRecording(first,{...first,id:'live',title:'Apna Bana Le (Live)'}),false)
+    assert.equal(sameRecording(first,{...first,id:'long',duration:240}),false)
+    assert.equal(sameRecording(first,{...first,id:'seed',duration:159,status:'pending',artist:'Arijit Singh'}),true)
+    assert.equal(sameRecording({...first,artist:'Unknown artist'},{...first,id:'unknown',artist:'Unknown artist'}),false)
     const result=collectMoodResults([{status:'rejected',reason:new Error('429')},{status:'fulfilled',value:[first,duplicate]}])
     assert.equal(result.length,1)
     assert.equal(mergeMoodCatalog([duplicate],[first]).length,1)

@@ -21,7 +21,7 @@ import { topTasteLabels } from '../../core/tasteEngine.js'
 import { TastePicker } from './TastePicker.jsx'
 
 export function SettingsModal({
-  user,
+  user, themePreference, onThemeChange,
   settings,
   stats,
   cacheInfo,
@@ -34,6 +34,8 @@ export function SettingsModal({
   onSaveTaste,
 }) {
   const [tab, setTab] = useState('profile')
+  const [detailOpen, setDetailOpen] = useState(false)
+  const selectTab = value => {setTab(value);setDetailOpen(true)}
   const [form, setForm] = useState({
     handle: user.handle || '',
     email: user.email || '',
@@ -82,18 +84,19 @@ export function SettingsModal({
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Close settings"><X /></button>
       </div>
-      <div className="settings-layout">
+      <div className={`settings-layout ${detailOpen ? "settings-detail-open" : ""}`}>
         <nav className="settings-nav">
-          <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><UserRoundPlus /> Profile</button>
-          <button className={tab === 'audio' ? 'active' : ''} onClick={() => setTab('audio')}><SlidersHorizontal /> Audio & playback</button>
-          <button className={tab === 'taste' ? 'active' : ''} onClick={() => setTab('taste')}><Sparkles /> Taste profile</button>
-          <button className={tab === 'social' ? 'active' : ''} onClick={() => setTab('social')}><UsersRound /> Social & privacy</button>
-          <button className={tab === 'storage' ? 'active' : ''} onClick={() => setTab('storage')}><HardDrive /> Storage & cache</button>
+          <button className={tab === 'profile' ? 'active' : ''} onClick={() => selectTab('profile')}><UserRoundPlus /> Profile</button>
+          <button className={tab === 'audio' ? 'active' : ''} onClick={() => selectTab('audio')}><SlidersHorizontal /> Audio & playback</button>
+          <button className={tab === 'taste' ? 'active' : ''} onClick={() => selectTab('taste')}><Sparkles /> Taste profile</button>
+          <button className={tab === 'social' ? 'active' : ''} onClick={() => selectTab('social')}><UsersRound /> Social & privacy</button>
+          <button className={tab === 'storage' ? 'active' : ''} onClick={() => selectTab('storage')}><HardDrive /> Storage & cache</button>
           <span className="grow" />
           <button className="signout-btn" onClick={onSignOut}><LogOut /> Sign out</button>
         </nav>
 
-        <div className="settings-body">
+        <div className="settings-body"><button className="text-btn settings-back" onClick={() => setDetailOpen(false)}>← Settings</button>
+          <label className="field theme-preference"><span>Appearance</span><select aria-label="Appearance" value={themePreference} onChange={e=>onThemeChange(e.target.value)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
           {tab === 'profile' && (
             <form className="profile-form" onSubmit={submitProfile}>
               <div className="profile-top settings-profile-top">
@@ -103,11 +106,6 @@ export function SettingsModal({
                   <span>@{preview.handle} · {preview.email}</span>
                   <small>Your music, your rotation, your listening community.</small>
                 </div>
-              </div>
-              <div className="profile-stats">
-                <span><b>{stats.playlists}</b>Playlists created</span>
-                <span><b>{stats.liked}</b>Liked songs</span>
-                <span><b>{stats.rooms}</b>Rooms hosted</span>
               </div>
               <div className="field-row">
                 <label className="field">
@@ -140,7 +138,8 @@ export function SettingsModal({
                     type="password"
                     value={passwords.newPassword}
                     onChange={(event) => setPasswords((value) => ({ ...value, newPassword: event.target.value }))}
-                    placeholder="At least 4 characters"
+                    placeholder={user.cloud ? 'At least 8 characters' : 'At least 4 characters'}
+                    minLength={user.cloud ? 8 : 4}
                     autoComplete="new-password"
                   />
                 </label>
@@ -221,13 +220,27 @@ export function SettingsModal({
                 </button>
               </div>
               <label className="field">
-                <span>Rave mic ducking level</span>
+                <span>Music volume during voice</span>
                 <select value={audio.duckLevel} onChange={(event) => setAudio((value) => ({ ...value, duckLevel: Number(event.target.value) }))}>
                   <option value={15}>15% — subtle</option>
                   <option value={20}>20% — balanced</option>
                   <option value={35}>35% — voice forward</option>
                 </select>
               </label>
+              <div className="setting-toggle-row">
+                <div>
+                  <strong>Auto-translate lyrics by default</strong>
+                  <span>Non-English songs open with English lyrics underneath.</span>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle-pill ${audio.autoTranslate ? 'on' : ''}`}
+                  onClick={() => setAudio((value) => ({ ...value, autoTranslate: !value.autoTranslate }))}
+                  aria-label="Toggle auto-translate lyrics"
+                >
+                  <span />
+                </button>
+              </div>
               <div className="modal-actions">
                 <button className="primary-btn" onClick={saveAudio}><Save size={12} /> Save preferences</button>
               </div>
@@ -287,25 +300,11 @@ export function SettingsModal({
                   <span />
                 </button>
               </div>
-              <div className="setting-toggle-row">
-                <div>
-                  <strong>Auto-translate lyrics by default</strong>
-                  <span>Non-English songs open with English lyrics underneath.</span>
-                </div>
-                <button
-                  type="button"
-                  className={`toggle-pill ${audio.autoTranslate ? 'on' : ''}`}
-                  onClick={() => setAudio((value) => ({ ...value, autoTranslate: !value.autoTranslate }))}
-                  aria-label="Toggle auto-translate lyrics"
-                >
-                  <span />
-                </button>
-              </div>
               <div className="modal-actions">
                 <button
                   className="primary-btn"
-                  onClick={() => {
-                    const result = onSaveProfile({ ...form })
+                  onClick={async () => {
+                    const result = await onSaveProfile({ ...form })
                     if (result?.error) setProfileError(result.error)
                     onSaveSettings(audio)
                   }}
@@ -320,18 +319,18 @@ export function SettingsModal({
             <div className="settings-section">
               <div className="settings-section-head">
                 <h3>Storage & cache</h3>
-                <p>Resolved streams, lyrics, and translations live on this device.</p>
+                <p>Temporary audio links and lyrics are stored on this device.</p>
               </div>
               <div className="cache-grid">
                 <div><HardDrive /><strong>{cacheInfo.size}</strong><span>Total cache size</span></div>
                 <div><AudioLines /><strong>{cacheInfo.streams}</strong><span>Cached streams</span></div>
                 <div><Languages /><strong>{cacheInfo.translations}</strong><span>Translated tracks</span></div>
               </div>
-              <p className="settings-note">Clearing the cache removes saved stream and lyric data. The next play starts fresh.</p>
+              <p className="settings-note">Clear temporary files to free space. Your likes, playlists and messages stay safe.</p>
               <div className="settings-actions-row">
                 <button className="text-btn danger-btn" onClick={onClearCache}><Trash2 size={12} /> Clear stream & lyrics cache</button>
                 <span className="grow" />
-                <button className="text-btn ghosted" onClick={onSignOut}><LogOut size={12} /> Sign out</button>
+
               </div>
             </div>
           )}

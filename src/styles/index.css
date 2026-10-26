@@ -21,3 +21,6 @@
 
 @import './phase2.css';
 @import './guest-audit.css';
+
+@import "./home.css";
+@import "./patterns.css";

@@ -92,7 +92,7 @@ export function LibraryView({
   }, [searchTracks, playlistQuery, activePlaylist])
 
   return (
-    <div className="library-view">
+    <div className={`library-view ${activePlaylist ? 'has-playlist-detail' : ''}`}>
       <header className="library-hero">
       <div className="eyebrow">
         <span className="live-pill"><Library size={9} /> YOUR LIBRARY</span>
@@ -106,6 +106,7 @@ export function LibraryView({
 
       {activePlaylist ? (
         <section ref={detailRef} className="playlist-detail">
+          <button className="text-btn" onClick={() => onSelectPlaylist(null)}>← Back to Library</button>
           <div className="playlist-detail-head">
             <div className="playlist-mosaic large">
               {playlistTracks.slice(0, 4).map((cover) => (
@@ -120,10 +121,11 @@ export function LibraryView({
               <div className="playlist-detail-actions"><button className="text-btn" aria-label="Playlist visibility" onClick={()=>social.toggleVisibility(activePlaylist.id)}>{activePlaylist.visibility==='private'?'🔒 Private':'🌐 Public'}</button>
                 <button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button>
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onShufflePlaylist(activePlaylist)}><Shuffle size={12} /> Shuffle</button>
+                <details className="playlist-actions-menu"><summary aria-label="Playlist actions">More</summary>
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>
                 <button className="text-btn" onClick={() => onRenamePlaylist(activePlaylist)}><Pencil size={12} /> Edit</button>
                 <button className="text-btn danger-btn" onClick={() => onDeletePlaylist(activePlaylist)}><Trash2 size={12} /> Delete</button>
-                <button className="text-btn ghosted" onClick={() => onSelectPlaylist(null)}><X size={12} /> Close</button>
+                </details>
               </div>
             </div>
           </div>
@@ -181,7 +183,7 @@ export function LibraryView({
                 <button className="text-btn" onClick={onSearch}><Search size={12} /> Find songs</button>
               </div>
             ) : playlistTracks.map((track, index) => (
-                <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, likedTracks)}>
+                <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, playlistTracks)} onKeyDown={event => {if(event.target === event.currentTarget && ['Enter',' '].includes(event.key)){event.preventDefault();onPlay(track,playlistTracks)}}}>
                 <span className="num">{String(index + 1).padStart(2, '0')}</span>
                 <Cover track={track} size="cover-size-sm" />
                 <div className="queue-copy">

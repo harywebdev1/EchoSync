@@ -103,10 +103,6 @@
   overflow-y: auto;
   padding: 17px 14px 13px;
   background-color: var(--wa-canvas);
-  background-image:
-    radial-gradient(circle at 18% 23%, var(--wa-line) 0 1px, transparent 1.4px),
-    radial-gradient(circle at 74% 64%, var(--wa-line) 0 1px, transparent 1.4px),
-    radial-gradient(circle at 42% 87%, var(--wa-line) 0 1px, transparent 1.4px);
   background-size: 27px 27px, 34px 34px, 22px 22px;
   scroll-behavior: smooth;
   transition: background-color 0.35s;

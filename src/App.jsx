@@ -50,7 +50,7 @@ export default function App() {
     social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
-    theme,
+    theme, themePreference,
     rootStyle,
     audioRef,
     ytContainerRef,
@@ -330,7 +330,7 @@ export default function App() {
                 <AudioLines size={16} />
               </button>
             )}
-            <StageBar searchQuery={searchQuery} onSearchQuery={setSearchQuery} searchOpen={searchOpen}
+            <StageBar onSearchSubmit={recordSearchQuery} searchQuery={searchQuery} onSearchQuery={setSearchQuery} searchOpen={searchOpen}
               room={displayRoom}
               view={view}
               inRoom={roomPlaybackActive}
@@ -437,6 +437,7 @@ export default function App() {
                   onRequestRole={requestRole}
                   onResolveRequest={resolveRoleRequest}
                   onOpenMembers={() => setMembersOpen(true)}
+                  onOpenChat={() => { setActiveTab('chat'); setChatOpen(true) }}
                   onOpenSettings={requestEditRoom}
                   onFindFull={findFullVersion}
                   onRetryFull={findFullVersion}
@@ -724,7 +725,7 @@ export default function App() {
         )}
 
         {settingsOpen && currentUser && (
-          <SettingsModal
+          <SettingsModal themePreference={themePreference} onThemeChange={setTheme}
             user={currentUser}
             settings={settings}
             cacheInfo={cacheInfo}

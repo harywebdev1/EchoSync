@@ -99,7 +99,7 @@ export function useEchoSyncController() {
   }, [])
 
   const { queueFilter, setQueueFilter, sleepPausedRef,
-    theme,
+    theme, themePreference,
     setTheme,
     accounts,
     setAccounts,
@@ -598,7 +598,7 @@ export function useEchoSyncController() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    writeStorage(THEME_KEY, theme)
+    // Theme preference is persisted by useThemePreference.
   }, [theme])
 
   useEffect(() => {
@@ -767,8 +767,11 @@ export function useEchoSyncController() {
   }, [currentUser])
 
   useEffect(() => {
+    let wasWide = window.innerWidth > 1050
     const onResize = () => {
-      if (window.innerWidth <= 1050) setChatOpen(false)
+      const wide = window.innerWidth > 1050
+      if (wasWide && !wide) setChatOpen(false)
+      wasWide = wide
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -1065,10 +1068,10 @@ export function useEchoSyncController() {
       if (newPassword.length < 4) return { error: 'Use at least 4 characters for the new password.' }
       password = newPassword
     }
-    setAccounts((previous) => ({
-      ...previous,
+    const nextAccounts = {
+      ...accounts,
       [currentUserId]: {
-        ...previous[currentUserId],
+        ...account,
         name: cleanName,
         handle: cleanHandle,
         email: typed,
@@ -1077,7 +1080,9 @@ export function useEchoSyncController() {
         showActivity: patch.showActivity !== undefined ? Boolean(patch.showActivity) : account.showActivity !== false,
         allowInvites: patch.allowInvites !== undefined ? Boolean(patch.allowInvites) : account.allowInvites !== false,
       },
-    }))
+    }
+    if (!writeStorage(USERS_KEY, nextAccounts)) return { error: "Changes weren't saved (storage full)" }
+    setAccounts(nextAccounts)
     showToast(newPassword ? 'Profile and password updated' : 'Profile saved')
     return {}
   }
@@ -1128,7 +1133,18 @@ export function useEchoSyncController() {
 
   function rememberTrack(candidate) {
     if (!candidate?.id) return
-    const entry = sanitizeTrack({ ...candidate, status: candidate.status || 'ready' })
+    const previous = libraryRef.current[candidate.id]
+    const active = queueIdsRef.current[currentIndexRef.current] === candidate.id
+      && previous && (loadedUrlRef.current || previous.youtubeVideoId)
+    // A Like/queue/catalog metadata refresh must not replace the playing source.
+    // Explicit playback resolution/recovery commits its source in the engine.
+    const entry = sanitizeTrack({ ...candidate, status: candidate.status || 'ready', ...(active ? {
+      streamUrl: loadedUrlRef.current || previous.streamUrl,
+      youtubeVideoId: previous.youtubeVideoId,
+      duration: previous.duration,
+      status: previous.status,
+      needsHydration: previous.needsHydration,
+    } : {}) })
     setLibrary((previous) => ({
       ...previous,
       [entry.id]: sanitizeTrack({ ...(previous[entry.id] || {}), ...entry }),
@@ -1569,6 +1585,7 @@ export function useEchoSyncController() {
       return
     }
     if (!['admin', 'dj', 'listener'].includes(nextRole)) return
+    if(activeRoom.roles?.[userId] === nextRole)return
     const roles = { ...(activeRoom.roles || {}), [userId]: nextRole }
     if (!Object.values(roles).includes('admin')) {
       showToast('A room needs at least one Admin.', 'lock')
@@ -2153,7 +2170,7 @@ export function useEchoSyncController() {
         ? previous.filter((id) => id !== trackId)
         : [trackId, ...previous]
     ))
-    showToast(removing ? 'Removed from your library' : 'Saved to your library')
+    showToast(removing ? 'Removed from your library' : currentUser ? 'Saved to your library' : 'Saved on this device')
   }
 
   async function startRoomTrack(candidate) {
@@ -2193,7 +2210,7 @@ export function useEchoSyncController() {
 
   useEffect(() => {
     let cancelled = false
-    if (!currentUser || !track?.title || !track?.artist || track.id === 'empty') {
+    if (!track?.title || !track?.artist || ['empty', 'room-empty'].includes(track.id)) {
       setLyrics({ status: 'idle' })
       return undefined
     }
@@ -2210,7 +2227,7 @@ export function useEchoSyncController() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lyricsKey, track?.title, track?.artist, lyricsRefresh, currentUser])
+  }, [lyricsKey, track?.title, track?.artist, lyricsRefresh])
 
   useEffect(() => {
     if (!translateOn) {
@@ -2677,6 +2694,8 @@ export function useEchoSyncController() {
       currentIndexRef,
       roomQueueRef,
       audioRef,
+      loadedUrlRef,
+      ytPlayerRef,
       sleepPausedRef,
       isPlayingRef,
       viewRef,
@@ -2752,10 +2771,12 @@ export function useEchoSyncController() {
 
   function saveUserSettings(next) {
     const merged = { ...settings, ...next }
+    if (!writeUserValue(SETTINGS_KEY, currentUserId, merged)) return false
     setSettings(merged)
     setPreferredStreamQuality(merged.quality || 'high')
     if (next.autoTranslate !== undefined) setTranslateOn(Boolean(next.autoTranslate))
     showToast('Listening preferences saved')
+    return true
   }
 
   function toggleTranslation() {
@@ -3005,10 +3026,6 @@ export function useEchoSyncController() {
   }
 
   function navigateView(nextView) {
-    if (nextView === 'library' && requireAuth(
-      { type: 'library' },
-      'Log in to open your library and saved playlists.',
-    )) return
     if (viewRef.current === 'room' && nextView !== 'room') {
       suspendRoomPlayback()
       setFullPlayer(false)
@@ -3102,8 +3119,6 @@ export function useEchoSyncController() {
   const accent2 = trackPalette?.accent2 || displayRoom.accent2 || '#f2b38e'
 
   const rootStyle = {
-    '--accent': accent,
-    '--accent-2': accent2,
     '--song-accent': accent,
     '--song-accent-rgb': trackPalette?.accentRgb || '145, 100, 210',
     '--song-accent-2': accent2,
@@ -3135,7 +3150,7 @@ export function useEchoSyncController() {
     startRoomTrack,
     artworkContextValue,
     memberIndex,
-    theme,
+    theme, themePreference,
     rootStyle,
     audioRef,
     ytContainerRef,

@@ -122,11 +122,8 @@
 .auth-legal {
   margin: 2px 0 0;
   color: var(--muted);
-  font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0.08em;
   text-align: center;
-  text-transform: uppercase;
 }
 
 .side-label-actions { display: inline-flex; align-items: center; gap: 2px; }

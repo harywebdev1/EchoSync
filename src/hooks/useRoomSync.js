@@ -45,6 +45,8 @@ export function useRoomSync({
     currentIndexRef,
     roomQueueRef,
     audioRef,
+    loadedUrlRef,
+    ytPlayerRef,
     sleepPausedRef,
     isPlayingRef,
     viewRef,
@@ -86,6 +88,14 @@ export function useRoomSync({
     stopRemoteAudio,
   },
 }) {
+  function hasPlaybackMeasurement() {
+    if (loadedUrlRef.current) return audioRef.current?.readyState >= 2
+    const player = ytPlayerRef.current
+    const expected = libraryRef.current[roomClockRef.current.trackId]?.youtubeVideoId
+    try {
+      return Boolean(expected && player?.getVideoData?.().video_id === expected && player.getDuration() >= 60 && [0, 1, 2].includes(player.getPlayerState()))
+    } catch { return false }
+  }
   function broadcastRoom(room) {
     if (!room) return
     channelRef.current?.postMessage({ type: 'room-updated', sender: tabIdRef.current, room })
@@ -300,7 +310,8 @@ export function useRoomSync({
     }
     const target = roomClockTime()
     const drift = computeMemberDrift(getPlaybackTime(), target).seconds
-    recordRoomDrift(drift)
+    if (!indexChanged && hasPlaybackMeasurement()) recordRoomDrift(drift)
+    else resetRoomTelemetry()
     const lateJoin = !hasInteractedRef.current && nextPlaying
     if (lateJoin) {
       pendingSeekRef.current = target
@@ -324,6 +335,7 @@ export function useRoomSync({
     }
     const sample = () => {
       if (document.visibilityState === 'hidden') return
+      if (!hasPlaybackMeasurement()) { resetRoomTelemetry(); return }
       recordRoomDrift(computeMemberDrift(getPlaybackTime(), roomClockTime()).seconds)
     }
     sample()
