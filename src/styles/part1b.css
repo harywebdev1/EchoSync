@@ -52,3 +52,9 @@
 .stage-scroll, .solo-queue-drawer { contain: layout paint; }
 /* Skip offscreen shelf layout when the adjacent drawer changes the stage width.
    Browsers remember measured heights; the fallback reserves scroll space initially. */
+.home-v81 .home-shelf,
+.home-v81 .home-mixes,
+.home-v81 .home-playlists {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 320px;
+}

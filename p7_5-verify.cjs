@@ -199,10 +199,7 @@ async function controlsAndQueue(browser) {
     assert.ok(await page.locator('[data-testid=queue-drawer-row]').count() > 0, 'queue drawer has no upcoming tracks')
     assert.ok((await page.locator('[data-testid=queue-now-playing]').innerText()).includes(currentTitle), 'queue drawer now-playing track is wrong')
     await openApp(page, true)
-    // The empty visual dock is intentionally hidden after a fresh load.
-    // Start a real song before inspecting the persisted playback preferences.
-    await page.getByRole('button', { name: 'Play Excuses' }).first().click()
-    await waitForPlayback(page)
+    await page.waitForTimeout(500)
     assert.equal(await page.locator('[data-testid=repeat-btn]').getAttribute('aria-label'), 'Repeat: Queue')
     assert.equal(await page.locator('[data-testid=shuffle-btn]').getAttribute('aria-label'), 'Shuffle: On')
     assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('; ')}`)

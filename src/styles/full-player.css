@@ -59,10 +59,10 @@
 .fp-head-copy span {
   display: block;
   color: var(--muted);
-  font-family: var(--font-body);
+  font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0;
-  text-transform: none;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .fp-head-copy strong {

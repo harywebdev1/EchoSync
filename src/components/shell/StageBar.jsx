@@ -1,4 +1,4 @@
-import { Menu, ChevronRight, Search, Globe2, Sun, Moon, MessageCircle, X, UserRound } from 'lucide-react'
+import { Menu, ChevronRight, Search, Globe2, Sun, Moon, MessageCircle, X } from 'lucide-react'
 import { Avatar } from '../Avatar'
 
 export function StageBar({
@@ -7,7 +7,7 @@ export function StageBar({
   inRoom,
   theme,
   onToggleTheme,
-  onSearch, onSearchSubmit,
+  onSearch,
   searchQuery, onSearchQuery, searchOpen,
   onToggleChat,
   chatOpen,
@@ -37,7 +37,7 @@ export function StageBar({
 
       <div className="canonical-search" data-testid="canonical-search">
         <Search aria-hidden="true" />
-        <input id="canonical-search-input" type="search" aria-label="Search songs, artists, moods" aria-expanded={searchOpen} aria-controls="search-command-surface" autoComplete="off" value={searchQuery} onFocus={onSearch} onClick={onSearch} onChange={event => onSearchQuery(event.target.value)} placeholder="Search songs, artists, moods…" onKeyDown={event => { if(event.key === 'Enter'){event.preventDefault();onSearchSubmit?.(searchQuery)} if (event.key === 'ArrowDown') { event.preventDefault(); document.querySelector('#search-command-surface button')?.focus() } }} />
+        <input id="canonical-search-input" type="search" aria-label="Search songs, artists, moods" aria-expanded={searchOpen} aria-controls="search-command-surface" autoComplete="off" value={searchQuery} onFocus={onSearch} onClick={onSearch} onChange={event => onSearchQuery(event.target.value)} placeholder="Search songs, artists, moods…" onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); document.querySelector('#search-command-surface button')?.focus() } }} />
         {searchQuery ? <button className="icon-btn" aria-label="Clear search" onClick={() => { onSearchQuery(''); document.getElementById('canonical-search-input')?.focus() }}><X /></button> : <kbd>Ctrl K</kbd>}
       </div>
       <div className="stage-actions">
@@ -47,8 +47,8 @@ export function StageBar({
             <button className="primary-btn guest-signup" onClick={onSignUp}>Sign up</button>
           </div>
         )}
-        <button className="icon-btn account-mobile" onClick={currentUser ? onOpenProfile : onLogin} aria-label={currentUser ? 'Account and profile' : 'Log in'}>
-          {currentUser ? <Avatar member={currentUser} /> : <UserRound />}
+        <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label="Account and profile">
+          <Avatar member={currentUser} />
         </button>
         <button
           className={`lounge-header-btn ${loungeOpen ? 'active' : ''}`}

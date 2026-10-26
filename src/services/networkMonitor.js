@@ -145,7 +145,6 @@ export function getNetworkSnapshot() {
 }
 
 export function recordRoomDrift(driftSeconds) {
-  if (driftSeconds == null || !Number.isFinite(Number(driftSeconds))) return
-  const drift = Math.abs(Number(driftSeconds)) * 1000
-  setLiveTelemetry({ roomDriftMs: Math.round(drift), driftMeasuredAt: Date.now() })
+  const drift = Math.max(0, Number(driftSeconds) || 0) * 1000
+  setLiveTelemetry({ roomDriftMs: Math.round(drift) })
 }

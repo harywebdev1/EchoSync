@@ -53,7 +53,6 @@ export const PlayerDock = memo(function PlayerDock({
   canSeek = true,
 }) {
   const liveProgress = usePlaybackProgress()
-  if (!track?.id || ["empty", "room-empty"].includes(track.id)) return null
   const total = duration || track?.duration || 0
   const pct = total ? Math.min(100, Math.max(0, (liveProgress / total) * 100)) : 0
   const repeatLabel = repeatMode === 'one'
@@ -75,7 +74,7 @@ export const PlayerDock = memo(function PlayerDock({
           <button
             className={`like-btn dock-like ${liked.includes(track?.id) ? 'liked' : ''}`}
             onClick={() => onLike(track)}
-            aria-label={liked.includes(track?.id) ? "Unlike track" : "Like track"}
+            aria-label="Like track"
           >
             <Heart />
           </button>
@@ -150,7 +149,7 @@ export const PlayerDock = memo(function PlayerDock({
       <div className="dock-actions">
         {inRoom && track?.id !== 'empty' && <TelemetryPill compact className="dock-sync-pill" />}
         <div className="dock-volume">
-          <button className="icon-btn" onClick={onToggleMute} aria-label={muted || volume === 0 ? "Unmute" : "Mute"}>
+          <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
             {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
           </button>
           <input

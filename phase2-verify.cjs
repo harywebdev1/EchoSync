@@ -79,7 +79,7 @@ try {
  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('echosync_playlists_v1')).integrity.find(p=>p.id==='empty').visibility==='private')
  console.log('PASS empty playlist cover/actions and persisted visibility toggle')
  await page.locator('.sidebar').getByRole('button',{name:'Home',exact:true}).click()
- if(!await page.locator('.app').evaluate(el=>el.classList.contains('light')))await page.getByRole('button',{name:'Toggle theme',exact:true}).click()
+ await page.getByRole('button',{name:'Toggle theme',exact:true}).click()
  await page.waitForFunction(()=>{const chip=document.querySelector('.home-chip.active');return chip&&getComputedStyle(chip).backgroundColor==='rgb(17, 24, 39)'&&getComputedStyle(chip).color==='rgb(255, 255, 255)'})
  const chip=page.locator('.home-chip.active')
  assert.deepEqual(await chip.evaluate(el=>({bg:getComputedStyle(el).backgroundColor,color:getComputedStyle(el).color})),{bg:'rgb(17, 24, 39)',color:'rgb(255, 255, 255)'})

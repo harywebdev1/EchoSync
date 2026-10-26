@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { liveTelemetryStore } from '../state/playbackStore'
 import { loadTasteProfile, readUserValue, PLAYLISTS_KEY, RECENT_KEY, LIKES_KEY, sanitizeTrack, uid, clockNow } from '../lib/appServices.js'
 import { mergeVote, rankRoomQueue } from '../core/roomVotes.js'
 import { computeMemberDrift } from '../core/roomSyncMath.js'
@@ -81,8 +80,7 @@ export function useSocialFeatures(options) {
     const publish = () => {
       const o = now(), profile = snapshot()
       if (profile) send({type:'channel-profile',profile})
-      const measurement = liveTelemetryStore.get()
-      if (o.roomPlaybackActive && o.activeRoom && o.currentUser && o.track?.id !== 'empty' && measurement.driftMeasuredAt > 0 && Date.now() - measurement.driftMeasuredAt < 6000) {
+      if (o.roomPlaybackActive && o.activeRoom && o.currentUser && o.track?.id !== 'empty') {
         const seconds = computeMemberDrift(o.getPlaybackTime(),o.roomClockTime()).seconds
         const key = o.activeRoom.id+':'+o.currentUser.id
         setTelemetry(p=>({...p,[key]:{seconds,ts:Date.now()}}))

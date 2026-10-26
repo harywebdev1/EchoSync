@@ -58,6 +58,7 @@ export function SearchOverlay({
     const controller=new AbortController()
     const timeout=new Promise((_,reject)=>{deadline=setTimeout(()=>{controller.abort();reject(new Error('Search timed out'))},5000)})
     const timer=setTimeout(async()=>{
+      callbacks.current.onSearchCommit?.(trimmed)
       try{const found=await Promise.race([callbacks.current.onSearch(trimmed,{signal:controller.signal,retry:retry>0}),timeout]);if(!cancelled){setResults(found);setStatus('ready')}}
       catch{if(!cancelled)setStatus('error')}
       finally{clearTimeout(deadline)}
@@ -69,7 +70,7 @@ export function SearchOverlay({
     if(query.trim().length<2)return[]
     return Object.values(catalog).filter(t=>t?.id&&!t.preview&&!(t.duration>0&&t.duration<60)&&words.every(word=>(t.title+' '+t.artist).toLowerCase().includes(word))).slice(0,20)
   },[catalog,query])
-  const visibleResults=[...new Map([...instant,...results].map(t=>[t.id,t])).values()]
+  const visibleResults=[...new Map([...results,...instant].map(t=>[t.id,t])).values()]
 
   useLayoutEffect(() => {
     const place = () => {
@@ -91,6 +92,7 @@ export function SearchOverlay({
       .slice(0, 4)
       .map((artist) => ({ label: artist, query: `${artist} songs` }))
   const recent = recentSearches.filter(Boolean).slice(0, 6)
+  const picks = tasteTracks.slice(0, 5)
 
   return (
     <div className="search-command-root" style={anchor}>
@@ -101,7 +103,7 @@ export function SearchOverlay({
         <div className="search-results">
           {status === 'idle' && (
             <div className="search-idle">
-              {recent.length > 0 && (
+              {(
                 <section className="search-block search-recent" data-testid="search-recent">
                   <div className="search-caption">
                     <span>Recent searches</span>
@@ -129,7 +131,7 @@ export function SearchOverlay({
 
               <section className="search-block" data-testid="search-suggestions">
                 <div className="search-caption">
-                  <span>Browse music</span>
+                  <span>Trending & taste vibes</span>
                   <button className="text-btn" onClick={onOpenTaste}>Tune taste</button>
                 </div>
                 {fallbackSuggestions.length ? (
@@ -144,6 +146,12 @@ export function SearchOverlay({
                 )}
               </section>
 
+              {picks.length > 0 && (
+                <section className="search-block">
+                  <div className="search-caption"><span>Quick Picks for You</span></div>
+                  <div className="search-quick-rows">{picks.map(track => <div className="search-quick-row" key={track.id}><Cover track={track} /><div><strong>{track.title}</strong><span>{track.artist}</span></div><button className="icon-btn" aria-label={`Play ${track.title}`} onClick={() => onPlay(track, picks)}><Play /></button><button className="icon-btn" aria-label={`Queue ${track.title}`} onClick={() => onQueue(track)} disabled={context.mode === 'room' && !canControlRoom}><Plus /></button></div>)}</div>
+                </section>
+              )}
             </div>
           )}
 
@@ -154,18 +162,18 @@ export function SearchOverlay({
           {status === 'ready' && visibleResults.length === 0 && (
             <div className="no-results">
               <span>No streams found for "{query}". Try another spelling or artist.</span>
-              <button className="text-btn" onClick={() => document.getElementById("canonical-search-input")?.focus()}>Edit search</button>
+              <button className="text-btn" onClick={onOpenTaste}><Sparkles size={12} /> Refine your taste</button>
             </div>
           )}
 
           {status === 'error' && (
-            <div className="search-recovery" role="status">Live search is unavailable. {visibleResults.length ? "Available matches are still playable." : "Try again or search for another artist."} <button className="text-btn" onClick={()=>setRetry(n=>n+1)}>↻ Retry search</button></div>
+            <div className="search-recovery" role="status">Live search is taking too long or unavailable. Instant matches are still playable. <button className="text-btn" onClick={()=>setRetry(n=>n+1)}>↻ Retry search</button></div>
           )}
 
           {instant.length>0 && status!=='ready' && <h3 className="instant-label">Instant matches</h3>}
           {visibleResults.length > 0 && (
             <>
-              <div className="search-caption"><span>Top result</span><b>{visibleResults.length} songs</b></div>
+              <div className="search-caption"><span>Top result</span><b>{results.length} streams</b></div>
               {visibleResults.map((track, index) => (
                 <Fragment key={track.id}>{index === 1 && <h3 className="search-song-heading">Songs</h3>}<div
                   key={track.id}
@@ -174,8 +182,8 @@ export function SearchOverlay({
                   tabIndex={0}
                   data-provider={track.provider}
                   data-track-id={track.id}
-                  onClick={() => {callbacks.current.onSearchCommit?.(query.trim());onPlay(track, visibleResults)}}
-                  onKeyDown={(event) => { if(event.target !== event.currentTarget)return; if(event.key === 'Enter' || event.key === ' '){event.preventDefault();callbacks.current.onSearchCommit?.(query.trim());onPlay(track, visibleResults)} }}
+                  onClick={() => onPlay(track, visibleResults)}
+                  onKeyDown={(event) => event.key === 'Enter' && onPlay(track, visibleResults)}
                 >
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
@@ -188,14 +196,14 @@ export function SearchOverlay({
                     disabled={context.mode === 'room' && !canControlRoom}
                     onClick={(event) => {
                       event.stopPropagation()
-                      callbacks.current.onSearchCommit?.(query.trim());onPlay(track, visibleResults)
+                      onPlay(track, visibleResults)
                     }}
                     aria-label={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
                     title={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
                   >
                     {pendingTrackId === track.id ? <span className="spinner" /> : <Play />}
                   </button>
-                  <details className="search-result-actions" onClick={e=>e.stopPropagation()}><summary aria-label={`Actions for ${track.title}`}>•••</summary><button
+                  <button
                     className="search-save"
                     onClick={(event) => {
                       event.stopPropagation()
@@ -219,7 +227,6 @@ export function SearchOverlay({
                     <Plus />
                     <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>
                   </button>
-                  </details>
                 </div></Fragment>
               ))}
             </>

@@ -8,16 +8,16 @@ export function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoi
       <div className="eyebrow">
         <span className="live-pill"><Radio size={9} /> DISCOVER</span>
         <span className="seg" />
-        <span>{rooms.length} {rooms.length === 1 ? 'room' : 'rooms'}</span>
+        <span>{rooms.length} {rooms.length === 1 ? 'ROOM' : 'ROOMS'} LIVE</span>
         <span className="grow" />
-        {rooms.length > 0 && <button className="text-btn" onClick={onJoinCode}><KeyRound size={11} /> Join with code</button>}
+        <button className="text-btn" onClick={onJoinCode}><KeyRound size={11} /> Join with code</button>
       </div>
       <h1 className="page-title">Find your <em>frequency.</em></h1>
-      <p className="page-sub">Listen together, wherever you are.</p>
+      <p className="page-sub">Small rooms, shared speakers, and a queue that moves together. Start one, invite a friend, or join with a code.</p>
 
-      {!rooms.length && <section className="rooms-empty-banner"><Radio/><h2>No rooms yet</h2><p>Start a listening session or join a friend with a code.</p><button className="primary-btn" onClick={onCreate}>Start a room</button><button className="text-btn" onClick={onJoinCode}>Join with code</button></section>}
+      {!rooms.length&&<div className="rooms-empty-banner" role="status">No public rooms live right now — Start a room below to host a session, or click 'Join with code' if a friend shared a private invite code.</div>}
       <div className="rooms-grid">
-        {rooms.length > 0 && <button className="room-card create-room-card" onClick={onCreate}>
+        <button className="room-card create-room-card" onClick={onCreate}>
           <div className="rc-create-glyph"><Plus /></div>
           <h2 className="rc-title">Start a room</h2>
           <p className="rc-sub">Pick a vibe, invite the room, and become its Admin.</p>
@@ -25,7 +25,6 @@ export function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoi
             <span className="rc-join"><UsersRound size={11} /> Create listening room</span>
           </div>
         </button>
-        }
         {rooms.map((room) => {
           const firstCover = room.trackIds.map((id) => library[id]?.cover).find(Boolean)
           return (
@@ -37,7 +36,7 @@ export function RoomsView({ rooms, library, currentRoom, onJoin, onCreate, onJoi
             >
               {firstCover && <img src={firstCover} alt="" />}
               <div className="rc-top">
-                <span className="rc-live"><Headphones size={12} /> Listening room</span>
+                <span className="rc-live"><span className="live-dot" /> LIVE</span>
                 {room.private
                   ? <span className="rc-private"><Lock size={9} /> Private</span>
                   : <span className="rc-public"><Globe2 size={9} /> Public</span>}

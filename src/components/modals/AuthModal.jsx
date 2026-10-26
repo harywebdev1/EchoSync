@@ -46,9 +46,9 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         <button className="icon-btn" onClick={onClose} aria-label="Close sign in"><X /></button>
       </div>
       <div className="auth-modal-copy">
-        <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'Welcome back' : 'Listen together'}</span>
+        <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'WELCOME BACK' : 'THREE FIELDS. THAT’S IT.'}</span>
         <h2>{mode==='recovery'?'Choose a new password':resetView?'Reset your password':mode === 'signin' ? 'Sign in to EchoSync' : 'Create your listening account'}</h2>
-        <p>{reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'Save your music and listen with friends.')}</p>
+        <p>{reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'No display-name theatre. Pick a handle, add your email, and listen.')}</p>
       </div>
 
       {(pendingRoom || notice) && (
@@ -63,8 +63,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         <button className={mode === 'signup' ? 'active' : ''} onClick={() => onSwitch('signup')}>Sign up</button>
       </div>}
 
-      {!resetView&&mode!=='recovery'&&<button className="google-auth-button" onClick={onGoogle} disabled={busy}><span className="google-mark" aria-hidden="true">G</span>Continue with Google</button>}
-      {!resetView && mode !== "recovery" && <div className="auth-divider">or continue with email</div>}
+      {!resetView&&mode!=='recovery'&&<button className="secondary-btn full" onClick={onGoogle} disabled={busy}>Continue with Google</button>}
       <form className="auth-form" onSubmit={submit}>
         {resetView ? <label className="field"><span>Email</span><input type="email" required autoFocus autoComplete="email" value={form.email} onChange={e=>setForm(v=>({...v,email:e.target.value}))} placeholder="you@example.com"/></label> : mode==='recovery' ? <label className="field"><span>New password</span><input type="password" required minLength={8} autoComplete="new-password" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label> : mode === 'signup' ? (
           <>
@@ -111,7 +110,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
                   data-testid="signup-password"
                   value={form.password}
                   onChange={(event) => setForm((value) => ({ ...value, password: event.target.value }))}
-                  placeholder={cloudMode ? "At least 8 characters" : "At least 4 characters"} minLength={cloudMode ? 8 : 4}
+                  placeholder="At least 4 characters"
                   autoComplete="new-password"
                   required
                 />
@@ -129,7 +128,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
                   data-testid="login-identifier"
                   value={form.identifier}
                   onChange={(event) => setForm((value) => ({ ...value, identifier: event.target.value }))}
-                  placeholder={cloudMode ? "you@example.com" : "Email or username"}
+                  placeholder="you@gmail.com or your.handle"
                   autoComplete="username"
                   autoFocus
                   required
@@ -176,7 +175,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
         <button onClick={() => onSwitch(switching)}>{mode === 'signin' ? 'Create an account' : 'Log in'}</button>
       </div>}
 
-      <p className="auth-legal"><a href="#terms" onClick={e=>{e.preventDefault();setLegal('terms')}}>Terms of Service</a> · <a href="#privacy" onClick={e=>{e.preventDefault();setLegal('privacy')}}>Privacy Policy</a> · {cloudMode?'Your account, your music':'Saved on this device'}</p>
+      <p className="auth-legal"><a href="#terms" onClick={e=>{e.preventDefault();setLegal('terms')}}>Terms of Service</a> · <a href="#privacy" onClick={e=>{e.preventDefault();setLegal('privacy')}}>Privacy Policy</a> · {cloudMode?'Encrypted via Supabase Auth':'Local device storage'}</p>
       {legal&&<section className="auth-trust-summary" aria-label={legal==='terms'?'Terms of Service':'Privacy Policy'}><h3>{legal==='terms'?'Terms of Service':'Privacy Policy'}</h3><p>{legal==='terms'?'Use EchoSync respectfully. Share only content you have permission to share. Music availability depends on upstream providers; rooms and public posts must respect other listeners.':'Guest likes and listening preferences stay on this device. Signing in stores profile and library data in Supabase. Public profiles, Lounge posts and shared voice URLs can be read by others; keep private information out of public posts. Passwords are handled by Supabase Auth in cloud mode.'}</p><button className="text-btn" onClick={()=>setLegal(null)}>Close summary</button></section>}
     </ModalShell>
   )

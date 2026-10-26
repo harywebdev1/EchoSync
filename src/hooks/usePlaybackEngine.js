@@ -451,7 +451,6 @@ export function usePlaybackEngine({
     const removingCurrent = activeIds[index] === track?.id
     if (removingCurrent) return
     const id = activeIds[index]
-    const beforeNatural = [...soloQueue], beforeOrder = [...soloPlayOrderRef.current]
     const nextNatural = soloQueue.filter((item) => item !== id)
     const nextOrder = shuffleEnabled
       ? soloPlayOrderRef.current.filter((item) => item !== id)
@@ -462,11 +461,6 @@ export function usePlaybackEngine({
         ...previous,
         [SOLO_ROOM_ID]: Math.max(0, (previous[SOLO_ROOM_ID] ?? currentIndex) - 1),
       }))
-    }
-    return () => {
-      if (viewRef.current === 'room' || queueIdsRef.current[currentIndexRef.current] !== track?.id || soloQueueRef.current.join("|") !== nextNatural.join("|")) {showToast("Queue changed. Add the song again from Search.");return false}
-      commitSoloQueue(beforeNatural, {order: shuffleEnabled ? beforeOrder : undefined, currentId: track?.id})
-      return true
     }
   }
 

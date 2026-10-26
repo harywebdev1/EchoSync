@@ -23,7 +23,6 @@ export const playbackProgressStore = createExternalStore(0)
 
 const initialTelemetry = {
   roomDriftMs: 0,
-  driftMeasuredAt: 0,
   networkLatencyMs: 0,
   jitterMs: 0,
   bufferedPct: 0,
@@ -54,7 +53,7 @@ export function setLiveTelemetry(patch) {
 }
 
 export function resetRoomTelemetry() {
-  setLiveTelemetry({ roomDriftMs: 0, driftMeasuredAt: 0, bufferedPct: 0 })
+  setLiveTelemetry({ roomDriftMs: 0, bufferedPct: 0 })
 }
 
 export function usePlaybackProgress() {

@@ -217,6 +217,20 @@ export function Sidebar({
         </div>
 
         <div className="side-bottom">
+          {inRoom ? (
+            <div className="invite-card">
+              <strong>Listening is better together.</strong>
+              <p>Code <b>{room.code}</b> - playback stays in lockstep.</p>
+              <button onClick={onInvite}><UserPlus size={11} /> Copy invite link</button>
+              <button className="leave-room-btn" onClick={() => { onLeaveRoom(); close() }}><DoorOpen size={11} /> Leave room</button>
+            </div>
+          ) : (
+            <div className="invite-card">
+              <strong>Start a listening room.</strong>
+              <p>Bring your queue to a friend. Everyone hears the same beat.</p>
+              <button onClick={createRoom}><Plus size={11} /> Create a room</button>
+            </div>
+          )}
           <button className="profile" onClick={openProfile}>
             <Avatar member={currentUser} online />
             <span className="profile-meta">
