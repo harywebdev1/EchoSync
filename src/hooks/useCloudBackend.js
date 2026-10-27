@@ -89,10 +89,10 @@ export function useCloudBackend(options) {
       const client=await getSupabaseClient(),user=latest.current.currentUser
       if(patch.newPassword){const check=await client.auth.signInWithPassword({email:user.email,password:patch.currentPassword});if(check.error)throw check.error}
       if(patch.newPassword||patch.email!==user.email){const result=await client.auth.updateUser({...(patch.newPassword?{password:patch.newPassword}:{}),...(patch.email!==user.email?{email:patch.email}:{})});if(result.error)throw result.error}
-      const result=await client.from('profiles').update({username:patch.handle,display_name:patch.handle,privacy_settings:{...privacy.current,showActivity:patch.showActivity,allowInvites:patch.allowInvites}}).eq('id',user.id)
+      const result=await client.from('profiles').update({username:patch.handle,display_name:patch.name||patch.handle,privacy_settings:{...privacy.current,showActivity:patch.showActivity,allowInvites:patch.allowInvites,bio:String(patch.bio??privacy.current.bio??'').slice(0,160),avatarId:patch.avatarId??privacy.current.avatarId,av1:patch.avatar?.av1??privacy.current.av1,av2:patch.avatar?.av2??privacy.current.av2}}).eq('id',user.id)
       if(result.error)throw result.error
-      privacy.current={...privacy.current,showActivity:patch.showActivity,allowInvites:patch.allowInvites}
-      latest.current.updatePublicAccount(patch)
+      privacy.current={...privacy.current,showActivity:patch.showActivity,allowInvites:patch.allowInvites,bio:String(patch.bio??privacy.current.bio??'').slice(0,160),avatarId:patch.avatarId??privacy.current.avatarId,av1:patch.avatar?.av1??privacy.current.av1,av2:patch.avatar?.av2??privacy.current.av2}
+      latest.current.updatePublicAccount({...patch,name:patch.name||patch.handle})
       latest.current.showToast('Profile saved. Email changes may require confirmation.')
       return {}
     }catch(error){return {error:error.message}}

@@ -28,7 +28,6 @@ const PublicLoungeDrawer = makeLazySurface(() => import('./components/social/Pub
 const LoungeUserCard = makeLazySurface(() => import('./components/social/LoungeUserCard.jsx'), 'LoungeUserCard', 'modal', () => import('./components/social/LoungeUserCard.jsx?retry=1'))
 const SearchOverlay = makeLazySurface(() => import('./components/SearchOverlay'), 'SearchOverlay', 'search', () => import('./components/SearchOverlay?retry=1'))
 const FullPlayer = makeLazySurface(() => import('./components/player/FullScreenPlayer'), 'FullScreenPlayer', 'modal', () => import('./components/player/FullScreenPlayer?retry=1'))
-const TasteModal = makeLazySurface(() => import('./components/modals/TasteModal.jsx'), 'TasteModal', 'modal', () => import('./components/modals/TasteModal.jsx?retry=1'))
 const SettingsModal = makeLazySurface(() => import('./components/modals/SettingsModal.jsx'), 'SettingsModal', 'modal', () => import('./components/modals/SettingsModal.jsx?retry=1'))
 const MembersModal = makeLazySurface(() => import('./components/modals/MembersModal.jsx'), 'MembersModal', 'modal', () => import('./components/modals/MembersModal.jsx?retry=1'))
 const RoomModal = makeLazySurface(() => import('./components/modals/RoomModal.jsx'), 'RoomModal', 'modal', () => import('./components/modals/RoomModal.jsx?retry=1'))
@@ -47,7 +46,7 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
+    social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     rootStyle,
@@ -102,7 +101,6 @@ export default function App() {
     dailyFeed,
     dailyStatus,
     tasteProfile,
-    setTasteOpen,
     refreshDailyFeed,
     playSoloTrack,
     playPlaylist,
@@ -212,8 +210,6 @@ export default function App() {
     searchContext,
     pendingPlayId,
     fullPlayer,
-    tasteOpen,
-    saveTasteVibes,
     settingsOpen,
     cacheInfo,
     currentUserId,
@@ -221,6 +217,7 @@ export default function App() {
     saveProfile,
     saveUserSettings,
     clearAllCaches,
+    clearHistory,
     signOut,
     membersOpen,
     publicUsers,
@@ -261,7 +258,6 @@ export default function App() {
   } = useEchoSyncController()
 
   useEffect(() => { if (searchOpen) document.getElementById('canonical-search-input')?.focus() }, [searchOpen])
-  const openTaste = useCallback(() => setTasteOpen(true), [setTasteOpen])
   const createPlaylist = useCallback(() => openCreatePlaylist(), [openCreatePlaylist])
   const openFullPlayer = useCallback(() => setFullPlayer(true), [setFullPlayer])
   const toggleMute = useCallback(() => setMuted(value => !value), [setMuted])
@@ -359,7 +355,6 @@ export default function App() {
                   dailyFeed={dailyFeed}
                   dailyStatus={dailyStatus}
                   tasteProfile={tasteProfile}
-                  onOpenTaste={openTaste}
                   onRefreshDaily={refreshDailyFeed}
                   roomCount={rooms.length}
                   onPlayTrack={playSoloTrack}
@@ -571,7 +566,6 @@ export default function App() {
           )}
           {/* Keep the queue DOM ready so opening does not build every row in the click task. */}
             <QueueDrawer open={shellQueueOpen} room={roomPlaybackActive ? activeRoom : null}
-              filterMode={queueFilter} onFilter={setQueueFilter} liked={likedSet} recent={recent} tasteProfile={tasteProfile}
               queue={queue}
               currentIndex={currentIndex}
               track={track}
@@ -666,10 +660,6 @@ export default function App() {
             context={searchContext}
             canControlRoom={canControlRoom}
             pendingTrackId={pendingPlayId}
-            onOpenTaste={() => {
-              closeSearchExperience()
-              setTasteOpen(true)
-            }}
           />
         )}
 
@@ -711,20 +701,11 @@ export default function App() {
           />
         )}
 
-        {tasteOpen && (
-          <TasteModal
-            profile={tasteProfile}
-            onClose={() => setTasteOpen(false)}
-            onSave={saveTasteVibes}
-          />
-        )}
-
         {settingsOpen && currentUser && (
           <SettingsModal
             user={currentUser}
             settings={settings}
             cacheInfo={cacheInfo}
-            tasteProfile={tasteProfile}
             stats={{
               playlists: playlists.length,
               liked: likedSet.length,
@@ -733,8 +714,8 @@ export default function App() {
             onClose={() => setSettingsOpen(false)}
             onSaveProfile={saveProfile}
             onSaveSettings={saveUserSettings}
-            onSaveTaste={saveTasteVibes}
             onClearCache={clearAllCaches}
+            onClearHistory={clearHistory}
             onSignOut={signOut}
           />
         )}

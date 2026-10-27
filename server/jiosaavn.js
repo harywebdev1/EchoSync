@@ -26,6 +26,7 @@ export function normalizeOfficialSong(raw) {
   return {
     id: String(raw.id), name: text(raw.title || raw.song || raw.name), duration: Number(info.duration || raw.duration) || 0,
     primaryArtists: artist, artists: { primary: primary.map(a => ({ name: text(a.name) })) }, album: { name: text(info.album || raw.album) },
+    language: text(info.language || raw.language), year: text(raw.year || info.year),
     image: art ? [{ quality: '500x500', url: art }] : [],
     downloadUrl: [...(supports320 ? [{ quality: '320kbps', url: atQuality(320) }] : []), { quality: '160kbps', url: atQuality(160) }, { quality: '96kbps', url: atQuality(96) }],
   }

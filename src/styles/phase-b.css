@@ -1,0 +1,170 @@
+/* Phase B: high-recall search geometry, clean Up Next rows, and the four-tab
+   Settings surface. Everything here is additive and scoped to Phase B UI. */
+
+/* ---------- Search: anchored dropdown that never covers the Player Dock ---------- */
+.search-command-surface.search-modal {
+  max-height: min(calc(100vh - 168px), calc(100dvh - var(--search-top, 76px) - 128px));
+}
+
+.search-command-surface .search-results {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.search-command-surface .search-results::-webkit-scrollbar { width: 8px; }
+.search-command-surface .search-results::-webkit-scrollbar-track { background: transparent; }
+.search-command-surface .search-results::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar);
+  background-clip: padding-box;
+}
+
+.search-command-surface .search-song-heading { position: sticky; top: 0; z-index: 1; }
+
+/* Mobile: keep the panel above the floating dock (70px offset + 76px height). */
+@media (max-width: 900px) {
+  .search-command-surface.search-modal {
+    left: 12px;
+    right: 12px;
+    bottom: auto;
+    width: auto;
+    max-height: calc(100dvh - var(--search-top, 72px) - 156px);
+    border-radius: 16px;
+  }
+}
+
+/* ---------- Up Next: borderless rows with 44x44 artwork ---------- */
+.solo-queue-drawer .queue-drawer-row {
+  border: 0;
+  border-radius: 10px;
+  margin-bottom: 0;
+  padding: 0 6px 0 2px;
+}
+
+.solo-queue-drawer .queue-drawer-row:hover { background: var(--surface-2); }
+
+.solo-queue-drawer .queue-drawer-main {
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 2px;
+}
+
+.solo-queue-drawer .queue-drawer-main .cover {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.solo-queue-drawer .queue-drawer-main .queue-copy strong { font-size: 13px; }
+.solo-queue-drawer .queue-drawer-main .queue-copy small { font-size: 12px; }
+.solo-queue-drawer .queue-drawer-row-actions .icon-btn { width: 32px; height: 32px; }
+.solo-queue-drawer .queue-drawer-row-actions .icon-btn svg { width: 14px; height: 14px; }
+
+/* The old numbered/index and filter chrome is gone from the markup; make sure
+   any cached rule cannot reintroduce a visible gutter. */
+.solo-queue-drawer .queue-index,
+.solo-queue-drawer .queue-filter-chips { display: none; }
+
+/* ---------- Settings: profile, avatars, toggles, cache ---------- */
+.settings-body { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+
+.settings-body .settings-profile-form { display: flex; flex-direction: column; gap: 14px; max-width: 640px; }
+
+.settings-avatar-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.settings-avatar-picker > span {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.avatar-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.avatar-swatch {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.avatar-swatch > span {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--sw1), var(--sw2));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
+}
+
+.avatar-swatch:hover { transform: translateY(-1px); }
+.avatar-swatch.active { border-color: var(--accent); }
+.avatar-swatch.active > span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+
+.profile-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+
+.settings-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-2, var(--accent));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-actions-row { margin-top: 10px; }
+.settings-actions-row .danger-btn { color: #e37f7f; }
+.settings-actions-row .danger-btn:hover { background: rgb(227 127 127 / 14%); }
+
+.settings-note { color: var(--muted); font-size: 12px; line-height: 1.55; margin: 0; }
+
+.settings-section .cache-grid { margin-top: 4px; }
+
+.settings-nav .signout-btn {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+@media (max-width: 900px) {
+  .settings-layout { position: relative; }
+  .settings-nav .signout-btn {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    z-index: 2;
+    width: auto;
+    margin: 0;
+    padding: 0 12px;
+    background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+    backdrop-filter: blur(12px);
+  }
+  .settings-body { padding-bottom: 66px; }
+  .settings-body .settings-profile-form { max-width: none; }
+  .profile-save-row { margin-top: 20px; margin-bottom: 8px; }
+}

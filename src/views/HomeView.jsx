@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Heart, Music2, Play, Plus, Radio, Shuffle, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, Music2, Play, Plus, Radio, Shuffle } from 'lucide-react'
 import { mergeMoodCatalog, allocateHomeShelves } from '../core/moodFeed.js'
 import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
 import { Cover } from '../components/Cover'
@@ -33,7 +33,7 @@ function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
   </section>
 }
 
-export const HomeView = memo(function HomeView({ currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onOpenTaste, onPlayTrack, onStartRadio, onLike, onQueue, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
+export const HomeView = memo(function HomeView({ currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
   const [mood, setMood] = useState('all')
   const live = useLiveMoodFeed(mood, tasteProfile)
   const options = useMemo(() => ({ profile: tasteProfile, liked, recent: recentIds, mood }), [tasteProfile, liked, recentIds, mood])
@@ -95,7 +95,6 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
     <section className="home-section home-mixes"><div className="home-section-head"><div><p>{guest ? "Handpicked stations across Bollywood, Sufi, and Late Night vibes" : "A soundtrack for every side of you"}</p><h2>{guest ? "Explore curated mixes" : "Mixed for you"}</h2></div></div><div className="mix-scroll">{mixes.map(mix => <button key={mix.title} className="home-mix-card" disabled={!mix.tracks.length} onClick={() => onPlayTrack(mix.tracks[0], mix.tracks)}><Collage tracks={mix.tracks} /><strong>{mix.title}</strong><span>{mix.subtitle}</span></button>)}</div></section>
     <Shelf title="Fresh discoveries" subtitle="Make room for a new favorite" tracks={sections.fresh} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
     {liked.length > 0 && <Shelf title="Forgotten favorites" subtitle="A welcome return to your rotation" tracks={ranked.filter(track => liked.includes(track.id) && !recentIds.includes(track.id)).slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} />}
-    {!tasteProfile?.events && <section className="home-taste-card"><Sparkles /><div><strong>Make this feel more like you</strong><span>Choose a few artists and moods you love.</span></div><button className="text-btn" onClick={onOpenTaste}>Tune your taste</button></section>}
     {playlists.length > 0 && <section className="home-section home-playlists"><div className="home-section-head"><h2>Your playlists</h2><button className="text-btn" onClick={onCreatePlaylist}><Plus size={16} /> New playlist</button></div><div className="playlist-grid">{playlists.map(playlist => <article className="home-playlist-item" key={playlist.id}><button onClick={() => onOpenPlaylist(playlist)}><Collage tracks={playlist.trackIds.map(id => library[id]).filter(Boolean)} /><strong>{playlist.name}</strong><span>{playlist.trackIds.length} tracks</span></button><button className="text-btn" disabled={!playlist.trackIds.length} onClick={() => onPlayPlaylist(playlist)}><Play size={16} /> Play playlist</button></article>)}</div></section>}
   </div>
 })

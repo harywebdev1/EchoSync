@@ -1,11 +1,10 @@
-export function songStem(track) {
-  const clean = value => String(value || '').normalize('NFKC').toLowerCase().replace(/\s*\(from\s+[^)]*\)\s*/gi, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
-  return clean(track?.title) + '::' + clean(String(track?.artist || track?.primaryArtists || '').split(/,|&| feat\.? /i)[0])
-}
+export { getCanonicalSongStem as songStem } from './songStem.js'
+import { getCanonicalSongStem } from './songStem.js'
+
 export function collectMoodResults(results) {
   const seen = new Set()
   return results.flatMap(result => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []).filter(track => {
-    const key = songStem(track)
+    const key = getCanonicalSongStem(track)
     if (!track?.id || seen.has(key) || track.preview || !(Number(track.duration) >= 60)) return false
     seen.add(key); return true
   })
@@ -29,7 +28,7 @@ export function moodQueries(mood, artists = [], rotation = 0) {
 }
 // Refresh metadata/URLs without duplicating the same song or discarding user-owned IDs.
 export function mergeMoodCatalog(live, local) {
-  const key = songStem
+  const key = getCanonicalSongStem
   const existing = new Map(local.filter(track => track?.id).map(track => [key(track), track]))
   const seen = new Set(), result = []
   for (const track of [...live, ...local]) {
@@ -42,8 +41,8 @@ export function mergeMoodCatalog(live, local) {
 }
 
 export function allocateHomeShelves(quick, familiar, fresh) {
-  const usedTrackStems=new Set()
+  const seenHomeStems = new Set()
   // Only reserve the tracks actually displayed, not the entire candidate pool.
-  const allocate=(tracks,limit)=>{const result=[];for(const track of tracks){const stem=songStem(track);if(!track?.id||usedTrackStems.has(stem))continue;usedTrackStems.add(stem);result.push(track);if(result.length===limit)break}return result}
+  const allocate=(tracks,limit)=>{const result=[];for(const track of tracks){const stem=getCanonicalSongStem(track);if(!track?.id||seenHomeStems.has(stem))continue;seenHomeStems.add(stem);result.push(track);if(result.length===limit)break}return result}
   return {quickPicks:allocate(quick,12),familiar:allocate(familiar,10),fresh:allocate(fresh,12)}
 }

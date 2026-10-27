@@ -3,6 +3,7 @@ import { createStorageAdapter } from '../core/storageAdapter.js'
 import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
 import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/tasteEngine.js'
 import { getActiveStreamQuality } from '../services/networkMonitor'
+import { getCanonicalSongStem } from '../core/songStem.js'
 import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc } from '../core/lrcParser.js'
 
 const DEV_API = import.meta.env.DEV
@@ -85,13 +86,11 @@ const DAILY_QUERIES = [
 
 const DEFAULT_SETTINGS = {
   quality: 'high',
-  crossfade: false,
-  crossfadeSeconds: 4,
-  normalization: false,
-  duckLevel: 20,
-  gapless: true,
+  autoplay: true,
+  defaultVolume: 0.82,
   showActivity: true,
   allowInvites: true,
+  defaultPlaylistPublic: true,
   autoTranslate: false,
   repeatMode: 'off',
   shuffleEnabled: false,
@@ -1394,6 +1393,8 @@ function normalizeSaavn(raw) {
     artist: decodeEntities(artist),
     album: decodeEntities(source.album?.name || 'Single'),
     duration: Number(source.duration) || 0,
+    language: safeText(source.language),
+    year: safeText(source.year || source.releaseDate).slice(0, 4),
     streamUrl: stream?.url || null,
     cover: cover?.url || null,
     quality: stream?.quality || '',
@@ -1862,19 +1863,70 @@ async function resolveYouTubeTrack(seed) {
   return null
 }
 
+const SEARCH_JUNK = /\b(karaoke|ringtone|tribute|made famous|in the style of|originally performed|nightcore|sped up|speed up|8d audio|8-d audio)\b/i
+
+function searchTokens(value) {
+  return [...new Set(normalize(value).split(' ').filter(token => token.length > 1 || /\d/.test(token)))]
+}
+
+function scoreSearchTrack(track, tokens, queryCore) {
+  const title = getCanonicalSongStem(track)
+  const artist = normalize(track.artist)
+  const album = normalize(track.album)
+  const haystack = `${title} ${artist} ${album}`
+  const present = tokens.filter(token => haystack.includes(token))
+  if (!present.length) return { score: 0, relevant: false }
+  let score = 0
+  if (queryCore && title === queryCore) score += 140
+  else if (queryCore && title.startsWith(queryCore)) score += 95
+  else if (queryCore && title.includes(queryCore)) score += 65
+  if (present.length === tokens.length) score += 45
+  if (artist.includes(normalize(tokens.join(' ')))) score += 55
+  else if (present.some(token => artist.includes(token))) score += 18
+  if (album.includes(normalize(tokens.join(' ')))) score += 20
+  score += present.length * 10
+  return { score, relevant: present.length >= Math.max(1, Math.ceil(tokens.length / 2)) }
+}
+
+// Rank exact title/artist hits first and keep loosely related mirror rows out.
+// High-recall fallback: when strict relevance leaves fewer than fifteen rows,
+// keep the server's already-deduped, junk-filtered tail so title searches that
+// only have a handful of exact matches still fill a usable result list.
+const SEARCH_MIN_RESULTS = 15
+function rankSearchResults(tracks, query) {
+  const tokens = searchTokens(query)
+  if (!tokens.length) return tracks
+  const queryCore = getCanonicalSongStem({ title: query })
+  const scored = tracks.map((track, index) => ({ track, index, ...scoreSearchTrack(track, tokens, queryCore) }))
+  const byScore = (a, b) => b.score - a.score || a.index - b.index
+  const strict = scored.filter(entry => entry.relevant).sort(byScore)
+  if (strict.length >= SEARCH_MIN_RESULTS) return strict.map(entry => entry.track)
+  const strictIndexes = new Set(strict.map(entry => entry.index))
+  return [
+    ...strict,
+    ...scored.filter(entry => !strictIndexes.has(entry.index)).sort(byScore),
+  ].map(entry => entry.track)
+}
+
 async function searchEverything(query, options = {}) {
-  const cached = !options.retry && cachedSearchEntry('everything', query, 30)
+  const trimmed = safeText(query).slice(0, 120)
+  if (!trimmed) return []
+  const cached = !options.retry && cachedSearchEntry('everything', trimmed, 40)
   if (cached) return cached
-  // The same-origin route owns mirror failover; unrelated providers must not hold up catalog search.
-  const tracks = await fetchJioSearch(query, 30, {signal:options.signal,timeout:4500,fresh:options.retry,throwOnFailure:true})
+  // The same-origin route owns official/mirror merging; unrelated providers must not hold up catalog search.
+  const tracks = await fetchJioSearch(trimmed, 40, { signal: options.signal, timeout: 9000, fresh: options.retry, throwOnFailure: true })
   const seen = new Set()
-  const result = tracks.map(sanitizeTrack).filter(track=>{
-    if(!track || !isFullLengthTrack(track))return false
-    const key=normalize(track.title)+'::'+normalize(track.artist)
-    if(seen.has(key))return false
-    seen.add(key);return true
-  }).slice(0,30)
-  cacheSearchEntry('everything',query,30,result)
+  const clean = tracks
+    .map(sanitizeTrack)
+    .filter((track) => track && isFullLengthTrack(track) && !SEARCH_JUNK.test(`${track.title} ${track.album}`))
+    .filter((track) => {
+      const stem = getCanonicalSongStem(track)
+      if (!stem || seen.has(stem)) return false
+      seen.add(stem)
+      return true
+    })
+  const result = rankSearchResults(clean, trimmed).slice(0, 40)
+  cacheSearchEntry('everything', trimmed, 40, result)
   return result
 }
 

@@ -7,11 +7,10 @@ import {
   Play,
   Plus,
   Radio,
-  Search,
-  Sparkles,
   X,
 } from 'lucide-react'
 import { Cover } from './Cover'
+import { getCanonicalSongStem } from '../core/songStem.js'
 
 const SEARCH_CATEGORIES = [
   { id: 'coke-studio-indie', label: 'Coke Studio & Indie', query: 'Coke Studio indie songs', c1: '#633317', c2: '#e9a665' },
@@ -38,7 +37,6 @@ export function SearchOverlay({
   onRemoveRecentSearch,
   onClearRecentSearches,
   tasteTracks = [],
-  onOpenTaste,
   context = { mode: 'solo', roomName: '' },
   canControlRoom = false,
   pendingTrackId = '',
@@ -56,7 +54,9 @@ export function SearchOverlay({
     if(trimmed.length<2){setStatus('idle');setResults([]);return}
     setStatus('loading');setResults([])
     const controller=new AbortController()
-    const timeout=new Promise((_,reject)=>{deadline=setTimeout(()=>{controller.abort();reject(new Error('Search timed out'))},5000)})
+    // Official Saavn has a 3.5s deadline before mirror failover, so a healthy
+    // high-recall response can legitimately take longer than five seconds.
+    const timeout=new Promise((_,reject)=>{deadline=setTimeout(()=>{controller.abort();reject(new Error('Search timed out'))},12000)})
     const timer=setTimeout(async()=>{
       callbacks.current.onSearchCommit?.(trimmed)
       try{const found=await Promise.race([callbacks.current.onSearch(trimmed,{signal:controller.signal,retry:retry>0}),timeout]);if(!cancelled){setResults(found);setStatus('ready')}}
@@ -68,9 +68,25 @@ export function SearchOverlay({
   const instant=useMemo(()=>{
     const words=query.toLowerCase().trim().split(/\s+/).filter(Boolean)
     if(query.trim().length<2)return[]
-    return Object.values(catalog).filter(t=>t?.id&&!t.preview&&!(t.duration>0&&t.duration<60)&&words.every(word=>(t.title+' '+t.artist).toLowerCase().includes(word))).slice(0,20)
+    const seen=new Set()
+    return Object.values(catalog).filter(t=>{
+      if(!t?.id||t.preview||(t.duration>0&&t.duration<60))return false
+      if(!words.every(word=>(t.title+' '+t.artist).toLowerCase().includes(word)))return false
+      const stem=getCanonicalSongStem(t)
+      if(!stem||seen.has(stem))return false
+      seen.add(stem);return true
+    }).slice(0,20)
   },[catalog,query])
-  const visibleResults=[...new Map([...results,...instant].map(t=>[t.id,t])).values()]
+  const visibleResults=useMemo(()=>{
+    const seen=new Set(),merged=[]
+    for(const track of [...results,...instant]){
+      if(!track?.id)continue
+      const stem=getCanonicalSongStem(track)
+      if(!stem||seen.has(stem))continue
+      seen.add(stem);merged.push(track)
+    }
+    return merged
+  },[results,instant])
 
   useLayoutEffect(() => {
     const place = () => {
@@ -92,7 +108,9 @@ export function SearchOverlay({
       .slice(0, 4)
       .map((artist) => ({ label: artist, query: `${artist} songs` }))
   const recent = recentSearches.filter(Boolean).slice(0, 6)
-  const picks = tasteTracks.slice(0, 5)
+  const picks = useMemo(() => tasteTracks.filter((track, index, list) =>
+    track?.id && list.findIndex((item) => getCanonicalSongStem(item) === getCanonicalSongStem(track)) === index,
+  ).slice(0, 5), [tasteTracks])
 
   return (
     <div className="search-command-root" style={anchor}>
@@ -131,8 +149,7 @@ export function SearchOverlay({
 
               <section className="search-block" data-testid="search-suggestions">
                 <div className="search-caption">
-                  <span>Trending & taste vibes</span>
-                  <button className="text-btn" onClick={onOpenTaste}>Tune taste</button>
+                  <span>Trending & picked for you</span>
                 </div>
                 {fallbackSuggestions.length ? (
                   <div className="suggestion-chips">
@@ -142,7 +159,7 @@ export function SearchOverlay({
                     {SEARCH_CATEGORIES.slice(0, 4).map(category => <button key={category.id} onClick={() => runQuery(category.query)}>{category.label}</button>)}
                   </div>
                 ) : (
-                  <p className="search-idle-note">Tune a few vibes and this space will start shaping itself around you.</p>
+                  <p className="search-idle-note">Search any song, artist or mood to start listening.</p>
                 )}
               </section>
 
@@ -162,7 +179,6 @@ export function SearchOverlay({
           {status === 'ready' && visibleResults.length === 0 && (
             <div className="no-results">
               <span>No streams found for "{query}". Try another spelling or artist.</span>
-              <button className="text-btn" onClick={onOpenTaste}><Sparkles size={12} /> Refine your taste</button>
             </div>
           )}
 

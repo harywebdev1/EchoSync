@@ -120,6 +120,7 @@ export function usePlaybackEngine({
     activeRoom,
     currentUser,
     remoteSpeaking,
+    autoplay,
   },
   actions: {
     showToast,
@@ -525,6 +526,13 @@ export function usePlaybackEngine({
   }
 
   function beginPlayback(key, ids, index, candidate) {
+    const previousTrack = track
+    const elapsed = Number(progressRef.current) || 0
+    const sameTrack = Boolean(candidate?.id && previousTrack?.id === candidate.id)
+    if (key === SOLO_ROOM_ID && previousTrack?.id && previousTrack.id !== 'empty' && candidate?.id) {
+      if (sameTrack && elapsed > 0.5) recordTasteSignal('replay', { track: previousTrack })
+      else if (!sameTrack && elapsed > 0.5 && elapsed < 15) recordTasteSignal('skip', { track: previousTrack })
+    }
     sleepPausedRef.current = false
     isPlayingRef.current = key === SOLO_ROOM_ID || (viewRef.current === 'room' && activeRoomRef.current === key)
     playAttemptIdRef.current += 1
@@ -836,6 +844,7 @@ export function usePlaybackEngine({
       setIsPlaying(false)
       return
     }
+    if (track?.id && track.id !== 'empty') recordTasteSignal('complete', { track })
     if (!queueIds.length) {
       setIsPlaying(false)
       updatePlaybackProgress(0)
@@ -864,6 +873,23 @@ export function usePlaybackEngine({
     const nextIndex = currentIndex + 1
     if (nextIndex >= queueIds.length) {
       if (repeatMode !== 'all' && !radioActive.current) {
+        if (autoplay && typeof actions.autoplayTracks === 'function') {
+          Promise.resolve(actions.autoplayTracks(track))
+            .then((tracks) => {
+              const list = Array.isArray(tracks) ? tracks.filter((item) => item?.id) : []
+              if (!list.length) {
+                setIsPlaying(false)
+                const endedAt = Math.max(Number(duration) || 0, Number(getPlaybackTime()) || 0)
+                updatePlaybackProgress(endedAt)
+                return
+              }
+              const next = list.find((item) => item.id !== track?.id) || list[0]
+              radioActive.current = true
+              playSoloTrack(next, list, { radio: true })
+            })
+            .catch(() => setIsPlaying(false))
+          return
+        }
         setIsPlaying(false)
         const endedAt = Math.max(Number(duration) || 0, Number(getPlaybackTime()) || 0)
         updatePlaybackProgress(endedAt)

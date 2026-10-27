@@ -96,7 +96,6 @@ const [searchContext, setSearchContext] = useState({ mode: 'solo', roomId: null,
 const [fullPlayer, setFullPlayer] = useState(false)
 const [queueOpen, setQueueOpen] = useState(false)
 const [settingsOpen, setSettingsOpen] = useState(false)
-const [tasteOpen, setTasteOpen] = useState(false)
 const [membersOpen, setMembersOpen] = useState(false)
 const [joinRoomOpen, setJoinRoomOpen] = useState(false)
 const [roomEditor, setRoomEditor] = useState(null)
@@ -243,8 +242,6 @@ const searchTargetRef = useRef({ mode: 'solo', roomId: null })
     setQueueOpen,
     settingsOpen,
     setSettingsOpen,
-    tasteOpen,
-    setTasteOpen,
     membersOpen,
     setMembersOpen,
     joinRoomOpen,

@@ -72,10 +72,11 @@ import {
   persistTrackArtwork,
   replaceTrackArtwork,
   fetchArtworkFallback,
+  fetchJioSearch,
 } from '../lib/appServices.js'
 import { useAppState } from './useAppState.js'
 import { startNetworkMonitor, setPreferredStreamQuality } from '../services/networkMonitor'
-import { topTasteLabels, TASTE_VIBES, applyTasteSignal, buildTasteSuggestions } from '../core/tasteEngine.js'
+import { topTasteLabels, applyTasteSignal, buildTasteSuggestions, buildRadioContinuation } from '../core/tasteEngine.js'
 import { playbackProgressStore } from '../state/playbackStore'
 import { initials, normalizeArtworkUrl } from '../lib/media'
 import { clearPreloadSession } from '../services/preloadManager'
@@ -196,8 +197,6 @@ export function useEchoSyncController() {
     setQueueOpen,
     settingsOpen,
     setSettingsOpen,
-    tasteOpen,
-    setTasteOpen,
     membersOpen,
     setMembersOpen,
     joinRoomOpen,
@@ -689,9 +688,7 @@ export function useEchoSyncController() {
       ...tasteSummary(library, likedSet, recent, playlists),
       profileArtists: topTasteLabels(tasteProfile.artists, 4),
       profileLanguages: topTasteLabels(tasteProfile.languages, 2),
-      profileVibes: tasteProfile.tuned
-        .map((id) => TASTE_VIBES.find((vibe) => vibe.id === id))
-        .filter(Boolean),
+      profileVibes: topTasteLabels(tasteProfile.vibes, 3),
       profileSearches: tasteProfile.searches.slice(0, 2).map((entry) => entry.query),
       profileEvents: tasteProfile.events,
     }
@@ -891,6 +888,11 @@ export function useEchoSyncController() {
     setSettings(userSettings)
     setTranslateOn(Boolean(userSettings.autoTranslate))
     setPreferredStreamQuality(userSettings.quality || 'high')
+    if (userSettings.defaultVolume !== undefined) {
+      const level = Math.max(0, Math.min(1, Number(userSettings.defaultVolume)))
+      setVolume(level)
+      setMuted(level === 0)
+    }
     setActiveRoomId(null)
     setSoloQueue([])
     setSoloPlayOrder([])
@@ -910,7 +912,6 @@ export function useEchoSyncController() {
     setSearchOpen(false)
     setFullPlayer(false)
     setSettingsOpen(false)
-    setTasteOpen(false)
     setMembersOpen(false)
     setJoinRoomOpen(false)
     setRoomEditor(null)
@@ -1017,7 +1018,6 @@ export function useEchoSyncController() {
     searchRoomRef.current = null
     setFullPlayer(false)
     setSettingsOpen(false)
-    setTasteOpen(false)
     setMembersOpen(false)
     setJoinRoomOpen(false)
     setRoomEditor(null)
@@ -1039,7 +1039,7 @@ export function useEchoSyncController() {
     const account = accounts[currentUserId]
     const cleanHandle = slugifyHandle(patch.handle || account.handle)
     const typed = String(patch.email ?? account.email ?? '').trim().toLowerCase()
-    const cleanName = displayNameFromHandle(cleanHandle)
+    const cleanName = safeText(patch.name) || displayNameFromHandle(cleanHandle)
     if (cleanHandle.length < 3) return { error: 'Choose a username with at least 3 characters.' }
     if (!typed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return { error: 'Enter a valid email address.' }
     if (Object.values(accounts).some((candidate) => candidate.id !== currentUserId && candidate.handle === cleanHandle)) {
@@ -1065,6 +1065,10 @@ export function useEchoSyncController() {
         handle: cleanHandle,
         email: typed,
         password,
+        bio: String(patch.bio ?? account.bio ?? '').trim().slice(0, 160),
+        avatarId: patch.avatarId ?? account.avatarId,
+        av1: patch.avatar?.av1 || account.av1,
+        av2: patch.avatar?.av2 || account.av2,
         initials: initials(cleanName),
         showActivity: patch.showActivity !== undefined ? Boolean(patch.showActivity) : account.showActivity !== false,
         allowInvites: patch.allowInvites !== undefined ? Boolean(patch.allowInvites) : account.allowInvites !== false,
@@ -1099,6 +1103,19 @@ export function useEchoSyncController() {
     recordTasteSignal('search', { query: clean })
   }
 
+  async function autoplayTracks(seed) {
+    if (settings.autoplay === false) return []
+    const artist = topTasteLabels(tasteProfile.artists, 1)[0] || seed?.artist || ''
+    const vibe = topTasteLabels(tasteProfile.vibes, 1)[0] || ''
+    const query = artist ? `${artist} songs` : vibe ? `${vibe} songs` : 'trending Hindi hits'
+    try {
+      const tracks = await fetchJioSearch(query, 18, { fresh: true })
+      return buildRadioContinuation(tasteProfile, tracks, seed, 14)
+    } catch {
+      return []
+    }
+  }
+
   function removeRecentSearch(query) {
     setTasteProfile((previous) => ({
       ...previous,
@@ -1109,13 +1126,6 @@ export function useEchoSyncController() {
 
   function clearRecentSearches() {
     setTasteProfile((previous) => ({ ...previous, searches: [], updatedAt: Date.now() }))
-  }
-
-  function saveTasteVibes(vibes) {
-    recordTasteSignal('tune', { vibes })
-    setTasteOpen(false)
-    setDailyRefresh((value) => value + 1)
-    showToast(vibes.length ? 'Your taste map has been tuned' : 'Taste preferences cleared')
   }
 
   function rememberTrack(candidate) {
@@ -2047,7 +2057,7 @@ export function useEchoSyncController() {
         description,
         trackIds: pendingPlaylistTrack ? [pendingPlaylistTrack.id] : [],
         createdAt: Date.now(),
-        visibility: 'public',
+        visibility: settings.defaultPlaylistPublic === false ? 'private' : 'public',
       }
       if (pendingPlaylistTrack) {
         rememberPlaylistTrack(pendingPlaylistTrack)
@@ -2401,6 +2411,7 @@ export function useEchoSyncController() {
       activeRoom,
       currentUser,
       remoteSpeaking,
+      autoplay: settings.autoplay !== false,
     },
     actions: {
       showToast,
@@ -2419,6 +2430,7 @@ export function useEchoSyncController() {
       rememberTrack,
       closeSearchExperience,
       suspendRoomPlayback: (...args) => suspendRoomPlayback(...args),
+      autoplayTracks: (...args) => autoplayTracks(...args),
     },
   })
 
@@ -2554,8 +2566,8 @@ export function useEchoSyncController() {
     onPasswordRecovery:()=>{setAuthMode('recovery');setAuthReason('Choose a new password for your account.');setAuthOpen(true)},
     clearLocalIdentity:()=>{setCurrentUserId(null);setRooms(previous=>previous.filter(room=>room.cloud))},onSignedOut:localSignOut,
     onHydrate:(user,data)=>{
-      const p=data.profile
-      const account=accountDisplay({id:user.id,handle:p.username,name:p.display_name,email:user.email,showActivity:p.privacy_settings?.showActivity!==false,allowInvites:p.privacy_settings?.allowInvites!==false,cloud:true})
+      const p=data.profile,privacy=p.privacy_settings||{},preset=randomAvatarPreset(p.username||user.id)
+      const account=accountDisplay({id:user.id,handle:p.username,name:p.display_name,email:user.email,bio:privacy.bio||'',avatarId:privacy.avatarId,av1:privacy.av1||preset.av1,av2:privacy.av2||preset.av2,showActivity:privacy.showActivity!==false,allowInvites:privacy.allowInvites!==false,cloud:true})
       setAccounts(previous=>({...previous,[user.id]:account}))
       const tracks=[...(p.liked_tracks||[]),...data.playlists.flatMap(list=>list.tracks||[])]
       tracks.forEach(rememberTrack)
@@ -2575,7 +2587,7 @@ export function useEchoSyncController() {
       setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(normalizeTasteProfile(p.taste_profile));setPlaylists(data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
       setAccounts(previous=>({...previous,[p.id]:{...previous[p.id],handle:p.username,name:p.display_name,showActivity:p.privacy_settings?.showActivity!==false,allowInvites:p.privacy_settings?.allowInvites!==false}}))
     },
-    updatePublicAccount:patch=>setAccounts(previous=>({...previous,[currentUserId]:{...previous[currentUserId],handle:patch.handle,name:patch.handle,showActivity:patch.showActivity,allowInvites:patch.allowInvites}})),
+    updatePublicAccount:patch=>setAccounts(previous=>({...previous,[currentUserId]:{...previous[currentUserId],handle:patch.handle,name:patch.name||displayNameFromHandle(patch.handle),bio:patch.bio??previous[currentUserId]?.bio,avatarId:patch.avatarId??previous[currentUserId]?.avatarId,av1:patch.avatar?.av1||previous[currentUserId]?.av1,av2:patch.avatar?.av2||previous[currentUserId]?.av2,showActivity:patch.showActivity,allowInvites:patch.allowInvites}})),
   })
   function rememberCloudTrack(track){const previous=libraryRef.current[track?.id];const incoming=previous?.streamUrl?{...track,streamUrl:previous.streamUrl,status:previous.status,quality:previous.quality}:track;if(incoming?.title&&cloudFingerprint(sanitizeTrack(incoming))!==cloudFingerprint(sanitizeTrack(previous||{})))rememberTrack(incoming)}
   function handleCloudEvent(data){
@@ -2738,17 +2750,25 @@ export function useEchoSyncController() {
     const translations = readStorage(TRANSLATION_CACHE_KEY, {})
     return {
       size: formatBytes(bytes),
-      streams: Object.keys(streams.streams || {}).length + Object.keys(libraryCache || {}).length,
+      streams: Object.keys(streams.streams || {}).length,
+      library: Object.keys(libraryCache || {}).length,
       translations: Object.keys(translations || {}).length,
+      history: Math.max(0, recent.length),
     }
-  }, [cacheRevision, settingsOpen])
+  }, [cacheRevision, settingsOpen, recent.length])
 
-  function saveUserSettings(next) {
+  function saveUserSettings(next, options = {}) {
     const merged = { ...settings, ...next }
     setSettings(merged)
     setPreferredStreamQuality(merged.quality || 'high')
+    if (next.defaultVolume !== undefined) {
+      const level = Math.max(0, Math.min(1, Number(next.defaultVolume)))
+      setVolume(level)
+      setMuted(level === 0)
+    }
     if (next.autoTranslate !== undefined) setTranslateOn(Boolean(next.autoTranslate))
-    showToast('Listening preferences saved')
+    if (!options.silent) showToast('Listening preferences saved')
+    return merged
   }
 
   function toggleTranslation() {
@@ -2768,6 +2788,13 @@ export function useEchoSyncController() {
     setLyrics({ status: 'idle' })
     setLyricsRefresh((value) => value + 1)
     showToast('Stream, lyric, and translation caches cleared')
+  }
+
+  function clearHistory() {
+    setRecent([])
+    writeUserValue(RECENT_KEY, currentUserId || 'guest', [])
+    setCacheRevision((value) => value + 1)
+    showToast('Listening history cleared')
   }
 
   async function toggleMic() {
@@ -3110,7 +3137,6 @@ export function useEchoSyncController() {
     { id: 'lounge', open: Boolean(loungeOpen), onClose: () => { closeLounge() } },
     { id: 'chat', open: Boolean(shellChatOpen), onClose: () => { setChatOpen(false) } },
     { id: 'search', open: Boolean(searchOpen), onClose: () => { closeSearchExperience() } },
-    { id: 'taste', open: Boolean(tasteOpen), onClose: () => { setTasteOpen(false) } },
     { id: 'settings', open: Boolean(settingsOpen), onClose: () => { setSettingsOpen(false) } },
     { id: 'members', open: Boolean(membersOpen), onClose: () => { setMembersOpen(false) } },
     { id: 'room-editor', open: Boolean(roomEditor), onClose: () => { setRoomEditor(null) } },
@@ -3180,7 +3206,6 @@ export function useEchoSyncController() {
     dailyFeed,
     dailyStatus,
     tasteProfile,
-    setTasteOpen,
     refreshDailyFeed,
     playSoloTrack,
     playPlaylist,
@@ -3290,8 +3315,6 @@ export function useEchoSyncController() {
     searchContext,
     pendingPlayId,
     fullPlayer,
-    tasteOpen,
-    saveTasteVibes,
     settingsOpen,
     cacheInfo,
     currentUserId,
@@ -3299,6 +3322,7 @@ export function useEchoSyncController() {
     saveProfile,
     saveUserSettings,
     clearAllCaches,
+    clearHistory,
     signOut,
     membersOpen,
     publicUsers,
