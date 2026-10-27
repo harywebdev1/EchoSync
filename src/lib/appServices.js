@@ -1406,6 +1406,7 @@ function normalizeSaavn(raw) {
     providerId,
     provider,
     providerLabel: labels[provider] || 'EchoSync',
+    playCount: Math.max(0, Number(source.playCount) || 0),
     title: decodeEntities(source.name || source.title || 'Unknown track'),
     artist: decodeEntities(artist),
     album: decodeEntities(source.album?.name || 'Single'),

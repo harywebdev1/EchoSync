@@ -65,7 +65,7 @@ export function searchSimilarity(track, query) {
     words = tokens(query)
   if (!q || !words.length) return 0
   const rawTitle = track?.title || track?.name || ''
-  const title = phoneticNormalize(cleanTitleCore(rawTitle))
+  const title = phoneticNormalize(cleanTitleCore(rawTitle.replace(/\s*\|\s*(?:coke studio|official|lyrics|music video|audio).*/i, '')))
   const variants =
     /\b(reprise|acoustic|cover|remix|karaoke|tribute|instrumental)\b/i
   const variantPenalty =
@@ -91,6 +91,7 @@ export function searchSimilarity(track, query) {
       ) / words.length
     return tokenScore * 0.7 + trigramSimilarity(q, field) * 0.3
   }
+  const popularity = Math.min(.25, Math.log10(Math.max(0,Number(track?.playCount)||0)+1)*.04)
   return (
     Math.max(
       fieldScore(title) + (title === q ? 0.5 : title.startsWith(q) ? 0.2 : 0),
@@ -98,7 +99,7 @@ export function searchSimilarity(track, query) {
         (artist === q ? 0.4 : artist.startsWith(q) ? 0.15 : 0),
       fieldScore(`${title} ${artist}`) * 0.9,
       fieldScore(album) * 0.65
-    ) - variantPenalty
+    ) - variantPenalty + popularity
   )
 }
 export function rankBySearchSimilarity(tracks, query) {

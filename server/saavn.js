@@ -1,6 +1,6 @@
 import { officialUrl, normalizeOfficialPayload } from './jiosaavn.js'
 import { cleanTitleCore } from '../src/core/songStem.js'
-import { searchSimilarity } from '../src/core/searchRanking.js'
+import { searchSimilarity, phoneticNormalize } from '../src/core/searchRanking.js'
 
 // JioSaavn's official endpoint is authoritative but returns few complete rows
 // for some artists. The mirror fills the gap and may return loosely related
@@ -77,7 +77,7 @@ function popularityOf(row) {
 
 function relevanceScore(row, query) {
   const rawTitle = rowTitle(row)
-  const similarity = searchSimilarity({title:rawTitle,artist:rowArtist(row),album:rowAlbum(row)},query)
+  const similarity = searchSimilarity({title:rawTitle,artist:rowArtist(row),album:rowAlbum(row),playCount:row.playCount},query)
   // Literal prefixes cannot override a closer phonetic full-title match.
   const noise = NOISE_TITLE.test(rawTitle) && !NOISE_TITLE.test(query) ? 250 : 0
   return similarity * 1000 - noise
@@ -199,6 +199,10 @@ function mergeProviders(groups, query, limit) {
       ordered.push(copy)
       continue
     }
+    const names = item => rowArtist(item).split(/,|&|;|\bfeat\.?\s|\bft\.?\s/i).map(phoneticNormalize).filter(Boolean)
+    const artists = names(existing), peers = names(row)
+    // Canonical title dedupe must never graft a cover's audio onto an original artist.
+    if(!artists.some(name=>peers.includes(name)) && !(existing.provider===row.provider && existing.providerId===row.providerId))continue
     if (!existing.previewUrl && row.previewUrl) existing.previewUrl = row.previewUrl
     if (!existing.streamUrl && row.streamUrl) existing.streamUrl = row.streamUrl
     if (!existing.youtubeVideoId && row.youtubeVideoId) existing.youtubeVideoId = row.youtubeVideoId
@@ -275,8 +279,8 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
       return []
     }
 
-    const deezerTask = () => provider(
-      [`${DEEZER_SEARCH}?q=${encodeURIComponent(query)}&limit=30`],
+    const deezerTask = (searchQuery = query) => provider(
+      [`${DEEZER_SEARCH}?q=${encodeURIComponent(searchQuery)}&limit=30`],
       payload => (Array.isArray(payload?.data) ? payload.data.map(deezerRow).filter(Boolean) : []),
     )
     const youtubeTask = () => Promise.all([
@@ -341,10 +345,17 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
       const youtubePromise = query.trim() ? youtubeTask() : Promise.resolve([])
       const audiusPromise = query.trim() ? audiusTask() : Promise.resolve([])
 
-      const [official, external, autocompleteRows] = await Promise.all([
+      const correctedDeezer = Promise.all([officialTask,autocompletePromise]).then(async ([official,autocomplete])=>{
+        const candidates=[...official.rows,...autocomplete].map(row=>({row,score:searchSimilarity({title:rowTitle(row)},query)})).sort((a,b)=>b.score-a.score)
+        const best=candidates[0]
+        const corrected=best?.score>=.75 ? cleanTitleCore(rowTitle(best.row)) : ''
+        if(!corrected || corrected===query.toLowerCase().trim() || controller.signal.aborted || remaining()<150)return []
+        return deezerTask(corrected)
+      })
+      const [official, external, autocompleteRows, correctedRows] = await Promise.all([
         officialTask,
         Promise.all([deezerPromise, youtubePromise, audiusPromise]),
-        autocompletePromise,
+        autocompletePromise, correctedDeezer,
       ])
       let officialRows = [...official.rows, ...autocompleteRows]
       const officialOk = official.ok
@@ -366,7 +377,7 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
         }
       }
 
-      const deezerRows = external[0] || []
+      const deezerRows = [...(external[0] || []),...correctedRows]
       const youtubeRows = external[1] || []
       const audiusRows = external[2] || []
 

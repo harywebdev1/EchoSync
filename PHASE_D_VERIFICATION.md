@@ -4,16 +4,16 @@ Baseline: clean `b7abcfd` on `main`, with no interrupted working-tree edits or s
 
 ## Application verification
 
-- Production build: PASS, main entry **493.88 KB** (157.84 KB gzip), below 500 KB.
+- Production build: PASS, main entry **494.07 KB** (157.92 KB gzip), below 500 KB.
 - Pure integrity suite: **24/24 PASS**.
-- API contract suite: **16/16 PASS**, with controlled upstream responses.
+- API contract suite: **17/17 PASS**, with controlled upstream responses.
 - Production browser integrity suite: **19/19 PASS** at desktop 1440x900 and mobile 390x844.
 - Uncaught JavaScript exceptions: **0** in passing browser scenarios.
 - `git diff --check`: PASS.
 
 | Pillar | Verified behavior |
 | --- | --- |
-| Search | All seven requested fuzzy queries; ordering never removes a valid provider tail; official n=40, autocomplete, Deezer limit=30 and parallel fallbacks; 50 unique results in the controlled contract. |
+| Search | All seven requested fuzzy queries; ordering never removes a valid provider tail; official n=40, autocomplete, Deezer limit=30 and parallel fallbacks; 50 unique results in the controlled contract. Catalog-derived spelling expansion, bounded popularity scoring and artist-compatible audio merging are separately covered. |
 | Taste | Five affinity dimensions, canonical vibe/language labels, three-track session momentum at 2.5x, partial-success dynamic artist/vibe refresh, deterministic 40/40/20 Quick Picks and 55/30/15 radio where candidates exist. Sparse buckets backfill real candidates. |
 | Chat and Lounge | Own/right and other/left bubbles, 28px avatars, clickable handles, inline timestamps, quoted replies; five-reaction popup stays on screen; hover and popup produce zero bubble height change. |
 | Room voice | Actual test-device MediaRecorder bytes cross the room transport; Mute disables microphone tracks, Unmute enables them, Leave releases hardware. Pending permission requests are cancelled on room changes. No Duck test control or simulation remains. |
@@ -29,13 +29,13 @@ Real API search snapshot through the shared local production handler:
 
 | Query | HTTP | Unique results | Leading result |
 | --- | --- | --- | --- |
-| pasuri | 200 | 50 | Pasoori |
-| kesria | 200 | 39 | Kesariya |
-| apna bna | 200 | 33 | Apna Bana Le |
-| tu jhum | 200 | 50 | Tu Jhoom |
-| arz kia | 200 | 50 | Arz Kiya Hai |
-| atif | 200 | 30 | Dil Diyan Gallan |
-| anuv | 200 | 46 | Arz Kiya Hai (Anuv Jain) |
+| pasuri | 200 | 50 | Pasoori (Ali Sethi) |
+| kesria | 200 | 49 | Kesariya (Pritam, Arijit Singh) |
+| apna bna | 200 | 40 | Apna Bana Le (Arijit Singh) |
+| tu jhum | 200 | 50 | Tu Jhoom (Naseebo Lal) |
+| arz kia | 200 | 50 | Arz Kiya Hai (Anuv Jain) |
+| atif | 200 | 10 | O'Meri Laila (Atif Aslam); provider count varied between probes |
+| anuv | 200 | 46 | Jo Tum Mere Ho (Anuv Jain) |
 
 Counts reflect available unique upstream candidates; the application does not fabricate tracks to fill 50 slots. These are search/catalog checks, not certification that every returned upstream stream remains available. Unknown-duration metadata remains unverified until the existing playback gate confirms >=60 seconds. The current guest 30-second preview policy and Preview Ended card are retained.
 

@@ -333,6 +333,7 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     const cases=[['pasuri','Pasoori','Ali Sethi'],['kesria','Kesariya','Arijit Singh'],['apna bna','Apna Bana Le','Arijit Singh'],['tu jhum','Tu Jhoom','Abida Parveen'],['arz kia','Arz Kiya','Anuv Jain'],['atif','Tera Hone Laga Hoon','Atif Aslam'],['anuv','Baarishein','Anuv Jain']]
     for(const [query,title,artist] of cases){const rows=[{id:'tail',title:query==='tu jhum'?'Tu Jhumata Huva Saawan':'Unrelated provider song',artist:query==='kesria'?'Kesria':'Different Singer'},{id:'hit',title,artist}];const before=JSON.stringify(rows);const result=rankBySearchSimilarity(rows,query);assert.equal(result[0].id,'hit',query);assert.equal(result.length,2);assert.equal(JSON.stringify(rows),before)}
     assert.equal(rankBySearchSimilarity([{id:'variant',title:'Pasoori (Reprise)'},{id:'original',title:'Pasoori'}],'pasuri')[0].id,'original')
+    const versions=[{id:'cover',title:'Arz Kiya Hai',artist:'Cover Artist',playCount:100},{id:'original',title:'Arz Kiya Hai | Coke Studio Bharat',artist:'Anuv Jain',playCount:28000000}];assert.equal(rankBySearchSimilarity(versions,'arz kia')[0].id,'original')
     assert.equal(phoneticNormalize('aa ee oo ph kh gh z sh q w'),'a i u f k g j s k v')
   })
   await check('taste learns five affinity dimensions, caps session to three and allocates artist radio 55/30/15', () => {

@@ -26,6 +26,7 @@ export function normalizeOfficialSong(raw, {allowUnresolved = false} = {}) {
   const art = String(raw.image || '').replace(/^http:/, 'https:').replace(/-\d+x\d+(\.[a-z]+)(?=\?|$)/i, '-500x500$1')
   return {
     id: String(raw.id), name: text(raw.title || raw.song || raw.name), duration: Number(info.duration || raw.duration) || 0,
+    playCount: Math.max(0,Number(raw.play_count || info.play_count) || 0),
     primaryArtists: artist, artists: { primary: primary.map(a => ({ name: text(a.name) })) }, album: { name: text(info.album || raw.album) },
     language: text(info.language || raw.language), year: text(raw.year || info.year),
     image: art ? [{ quality: '500x500', url: art }] : [],
