@@ -22,6 +22,7 @@ import { playbackProgressStore, setLiveTelemetry } from '../state/playbackStore'
 import { preloadQueueWindow, preloadCandidateAt } from '../services/preloadManager'
 import { useEffect, useRef } from 'react'
 import { useMediaSession, publishMediaSessionPosition } from './useMediaSession.js'
+import { buildArtistRadio } from '../core/tasteEngine.js'
 
 const GUEST_PREVIEW_SECONDS = 30
 export const GUEST_PREVIEW_BANNER = 'Unlock full-length 320kbps streaming — Sign in or create a free account to hear the complete track.'
@@ -57,6 +58,7 @@ export function usePlaybackEngine({
     joinPill,
     guestPreview,
     setGuestPreview,
+    setPreviewCard,
     activeRoomId,
     setRooms,
     currentUserId,
@@ -137,7 +139,6 @@ export function usePlaybackEngine({
     recordTasteSignal,
     lockToast,
     requireAuth,
-    openAuth,
     roomClockTime,
     advanceRoomClock,
     broadcastRoom,
@@ -151,24 +152,68 @@ export function usePlaybackEngine({
   const guestPreviewRef = useRef(false)
   const previewGateRef = useRef(false)
   const previewUpgradeRef = useRef(false)
+  const prefetchInFlightRef = useRef(new Set())
   const openPreviewGateRef = useRef(() => {})
 
   useEffect(() => {
     guestPreviewRef.current = Boolean(guestPreview)
-    if (!guestPreview) previewGateRef.current = false
-  }, [guestPreview])
+    if (!guestPreview) {
+      previewGateRef.current = false
+      setPreviewCard(false)
+    }
+  }, [guestPreview, setPreviewCard])
 
   function openPreviewGate() {
     previewGateRef.current = true
     guestPreviewRef.current = true
     setGuestPreview(true)
-    openAuth('signin', GUEST_PREVIEW_BANNER)
+    setIsPlaying(false)
+    isPlayingRef.current = false
+    setBuffering(false)
+    setPreviewCard(true)
   }
   openPreviewGateRef.current = openPreviewGate
+
+  // Dismissible end-card action: restart the same 30 second preview without
+  // forcing the auth modal on the listener.
+  function replayGuestPreview() {
+    setPreviewCard(false)
+    previewGateRef.current = false
+    sleepPausedRef.current = false
+    const audio = audioRef.current
+    if (audio && track?.streamUrl) {
+      try {
+        audio.currentTime = 0
+      } catch {
+        /* metadata may still settle */
+      }
+      updatePlaybackProgress(0)
+      setIsPlaying(true)
+      return
+    }
+    if (ytPlayerRef.current?.seekTo) {
+      ytPlayerRef.current.seekTo(0, true)
+      updatePlaybackProgress(0)
+      setIsPlaying(true)
+      return
+    }
+    if (track?.id) startGuestPreview(track, queue)
+  }
 
   function previewSeconds(track) {
     const full = Number(track?.duration) || GUEST_PREVIEW_SECONDS
     return Math.min(GUEST_PREVIEW_SECONDS, Math.max(1, full))
+  }
+
+  // A shelf can contain dozens of rows. Persisting each one before the click
+  // repaints delays the dock update, so context catalog writes run one task
+  // later while the selected track takes over the player immediately.
+  function rememberContextTracks(context, keepId) {
+    const pending = context.filter((item) => item?.id && item.id !== keepId)
+    if (!pending.length) return
+    setTimeout(() => {
+      pending.forEach((item) => rememberTrack(item))
+    }, 0)
   }
 
   const { sleepTimer, setSleepTimer: selectSleepTimer, onSleepTrackEnded } = useSleepTimer(() => {
@@ -220,10 +265,17 @@ export function usePlaybackEngine({
   function safeYouTubePlay(player) {
     if (sleepPausedRef.current) return
     const total = Number(player?.getDuration?.())
-    if (!Number.isFinite(total) || total < 60) {
+    const previewAllowed = Boolean(guestPreviewRef.current) || !currentUser
+    if (!Number.isFinite(total) || total <= 0) {
       player?.pauseVideo?.()
       setIsPlaying(false)
-      showToast(total > 0 ? 'Track blocked: full-length playback requires at least 60 seconds.' : 'Track duration is unverified. Please retry when metadata is available.', 'lock')
+      showToast('Track duration is unverified. Please retry when metadata is available.', 'lock')
+      return
+    }
+    if (total < 60 && !previewAllowed) {
+      player?.pauseVideo?.()
+      setIsPlaying(false)
+      showToast('Track blocked: full-length playback requires at least 60 seconds.', 'lock')
       return
     }
     player.playVideo()
@@ -255,12 +307,16 @@ export function usePlaybackEngine({
       if (!recoveryRef.current.active) await recoverCurrentStream('initial', { force: true, fast: false, wasPlaying: true })
       return false
     }
-    if (!Number.isFinite(total) || total < 60) {
-      if (total > 0 && Number.isFinite(total)) blockShortPlayback(audio)
-      else {
-        setIsPlaying(false)
-        showToast('Track duration could not be verified. Please retry.', 'lock')
-      }
+    if (!Number.isFinite(total) || total <= 0) {
+      setIsPlaying(false)
+      showToast('Track duration could not be verified. Please retry.', 'lock')
+      return false
+    }
+    // Guests hear a 30 second preview, so the media itself may be shorter than
+    // the full-length 60 second policy that applies to signed-in accounts.
+    const previewAllowed = Boolean(guestPreviewRef.current) || !currentUser
+    if (total < 60 && !previewAllowed) {
+      blockShortPlayback(audio)
       return false
     }
     try {
@@ -606,6 +662,65 @@ export function usePlaybackEngine({
 
   }
 
+  // Publish a track to the library before its stream resolves so artwork,
+  // title and the loading ring appear on the very next frame.
+  function stageTrack(candidate, options = {}) {
+    if (!candidate?.id) return null
+    const usePreview = options.usePreview === true
+    const directUrl = usePreview
+      ? (candidate.streamUrl || candidate.previewUrl || null)
+      : (candidate.streamUrl || null)
+    const hasDirect = Boolean(directUrl || candidate.youtubeVideoId)
+    const staged = sanitizeTrack({
+      ...candidate,
+      streamUrl: directUrl,
+      preview: usePreview ? Boolean(candidate.preview) : false,
+      needsHydration: false,
+      status: hasDirect ? 'ready' : 'resolving',
+    })
+    setLibrary((previous) => {
+      const existing = previous[staged.id]
+      const merged = sanitizeTrack({
+        ...existing,
+        ...staged,
+        streamUrl: staged.streamUrl || existing?.streamUrl || null,
+        youtubeVideoId: staged.youtubeVideoId || existing?.youtubeVideoId || undefined,
+        cover: staged.cover || existing?.cover || null,
+      })
+      return {
+        ...previous,
+        [staged.id]: {
+          ...merged,
+          status: merged.streamUrl || merged.youtubeVideoId ? 'ready' : 'resolving',
+        },
+      }
+    })
+    return staged
+  }
+
+  // Warm the stream for a hovered row so the click can attach immediately.
+  function prefetchTrack(candidate) {
+    if (!candidate?.id || !currentUser) return
+    const existing = libraryRef.current?.[candidate.id]
+    if (existing?.streamUrl || existing?.youtubeVideoId) return
+    if (prefetchInFlightRef.current.has(candidate.id)) return
+    prefetchInFlightRef.current.add(candidate.id)
+    resolveFullTrack(candidate)
+      .then((ready) => {
+        if (!ready || (!ready.streamUrl && !ready.youtubeVideoId) || !isFullLengthTrack(ready)) return
+        setLibrary((previous) => {
+          const entry = previous[candidate.id]
+          if (entry?.streamUrl || entry?.youtubeVideoId) return previous
+          return {
+            ...previous,
+            [candidate.id]: sanitizeTrack({ ...entry, ...ready, id: candidate.id, preview: false, status: 'ready' }),
+          }
+        })
+      })
+      .catch(() => {})
+      .finally(() => prefetchInFlightRef.current.delete(candidate.id))
+  }
+
   async function ensurePlayable(rawCandidate, options = {}) {
     if (!rawCandidate) return null
     const forceRefresh = Boolean(options.forceRefresh)
@@ -768,27 +883,26 @@ export function usePlaybackEngine({
   async function startGuestPreview(candidate, contextTracks = null, options = {}) {
     if (!candidate?.id) return
     radioActive.current = options.radio === true
-    const playable = await prepareGuestPreview(candidate)
-    if (!playable) return
+    // Synchronous stage: the dock, artwork and loading ring update in the same
+    // tick as the click. Stream resolution continues in the background.
     guestPreviewRef.current = true
     previewGateRef.current = false
     setGuestPreview(true)
-    setLibrary((previous) => ({ ...previous, [playable.id]: playable }))
+    setPreviewCard(false)
+    const staged = stageTrack(candidate, { usePreview: true }) || candidate
     const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
-    context.forEach((item) => {
-      if (item.id !== playable.id) rememberTrack(item)
-    })
+    rememberContextTracks(context, staged.id)
     const contextIds = context.map((item) => item.id)
-    const naturalIds = contextIds.includes(playable.id)
+    const naturalIds = contextIds.includes(staged.id)
       ? contextIds
-      : soloQueue.includes(playable.id)
+      : soloQueue.includes(staged.id)
         ? soloQueue
-        : [...soloQueue, playable.id]
+        : [...soloQueue, staged.id]
     const playOrder = commitSoloQueue(naturalIds, {
-      currentId: playable.id,
+      currentId: staged.id,
       shuffle: shuffleEnabled,
     })
-    const index = Math.max(0, playOrder.indexOf(playable.id))
+    const index = Math.max(0, playOrder.indexOf(staged.id))
     const wasRoomView = viewRef.current === 'room'
     if (wasRoomView) suspendRoomPlayback()
     soloResumeRef.current = null
@@ -798,7 +912,18 @@ export function usePlaybackEngine({
     }
     audioRef.current?.pause()
     setIsPlaying(false)
-    beginPlayback(SOLO_ROOM_ID, playOrder, index, playable)
+    beginPlayback(SOLO_ROOM_ID, playOrder, index, staged)
+    const playable = await prepareGuestPreview(candidate)
+    if (!playable) return
+    setLibrary((previous) => ({
+      ...previous,
+      [playable.id]: sanitizeTrack({
+        ...previous[playable.id],
+        ...playable,
+        title: previous[playable.id]?.title || playable.title,
+        cover: previous[playable.id]?.cover || playable.cover,
+      }),
+    }))
   }
 
   async function playIndex(index) {
@@ -811,12 +936,15 @@ export function usePlaybackEngine({
     const candidate = queue[bounded] || library[queueIds[bounded]] || SEED_BY_ID[queueIds[bounded]]
     if (!candidate) return
     if (!currentUser) {
-      await startGuestPreview(candidate, queue)
+      startGuestPreview(candidate, queue)
       return
     }
-    const playable = await ensurePlayable(candidate)
-    if (!playable) return
-    startPlaybackAt(bounded, playable)
+    const staged = stageTrack(candidate) || candidate
+    startPlaybackAt(bounded, staged)
+    ensurePlayable(candidate).then((playable) => {
+      if (!playable) return
+      setLibrary((previous) => ({ ...previous, [playable.id]: sanitizeTrack({ ...previous[playable.id], ...playable }) }))
+    }).catch(() => {})
   }
 
   function startPlaybackAt(index, candidate) {
@@ -1410,12 +1538,33 @@ export function usePlaybackEngine({
         return
       }
     } else if (!currentUser) {
-      await startGuestPreview(candidate, contextTracks)
+      startGuestPreview(candidate, contextTracks)
       return
     }
     if (playRequestRef.current.id === candidate.id) return
     playRequestRef.current = { seq: requestId, id: candidate.id }
     setPendingPlayId(candidate.id)
+    if (!targetRoom) {
+      const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
+      rememberContextTracks(context, candidate.id)
+      const staged = stageTrack(candidate) || candidate
+      const contextIds = context.map((item) => item.id)
+      const naturalIds = contextIds.includes(staged.id)
+        ? contextIds
+        : soloQueue.includes(staged.id)
+          ? soloQueue
+          : [...soloQueue, staged.id]
+      const playOrder = commitSoloQueue(naturalIds, {
+        currentId: staged.id,
+        shuffle: shuffleEnabled,
+      })
+      const index = Math.max(0, playOrder.indexOf(staged.id))
+      const nextView = viewRef.current === 'rooms' ? 'home' : viewRef.current
+      viewRef.current = nextView
+      setView(nextView)
+      beginPlayback(SOLO_ROOM_ID, playOrder, index, staged)
+      showToast(`Playing "${staged.title}"`)
+    }
     try {
       const playable = await ensurePlayable(candidate)
       if (requestId !== playRequestRef.current.seq) return
@@ -1429,28 +1578,10 @@ export function usePlaybackEngine({
           viewRef.current = 'room'
           setView('room')
         }
+        showToast(`Playing "${playable.title}"`)
       } else {
-        const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
-        context.forEach((item) => {
-          if (item.id !== playable.id) rememberTrack(item)
-        })
-        const contextIds = context.map((item) => item.id)
-        const naturalIds = contextIds.includes(playable.id)
-          ? contextIds
-          : soloQueue.includes(playable.id)
-            ? soloQueue
-            : [...soloQueue, playable.id]
-        const playOrder = commitSoloQueue(naturalIds, {
-          currentId: playable.id,
-          shuffle: shuffleEnabled,
-        })
-        const index = Math.max(0, playOrder.indexOf(playable.id))
-        const nextView = viewRef.current === 'rooms' ? 'home' : viewRef.current
-        viewRef.current = nextView
-        setView(nextView)
-        beginPlayback(SOLO_ROOM_ID, playOrder, index, playable)
+        setLibrary((previous) => ({ ...previous, [playable.id]: sanitizeTrack({ ...previous[playable.id], ...playable }) }))
       }
-      showToast(`Playing "${playable.title}"`)
     } finally {
       if (requestId === playRequestRef.current.seq) {
         playRequestRef.current = { seq: requestId, id: '' }
@@ -1497,7 +1628,7 @@ export function usePlaybackEngine({
     const candidate = library[clean[index]] || SEED_BY_ID[clean[index]]
     if (!candidate) return
     if (!currentUser) {
-      await startGuestPreview(candidate, clean.map((id) => library[id] || SEED_BY_ID[id]).filter(Boolean))
+      startGuestPreview(candidate, clean.map((id) => library[id] || SEED_BY_ID[id]).filter(Boolean))
       return
     }
     const wasRoomView = viewRef.current === 'room'
@@ -1509,17 +1640,17 @@ export function usePlaybackEngine({
     }
     audioRef.current?.pause()
     setIsPlaying(false)
+    const staged = stageTrack(candidate) || candidate
     const playOrder = commitSoloQueue(clean, {
-      currentId: candidate.id,
+      currentId: staged.id,
       shuffle: shuffleEnabled,
     })
-    const playIndex = Math.max(0, playOrder.indexOf(candidate.id))
-    setCurrentByRoom((previous) => ({ ...previous, [SOLO_ROOM_ID]: playIndex }))
-    updatePlaybackProgress(0)
-    setDuration(candidate.duration || 0)
-    const playable = await ensurePlayable(candidate)
-    if (!playable) return
-    beginPlayback(SOLO_ROOM_ID, playOrder, playIndex, playable)
+    const playIndex = Math.max(0, playOrder.indexOf(staged.id))
+    beginPlayback(SOLO_ROOM_ID, playOrder, playIndex, staged)
+    ensurePlayable(candidate).then((playable) => {
+      if (!playable) return
+      setLibrary((previous) => ({ ...previous, [playable.id]: sanitizeTrack({ ...previous[playable.id], ...playable }) }))
+    }).catch(() => {})
   }
 
   function startTasteRadio(candidate, tracks) {
@@ -1529,27 +1660,25 @@ export function usePlaybackEngine({
   async function playSoloTrack(candidate, contextTracks = null, options = {}) {
     if (!candidate?.id) return
     if (!currentUser) {
-      await startGuestPreview(candidate, contextTracks, options)
+      startGuestPreview(candidate, contextTracks, options)
       return
     }
-    const playable = await ensurePlayable(candidate)
-    if (!playable) return
     radioActive.current = options.radio === true
+    setPreviewCard(false)
     const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
-    context.forEach((item) => {
-      if (item.id !== playable.id) rememberTrack(item)
-    })
+    rememberContextTracks(context, candidate.id)
+    const staged = stageTrack(candidate) || candidate
     const contextIds = context.map((item) => item.id)
-    const naturalIds = contextIds.includes(playable.id)
+    const naturalIds = contextIds.includes(staged.id)
       ? contextIds
-      : soloQueue.includes(playable.id)
+      : soloQueue.includes(staged.id)
         ? soloQueue
-        : [...soloQueue, playable.id]
+        : [...soloQueue, staged.id]
     const playOrder = commitSoloQueue(naturalIds, {
-      currentId: playable.id,
+      currentId: staged.id,
       shuffle: shuffleEnabled,
     })
-    const index = Math.max(0, playOrder.indexOf(playable.id))
+    const index = Math.max(0, playOrder.indexOf(staged.id))
     const wasRoomView = viewRef.current === 'room'
     if (wasRoomView) suspendRoomPlayback()
     soloResumeRef.current = null
@@ -1559,7 +1688,11 @@ export function usePlaybackEngine({
     }
     audioRef.current?.pause()
     setIsPlaying(false)
-    beginPlayback(SOLO_ROOM_ID, playOrder, index, playable)
+    beginPlayback(SOLO_ROOM_ID, playOrder, index, staged)
+    ensurePlayable(candidate).then((playable) => {
+      if (!playable) return
+      setLibrary((previous) => ({ ...previous, [playable.id]: sanitizeTrack({ ...previous[playable.id], ...playable }) }))
+    }).catch(() => {})
   }
 
   function queueSoloTrack(candidate) {
@@ -2047,6 +2180,9 @@ export function usePlaybackEngine({
     captureSoloSnapshot,
     leaveRoomPlayback,
     beginPlayback,
+    stageTrack,
+    prefetchTrack,
+    replayGuestPreview,
     ensurePlayable,
     playIndex,
     startPlaybackAt,

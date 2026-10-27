@@ -14,6 +14,7 @@ import { ErrorBoundary } from './components/shell/ErrorBoundary.jsx'
 import { HomeView } from './views/HomeView'
 import { searchEverything, normalizeRoomCode } from './lib/appServices.js'
 import { PlayerDock } from './components/player/PlayerDock'
+import { PreviewEndedCard } from './components/player/PreviewEndedCard'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
 import { QueueDrawer } from './components/player/QueueDrawer'
 import { InviteBanner } from './components/shell/InviteBanner.jsx'
@@ -71,6 +72,9 @@ export default function App() {
     currentUser,
     playlists,
     guestPreview,
+    previewCard,
+    setPreviewCard,
+    replayGuestPreview,
     leavePrompt,
     requestLeaveRoom,
     confirmLeaveRoom,
@@ -203,6 +207,7 @@ export default function App() {
     closeSearchExperience,
     playSearchTrack,
     queueSearchTrack,
+    prefetchTrack,
     searchSuggestions,
     recentSearches,
     recordSearchQuery,
@@ -462,6 +467,12 @@ export default function App() {
             </ErrorBoundary>
 
             <ErrorBoundary resetKey="player-dock">
+              <PreviewEndedCard
+                visible={previewCard}
+                onSignIn={() => { setPreviewCard(false); openAuth('signin', GUEST_PREVIEW_BANNER) }}
+                onReplay={replayGuestPreview}
+                onDismiss={() => setPreviewCard(false)}
+              />
               <PlayerDock
                 sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
                 track={track}
@@ -645,6 +656,7 @@ export default function App() {
             onClose={closeSearchExperience}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
+            onPrefetch={prefetchTrack}
             onAddToPlaylist={requestAddToPlaylist}
             onSearch={searchEverything}
             catalog={library}

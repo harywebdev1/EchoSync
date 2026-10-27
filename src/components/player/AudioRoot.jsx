@@ -12,6 +12,7 @@ export function AudioRootContainer({ audioRef, containerRef, trackId, onTimeUpda
       <audio
         ref={audioRef}
         data-testid="root-audio"
+        preload="auto"
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadata}
         onCanPlay={onCanPlay}

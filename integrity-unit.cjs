@@ -114,7 +114,7 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
   })
   await check('playback waits for metadata; short, unknown and stale attempts never call play', async () => {
     let plays = 0, blocked = 0
-    const scope = vm.createContext({ setTimeout, clearTimeout, sleepPausedRef: { current: false }, playAttemptIdRef: { current: 1 }, blockShortPlayback: () => blocked++, setIsPlaying() {}, showToast() {} })
+    const scope = vm.createContext({ setTimeout, clearTimeout, sleepPausedRef: { current: false }, playAttemptIdRef: { current: 1 }, guestPreviewRef: { current: false }, currentUser: { id: 'member' }, blockShortPlayback: () => blocked++, setIsPlaying() {}, showToast() {} })
     vm.runInContext(section(app, '  async function safeAudioPlay(', '  function clearAdvanceCheck('), scope)
     const audio = new EventTarget()
     Object.assign(audio, { readyState: 1, duration: 30, getAttribute: () => 'fixture', play: async () => plays++ })
@@ -131,6 +131,14 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     audio.dispatchEvent(new Event('loadedmetadata'))
     assert.equal(await pending, true)
     assert.equal(plays, 1)
+    // Guests preview a 30 second stream even though signed-in playback keeps
+    // the full-length 60 second policy.
+    scope.guestPreviewRef.current = true
+    scope.playAttemptIdRef.current = 2
+    audio.duration = 30
+    assert.equal(await scope.safeAudioPlay(audio, 2), true)
+    assert.equal(plays, 2)
+    assert.equal(blocked, 1)
   })
   await check('RTT 100→160→120 gives jitter 0→60→40; drift remains 0/140/1800/4200', async () => {
     let now = 0, latency = 100, snapshot = {}

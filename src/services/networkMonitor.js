@@ -9,7 +9,7 @@ let started = false
 let pingTimer = null
 let echoTimer = null
 let channel = null
-let preferredQuality = 'high'
+let preferredQuality = 'auto'
 let apiLatencyMs = 0
 let echoLatencyMs = 0
 let lastLatencyMs = null
@@ -132,7 +132,7 @@ export function stopNetworkMonitor() {
 }
 
 export function setPreferredStreamQuality(value) {
-  preferredQuality = ['high', 'normal', 'saver'].includes(value) ? value : 'high'
+  preferredQuality = ['auto', 'high', 'normal', 'saver'].includes(value) ? value : 'auto'
   publishTelemetry()
 }
 

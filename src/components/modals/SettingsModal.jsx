@@ -277,9 +277,11 @@ export function SettingsModal({
               </div>
               <label className="field">
                 <span>Streaming quality</span>
-                <select value={audio.quality} onChange={(event) => setAudio((value) => ({ ...value, quality: event.target.value }))}>
+                <select value={audio.quality || 'auto'} onChange={(event) => setAudio((value) => ({ ...value, quality: event.target.value }))}>
+                  <option value="auto">Auto (Adaptive — fast start)</option>
                   <option value="high">320 kbps — High</option>
                   <option value="normal">160 kbps — Normal</option>
+                  <option value="saver">Data Saver — 96 kbps</option>
                 </select>
               </label>
               <div className="setting-toggle-row">

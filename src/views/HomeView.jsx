@@ -13,14 +13,25 @@ function Collage({ tracks, className = '' }) {
 
 function HeroShowcase({ tracks, onPlay }) {
   if (!tracks.length) return null
-  return <div className="hero-showcase" aria-label="Featured tracks">
-    {Array.from({ length: 4 }, (_, index) => {
-      const track = tracks[index % tracks.length]
-      return <button key={`${track.id}-${index}`} type="button" className="hero-showcase-tile" onClick={() => onPlay(track)} aria-label={`Play ${track.title} by ${track.artist}`}>
-        <Cover track={track} size="" />
-        <span className="hero-showcase-play" aria-hidden="true"><Play /></span>
-      </button>
-    })}
+  const loop = tracks.length > 1 ? [...tracks, ...tracks] : tracks
+  return <div className="hero-carousel" aria-label="Featured tracks">
+    <div className="hero-carousel-track">
+      {loop.map((track, index) => (
+        <button
+          key={`${track.id}-${index}`}
+          type="button"
+          className="hero-carousel-tile"
+          onClick={() => onPlay(track)}
+          aria-label={`Play ${track.title} by ${track.artist}`}
+          aria-hidden={index >= tracks.length ? 'true' : undefined}
+          tabIndex={index >= tracks.length ? -1 : 0}
+        >
+          <Cover track={track} size="" />
+          <span className="hero-carousel-copy"><strong>{track.title}</strong><span>{track.artist}</span></span>
+          <span className="hero-carousel-play" aria-hidden="true"><Play /></span>
+        </button>
+      ))}
+    </div>
   </div>
 }
 
@@ -59,7 +70,7 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
       if (!track?.id || seen.has(track.id)) return false
       seen.add(track.id)
       return true
-    }).slice(0, 4)
+    }).slice(0, 10)
   }, [recent, ranked])
   const playHero = track => onPlayTrack(track, ranked)
   const firstName = currentUser?.name?.trim().split(/\s+/)[0] || 'music lover'

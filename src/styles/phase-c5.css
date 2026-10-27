@@ -1,0 +1,659 @@
+/* Phase C.5 — instant adaptive playback, artist radio, drifting hero,
+   room host search, dismissible preview card and glassmorphic polish. */
+
+/* ---------- Layout stability ---------- */
+.stage-scroll {
+  scrollbar-gutter: stable;
+}
+
+.stage-scroll > .home-view,
+.stage-scroll > .rooms-view,
+.stage-scroll > .library-view {
+  width: 100%;
+  max-width: 1320px;
+  margin-inline: auto;
+}
+
+.stage-scroll > .room-head,
+.stage-scroll > .now-card,
+.stage-scroll > .room-stage-empty,
+.stage-scroll > .room-member-strip,
+.stage-scroll > .section-head,
+.stage-scroll > .room-queue,
+.stage-scroll > .room-foot-note {
+  width: 100%;
+  max-width: 1320px;
+  margin-inline: auto;
+}
+
+/* ---------- Guest preview end card ---------- */
+.preview-ended-card {
+  position: absolute;
+  left: 50%;
+  bottom: 116px;
+  z-index: 26;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 640px);
+  padding: 9px 11px 9px 13px;
+  border: 1px solid rgba(var(--song-accent-rgb, 145, 100, 210), 0.42);
+  border-radius: 14px;
+  color: var(--text);
+  background: rgba(16, 17, 24, 0.82);
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.46),
+    0 0 30px -12px var(--song-glow, rgba(var(--song-accent-rgb, 145, 100, 210), 0.5)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  transform: translateX(-50%);
+  animation: previewCardIn 0.3s var(--ease) both;
+}
+
+@keyframes previewCardIn {
+  from { opacity: 0; transform: translate(-50%, 10px) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.preview-ended-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--song-accent, var(--accent));
+  background: rgba(var(--song-accent-rgb, 145, 100, 210), 0.16);
+}
+
+.preview-ended-card p {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.preview-ended-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-ended-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.preview-ended-actions button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.preview-ended-actions .preview-ended-signin {
+  border-color: transparent;
+  color: #101118;
+  background: linear-gradient(135deg, var(--song-accent, var(--accent)), color-mix(in srgb, var(--song-accent, var(--accent)) 66%, #fff));
+}
+
+.preview-ended-actions .preview-ended-signin:hover {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--song-accent, var(--accent)) 88%, #fff), var(--song-accent, var(--accent)));
+}
+
+.preview-ended-actions .preview-ended-close {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+/* ---------- Drifting hero carousel ---------- */
+.home-v81 .home-hero {
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 34vw, 580px);
+  gap: 26px;
+}
+
+.hero-carousel {
+  position: relative;
+  justify-self: end;
+  width: 100%;
+  max-width: 580px;
+  overflow: hidden;
+  padding: 10px 0;
+  mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 68%, rgba(0, 0, 0, 0) 100%);
+  -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 68%, rgba(0, 0, 0, 0) 100%);
+}
+
+.hero-carousel-track {
+  display: flex;
+  gap: 14px;
+  width: max-content;
+  animation: heroMarqueeDrift 38s linear infinite;
+  will-change: transform;
+}
+
+.hero-carousel:hover .hero-carousel-track,
+.hero-carousel:focus-within .hero-carousel-track {
+  animation-play-state: paused;
+}
+
+@keyframes heroMarqueeDrift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.hero-carousel-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 168px;
+  height: 196px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(16, 17, 24, 0.7);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hero-carousel-tile:hover,
+.hero-carousel-tile:focus-visible {
+  border-color: rgba(var(--song-accent-rgb, 145, 100, 210), 0.55);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.46), 0 0 26px -10px var(--song-glow);
+  transform: translateY(-2px);
+}
+
+.hero-carousel-tile .cover {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  aspect-ratio: auto;
+}
+
+.hero-carousel-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(5, 6, 9, 0.04) 34%, rgba(5, 6, 9, 0.86) 100%);
+  pointer-events: none;
+}
+
+.hero-carousel-copy {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.hero-carousel-copy strong {
+  overflow: hidden;
+  color: #f7f7fa;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-carousel-copy span {
+  overflow: hidden;
+  color: rgba(247, 247, 250, 0.68);
+  font-size: 10.5px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-carousel-play {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: #101118;
+  background: rgba(247, 247, 250, 0.92);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  transform: scale(0.86);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.hero-carousel-play svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
+.hero-carousel-tile:hover .hero-carousel-play,
+.hero-carousel-tile:focus-visible .hero-carousel-play {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ---------- Symmetrical player dock ---------- */
+/* Higher specificity than the legacy `.stage > .player-dock` grid so the three
+   columns stay perfectly balanced on desktop. */
+.stage > .player-dock {
+  grid-template-columns: minmax(200px, 1fr) minmax(340px, 520px) minmax(200px, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+/* The left cluster keeps the artwork, copy and like affordance visible. The
+   add-to-playlist shortcut stays in the full player to protect the width. */
+.stage > .player-dock .dock-quick-actions {
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.stage > .player-dock .dock-quick-actions .dock-add {
+  display: none;
+}
+
+.dock-cover .cover {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+.dock-np-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: var(--dock-sub);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.dock-np-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.dock-buttons {
+  justify-content: center;
+  gap: 9px;
+}
+
+.dock-play {
+  width: 42px;
+  height: 42px;
+}
+
+.dock-time {
+  max-width: 520px;
+}
+
+.dock-time > .dock-elapsed {
+  min-width: 36px;
+  text-align: right;
+}
+
+.dock-time > .dock-total {
+  min-width: 36px;
+  text-align: left;
+}
+
+.dock-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dock-queue-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: var(--dock-sub);
+  background: rgba(255, 255, 255, 0.05);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.dock-queue-pill:hover,
+.dock-queue-pill.active {
+  border-color: rgba(var(--song-accent-rgb, 145, 100, 210), 0.4);
+  color: var(--dock-title);
+  background: rgba(var(--song-accent-rgb, 145, 100, 210), 0.14);
+}
+
+.dock-queue-pill svg {
+  width: 14px;
+  height: 14px;
+}
+
+.dock-queue-pill .queue-count-badge {
+  position: static;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  line-height: 16px;
+}
+
+/* ---------- Room search ---------- */
+.rooms-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 600px);
+  height: 48px;
+  margin: 18px 0 4px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(16, 17, 24, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 14px 34px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.rooms-search:focus-within {
+  border-color: rgba(var(--song-accent-rgb, 145, 100, 210), 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 3px rgba(var(--song-accent-rgb, 145, 100, 210), 0.12);
+}
+
+.rooms-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+.rooms-search input::placeholder {
+  color: var(--muted);
+}
+
+.rooms-search-clear {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+}
+
+.rooms-search-clear:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.rc-host {
+  display: block;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--song-accent, var(--accent)) 62%, var(--text));
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Full player: ambient glass ---------- */
+.full-player {
+  background:
+    radial-gradient(90% 70% at 18% 8%, color-mix(in srgb, var(--song-accent, var(--accent)) 26%, transparent), transparent 60%),
+    radial-gradient(80% 70% at 86% 92%, color-mix(in srgb, var(--song-accent-2, var(--accent-2)) 22%, transparent), transparent 62%),
+    linear-gradient(160deg, rgba(22, 24, 34, 0.94), rgba(8, 9, 14, 0.98));
+  backdrop-filter: blur(48px) saturate(150%);
+  -webkit-backdrop-filter: blur(48px) saturate(150%);
+}
+
+.full-player::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 44% at 32% 26%, var(--song-glow, rgba(var(--song-accent-rgb, 145, 100, 210), 0.35)), transparent 70%),
+    radial-gradient(40% 40% at 76% 68%, rgba(var(--song-accent-rgb, 145, 100, 210), 0.2), transparent 72%);
+  opacity: 0.75;
+  filter: blur(12px);
+}
+
+.fp-bg {
+  opacity: 0.22;
+  filter: blur(100px) saturate(1.15);
+}
+
+.fp-scrim {
+  background:
+    linear-gradient(180deg, rgba(8, 9, 14, 0.2), rgba(8, 9, 14, 0.86) 86%),
+    radial-gradient(72% 60% at 28% 28%, rgba(var(--song-accent-rgb, 145, 100, 210), 0.18), transparent 62%);
+}
+
+/* ---------- Glass modals & toasts ---------- */
+.modal {
+  position: relative;
+  border: 1px solid rgba(var(--song-accent-rgb, 145, 100, 210), 0.24);
+  background-color: rgba(16, 17, 24, 0.82);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--song-glow, rgba(var(--song-accent-rgb, 145, 100, 210), 0.24))) 0%,
+    transparent 34%
+  );
+  box-shadow:
+    0 40px 120px rgba(0, 0, 0, 0.55),
+    0 0 42px -22px var(--song-glow, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+  font-family: var(--font-body);
+}
+
+.modal-head {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--song-glow, rgba(var(--song-accent-rgb, 145, 100, 210), 0.22))) 0%,
+    transparent 100%
+  );
+}
+
+.modal-head h2,
+.modal-head h1,
+.modal h1,
+.modal h2 {
+  font-family: var(--font-body);
+  letter-spacing: -0.02em;
+}
+
+.modal h1 em,
+.modal h2 em,
+.modal-head em,
+.modal-title em {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.modal input,
+.modal select,
+.modal textarea,
+.modal .field,
+.modal .field-with-icon,
+.modal .field-with-icon input {
+  border-radius: 12px;
+}
+
+.modal input,
+.modal select,
+.modal textarea {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.modal input:focus,
+.modal select:focus,
+.modal textarea:focus {
+  border-color: rgba(var(--song-accent-rgb, 145, 100, 210), 0.5);
+  box-shadow: 0 0 0 3px rgba(var(--song-accent-rgb, 145, 100, 210), 0.12);
+}
+
+.modal .primary-btn,
+.modal .primary-btn.full,
+.modal .ghost-btn,
+.modal .text-btn,
+.modal .secondary-btn {
+  border-radius: 999px;
+}
+
+.toast {
+  border: 1px solid rgba(var(--song-accent-rgb, 145, 100, 210), 0.24);
+  border-radius: 999px;
+  background: rgba(16, 17, 24, 0.82);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1400px) {
+  .stage > .player-dock {
+    grid-template-columns: minmax(170px, 1fr) minmax(280px, 460px) minmax(170px, 1fr);
+    gap: 12px;
+  }
+
+  .dock-volume .volume-slider {
+    width: 72px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .stage > .player-dock {
+    grid-template-columns: minmax(150px, 1fr) minmax(260px, 420px) minmax(150px, 1fr);
+  }
+
+  .dock-queue-pill span {
+    display: none;
+  }
+
+  .dock-queue-pill {
+    padding: 0 8px;
+  }
+}
+
+@media (max-width: 900px) {
+  .home-v81 .home-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .hero-carousel {
+    justify-self: stretch;
+    max-width: 100%;
+  }
+
+  .preview-ended-card {
+    flex-wrap: wrap;
+    justify-content: center;
+    bottom: 108px;
+    text-align: center;
+  }
+
+  .preview-ended-card p {
+    flex-basis: calc(100% - 40px);
+  }
+}
+
+@media (max-width: 880px) {
+  /* Restore the compact two-zone mobile dock: track + transport, with the
+     progress row absolutely positioned underneath. */
+  .stage > .player-dock {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    align-items: center;
+  }
+
+  .stage > .player-dock .dock-quick-actions {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .hero-carousel-tile {
+    width: 144px;
+    height: 168px;
+  }
+
+  .preview-ended-card {
+    bottom: 104px;
+    width: calc(100vw - 26px);
+    max-width: none;
+  }
+
+  .preview-ended-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .rooms-search {
+    height: 44px;
+    margin-top: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-carousel-track {
+    animation: none;
+  }
+}

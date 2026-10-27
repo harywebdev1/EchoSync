@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import {
+  AudioLines,
   Heart,
   ListMusic,
   ListPlus,
@@ -66,7 +67,9 @@ export const PlayerDock = memo(function PlayerDock({
     <div className="player-dock" data-testid="player-dock">
       <div className="dock-track">
         <button type="button" className="dock-cover" onClick={onOpenFull} aria-label="Open full player">
-          <Cover track={track} size="cover-size-md" playing={isPlaying} />
+          {track?.id && track.id !== 'empty'
+            ? <Cover track={track} size="cover-size-md" playing={isPlaying} />
+            : <span className="dock-np-icon" aria-hidden="true"><AudioLines /></span>}
         </button>
         <button type="button" className="dock-copy" onClick={onOpenFull}>
           <strong title={track?.title || 'Nothing playing'}>{track?.title || 'Nothing playing'}</strong>
@@ -131,20 +134,9 @@ export const PlayerDock = memo(function PlayerDock({
           >
             {repeatMode === 'one' ? <Repeat1 /> : <Repeat />}
           </button>
-          <button
-            className={`icon-btn dock-mode dock-queue ${queueOpen ? 'active' : ''}`}
-            onClick={onToggleQueue}
-            aria-label={`Up Next queue, ${queueCount} tracks`}
-            title={inRoom ? 'Room queue' : 'Playback queue'}
-            data-testid="queue-btn"
-
-          >
-            <ListMusic />
-            {queueCount > 0 && <QueueBadge count={queueCount} />}
-          </button>
         </div>
         <div className="dock-time">
-          <span>{formatTime(liveProgress)}</span>
+          <span className="dock-elapsed">{formatTime(liveProgress)}</span>
           <input
             className="dock-seek"
             data-testid="dock-seek"
@@ -158,11 +150,22 @@ export const PlayerDock = memo(function PlayerDock({
             disabled={!canSeek || !total}
             aria-label="Seek playback"
           />
-          <span>{formatTime(total)}</span>
+          <span className="dock-total">{formatTime(total)}</span>
         </div>
       </div>
       <div className="dock-actions">
         {inRoom && track?.id !== 'empty' && <TelemetryPill compact className="dock-sync-pill" />}
+        <button
+          className={`dock-queue-pill ${queueOpen ? 'active' : ''}`}
+          onClick={onToggleQueue}
+          aria-label={`Up Next queue, ${queueCount} tracks`}
+          title={inRoom ? 'Room queue' : 'Playback queue'}
+          data-testid="queue-btn"
+        >
+          <ListMusic />
+          <span>Queue</span>
+          {queueCount > 0 && <QueueBadge count={queueCount} />}
+        </button>
         <div className="dock-volume">
           <button className="icon-btn" onClick={onToggleMute} aria-label="Mute">
             {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}

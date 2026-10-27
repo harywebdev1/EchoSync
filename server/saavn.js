@@ -10,6 +10,8 @@ const OFFICIAL_TIMEOUT = PROVIDER_TIMEOUT
 const MIRROR_TIMEOUT = PROVIDER_TIMEOUT
 const MAX_BYTES = 2 * 1024 * 1024
 const JUNK_TITLE = /\b(karaoke|ringtone|tribute|made famous|in the style of|originally performed|nightcore|sped up|speed up|8d audio|8-d audio)\b/i
+const NOISE_TITLE = /\b(tribute|cover|karaoke|instrumental|lo[\s-]?fi|remix)\b/i
+const FAST_PATH_TIMEOUT = 1400
 // Full-catalog providers win ties against user-upload mirrors; upload titles
 // that only mention the artist in passing are pushed down unless the listener
 // explicitly asked for a remix/mashup/cover.
@@ -80,14 +82,26 @@ function isUsable(row) {
   return downloads.some(item => item?.url) || Boolean(row?.previewUrl || row?.streamUrl || row?.youtubeVideoId)
 }
 
-function isJunk(row) {
-  return JUNK_TITLE.test(`${rowTitle(row)} ${rowAlbum(row)}`)
+function isJunk(row, query = '') {
+  const text = `${rowTitle(row)} ${rowAlbum(row)}`
+  const match = text.match(JUNK_TITLE)
+  if (!match) return false
+  // An explicit request for the noisy variant ("karaoke", "tribute") keeps it.
+  return !String(query || '').toLowerCase().includes(String(match[0]).toLowerCase())
+}
+
+function popularityOf(row) {
+  const plays = Number(row?.playCount)
+  if (Number.isFinite(plays) && plays > 0) return plays
+  const rank = Number(row?.rank)
+  return Number.isFinite(rank) && rank > 0 ? Math.max(0, 1000000 - rank) : 0
 }
 
 function relevanceScore(row, query) {
   const tokens = queryTokens(query)
   if (!tokens.length) return 0
-  const title = cleanTitleCore(rowTitle(row))
+  const rawTitle = rowTitle(row)
+  const title = cleanTitleCore(rawTitle)
   const artist = normalizeWords(rowArtist(row))
   const album = normalizeWords(rowAlbum(row))
   if (!title && !artist) return 0
@@ -96,14 +110,22 @@ function relevanceScore(row, query) {
   const present = tokens.filter(token => haystack.includes(token))
   if (!present.length) return 0
   let score = 0
-  if (queryCore && title === queryCore) score += 140
-  else if (queryCore && title.startsWith(queryCore)) score += 95
-  else if (queryCore && title.includes(queryCore)) score += 65
+  // Exact title > title prefix > artist match. These weights are intentionally
+  // an order of magnitude above the heuristic bonuses so an artist query always
+  // leads with that artist's real catalog instead of a title coincidence.
+  if (queryCore && title === queryCore) score += 1000
+  else if (queryCore && title.startsWith(queryCore)) score += 700
+  else if (queryCore && title.includes(queryCore)) score += 260
+  const primaryArtist = normalizeWords(rowArtist(row).split(/,|&|\bfeat\b|\bft\b/i)[0])
+  const artistQuery = normalizeWords(query).replace(/\b(songs?|music|hits)\b/g, ' ').replace(/\s+/g, ' ').trim()
+  if (primaryArtist && artistQuery && (primaryArtist === artistQuery || primaryArtist.includes(artistQuery))) score += 600
   if (present.length === tokens.length) score += 45
-  if (normalizeWords(rowArtist(row)).includes(normalizeWords(query))) score += 85
   else if (present.some(token => artist.includes(token))) score += 18
   if (normalizeWords(rowAlbum(row)).includes(normalizeWords(query))) score += 20
   score += present.length * 10
+  // Covers, tributes, karaoke, instrumentals, lofi edits and remixes are only
+  // welcome when the listener asked for them.
+  if (NOISE_TITLE.test(`${rawTitle} ${rowAlbum(row)}`) && !NOISE_TITLE.test(query)) score -= 500
   const plays = Number(row?.playCount)
   if (Number.isFinite(plays) && plays > 0) score += Math.min(10, Math.log10(plays))
   return score
@@ -115,13 +137,13 @@ function rankRows(rows, query, { strict = false } = {}) {
   return rows
     .map((row, index) => ({ row, index, score: relevanceScore(row, query) }))
     .filter(({ row, score }) => {
-      if (isJunk(row) || !isUsable(row)) return false
+      if (isJunk(row, query) || !isUsable(row)) return false
       if (!strict) return true
       const haystack = `${normalizeWords(rowTitle(row))} ${normalizeWords(rowArtist(row))} ${normalizeWords(rowAlbum(row))}`
       const matched = tokens.filter(token => haystack.includes(token)).length
       return score > 0 && matched >= threshold
     })
-    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .sort((a, b) => b.score - a.score || popularityOf(b.row) - popularityOf(a.row) || a.index - b.index)
 }
 
 function rowImage(url) {
@@ -202,7 +224,7 @@ function mergeAndRank(official, mirror, query, limit) {
   ]
   const seen = new Set()
   const deduped = []
-  for (const entry of combined.sort((a, b) => b.score - a.score || a.index - b.index)) {
+  for (const entry of combined.sort((a, b) => b.score - a.score || popularityOf(b.row) - popularityOf(a.row) || a.index - b.index)) {
     const stem = cleanTitleCore(rowTitle(entry.row))
     if (!stem || seen.has(stem)) continue
     seen.add(stem)
@@ -242,7 +264,7 @@ function mergeProviders(groups, query, limit) {
       })
     })
   })
-  ranked.sort((a, b) => b.score - a.score || a.index - b.index)
+  ranked.sort((a, b) => b.score - a.score || popularityOf(b.row) - popularityOf(a.row) || a.index - b.index)
   const relevant = ranked.filter(entry => entry.score > 0)
   const pool = relevant.length ? relevant : ranked
   const byStem = new Map()
@@ -379,9 +401,6 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
 
       // Every provider runs in parallel inside its own budget. JioSaavn keeps
       // authority; the aggregate only enriches and fills what it cannot reach.
-      const externalTasks = query.trim()
-        ? [deezerTask(), youtubeTask(), audiusTask()]
-        : [Promise.resolve([]), Promise.resolve([]), Promise.resolve([])]
       const officialTask = (async () => {
         try {
           const raw = await request(officialUrl(route, params), Math.min(OFFICIAL_TIMEOUT, remaining()))
@@ -392,11 +411,40 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
           return { rows: [], ok: false }
         }
       })()
+      const deezerPromise = query.trim() ? deezerTask() : Promise.resolve([])
+      const youtubePromise = query.trim() ? youtubeTask() : Promise.resolve([])
+      const audiusPromise = query.trim() ? audiusTask() : Promise.resolve([])
 
-      const [official, external] = await Promise.all([officialTask, Promise.all(externalTasks)])
+      // Fast path: if Saavn + Deezer answer inside 1.4s with a full page, ship
+      // it immediately. Upload-backed YouTube/Audius and the mirror are slow
+      // fallbacks and only gate the response when primary recall is thin.
+      let fastTimer = null
+      const fastPrimary = await Promise.race([
+        Promise.all([officialTask, deezerPromise]),
+        new Promise((resolve) => { fastTimer = setTimeout(() => resolve(null), FAST_PATH_TIMEOUT) }),
+      ])
+      if (fastTimer) clearTimeout(fastTimer)
+      if (fastPrimary) {
+        const primaryRows = mergeProviders([fastPrimary[0].rows, [], fastPrimary[1] || [], [], []], query, limit)
+        if (primaryRows.length >= 8) {
+          if (!res.destroyed) {
+            const sources = ['jiosaavn-direct']
+            if (fastPrimary[1]?.length) sources.push('deezer')
+            res.setHeader('X-EchoSync-Catalog', sources.join('+'))
+            res.statusCode = 200
+            res.end(JSON.stringify({ data: { results: primaryRows, total: primaryRows.length } }))
+          }
+          return
+        }
+      }
+
+      const [official, external] = await Promise.all([
+        officialTask,
+        Promise.all([deezerPromise, youtubePromise, audiusPromise]),
+      ])
       let officialRows = official.rows
       const officialOk = official.ok
-      const officialPlayable = officialRows.filter(row => !isJunk(row) && isUsable(row)).length
+      const officialPlayable = officialRows.filter(row => !isJunk(row, query) && isUsable(row)).length
       const needsMirror = !officialOk || officialPlayable < 10
       let mirrorRows = []
       if (needsMirror && !controller.signal.aborted) {
@@ -458,7 +506,7 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
           for (const entry of pool) {
             const row = entry?.row ? entry.row : entry
             const stem = cleanTitleCore(rowTitle(row))
-            if (!stem || seen.has(stem) || isJunk(row) || !isUsable(row)) continue
+            if (!stem || seen.has(stem) || isJunk(row, query) || !isUsable(row)) continue
             seen.add(stem)
             results.push({
               ...row,

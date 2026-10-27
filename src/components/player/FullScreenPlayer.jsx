@@ -1,4 +1,3 @@
-import { SleepTimerControl } from './SleepTimerControl.jsx'
 import {
   Heart,
   Play,
@@ -77,7 +76,6 @@ function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
 
 export function FullScreenPlayer({
   room,
-  sleepTimer, onSleepTimer,
   track,
   queue,
   isPlaying,
@@ -197,7 +195,6 @@ export function FullScreenPlayer({
                   <ListMusic />
                   {queueCount > 0 && <SoloQueueBadge count={queueCount} />}
                 </button>
-                <SleepTimerControl compact timer={sleepTimer} onChange={onSleepTimer} />
                 <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track"><Heart /></button>
                 <button className="icon-btn" onClick={() => onAddToPlaylist(track)} aria-label="Add to playlist" title="Add to playlist"><ListPlus /></button>
                 <div className="volume-box">

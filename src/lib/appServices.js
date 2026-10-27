@@ -85,7 +85,7 @@ const DAILY_QUERIES = [
 ]
 
 const DEFAULT_SETTINGS = {
-  quality: 'high',
+  quality: 'auto',
   autoplay: true,
   defaultVolume: 0.82,
   showActivity: true,
@@ -1365,9 +1365,11 @@ function pickSaavnDownload(downloads = []) {
   const activeQuality = getActiveStreamQuality()
   const order = activeQuality === 'saver'
     ? ['96kbps', '160kbps', '320kbps']
-    : activeQuality === 'normal'
-      ? ['160kbps', '320kbps', '96kbps']
-      : ['320kbps', '160kbps', '96kbps']
+    : activeQuality === 'high'
+      ? ['320kbps', '160kbps', '96kbps']
+      // Auto and normal both start with the fastest direct stream (160kbps) and
+      // let adaptive recovery step down or up afterwards.
+      : ['160kbps', '320kbps', '96kbps']
   for (const quality of order) {
     const found = downloads.find((item) => item.quality === quality)
     if (found?.url) return found

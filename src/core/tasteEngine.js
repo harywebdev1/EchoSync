@@ -325,3 +325,81 @@ export function buildRadioContinuation(profile, tracks, seed = null, limit = 12)
   const stem = seed ? getCanonicalSongStem(seed) : ''
   return ranked.filter(track => track.id !== seed?.id && getCanonicalSongStem(track) !== stem).slice(0, limit)
 }
+
+/** YouTube-Music-style artist radio.
+ * 50% primary artist, 30% same vibe/mood/era/co-artist, 20% learned taste.
+ * The interleave guarantees at least two same-artist/collaborator tracks inside
+ * the first four picks, so the station immediately sounds like the seed.
+ */
+export function buildArtistRadio(seed, tracks = [], profile = null, options = {}) {
+  if (!seed?.id) return []
+  const limit = Math.max(4, Number(options.limit) || 12)
+  const seedStem = getCanonicalSongStem(seed)
+  const names = artistNames(seed).map(normalize).filter(Boolean)
+  const primaryArtist = names[0] || ''
+  const collaborators = new Set(names.slice(1))
+  const seedVibes = new Set(genresForTrack(seed).map(normalize))
+  const seedEra = decadeForTrack(seed)
+  const seedLanguage = languageForTrack(seed)
+  const seen = new Set(seedStem ? [seedStem] : [])
+
+  const artistPool = []
+  const vibePool = []
+  const tastePool = []
+  ;(tracks || []).forEach((track, index) => {
+    if (!track?.id || track.id === seed.id) return
+    const stem = getCanonicalSongStem(track)
+    if (!stem || seen.has(stem)) return
+    const duration = Number(track.duration)
+    if (track.preview || (duration > 0 && duration < 60)) return
+    seen.add(stem)
+    const trackArtists = artistNames(track).map(normalize)
+    const samePrimary = Boolean(primaryArtist) && trackArtists.includes(primaryArtist)
+    const sameCollaborator = trackArtists.some((artist) => collaborators.has(artist))
+    const sameVibe = genresForTrack(track).map(normalize).some((vibe) => seedVibes.has(vibe))
+    const sameEra = decadeForTrack(track) === seedEra
+    const sameLanguage = languageForTrack(track) === seedLanguage
+    const artistWeight = trackArtists.reduce((sum, artist) => sum + (profile?.artists?.[artist]?.weight || 0), 0)
+    const vibeWeight = genresForTrack(track).reduce((sum, vibe) => sum + (profile?.vibes?.[normalize(vibe)]?.weight || 0), 0)
+    const entry = {
+      track,
+      index,
+      samePrimary,
+      sameCollaborator,
+      sameVibe,
+      sameEra,
+      sameLanguage,
+      tasteScore: artistWeight * 2 + vibeWeight + eraScore(track, profile) + keywordScore(track, profile),
+    }
+    const related = samePrimary || sameCollaborator
+    if (related) artistPool.push(entry)
+    else if (sameVibe || sameEra || sameLanguage) vibePool.push(entry)
+    else tastePool.push(entry)
+  })
+
+  const byTasteThenIndex = (a, b) => b.tasteScore - a.tasteScore || a.index - b.index
+  artistPool.sort((a, b) => Number(b.samePrimary) - Number(a.samePrimary) || byTasteThenIndex(a, b))
+  vibePool.sort(byTasteThenIndex)
+  tastePool.sort(byTasteThenIndex)
+
+  const buckets = [artistPool, vibePool, tastePool]
+  const weights = [0.5, 0.3, 0.2]
+  const taken = [0, 0, 0]
+  const out = []
+  while (out.length < limit) {
+    let best = -1
+    let bestScore = -Infinity
+    for (let i = 0; i < buckets.length; i += 1) {
+      if (taken[i] >= buckets[i].length) continue
+      const score = weights[i] * (out.length + 1) - taken[i]
+      if (score > bestScore) {
+        bestScore = score
+        best = i
+      }
+    }
+    if (best < 0) break
+    out.push(buckets[best][taken[best]].track)
+    taken[best] += 1
+  }
+  return out
+}

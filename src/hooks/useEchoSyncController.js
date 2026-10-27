@@ -76,7 +76,7 @@ import {
 } from '../lib/appServices.js'
 import { useAppState } from './useAppState.js'
 import { startNetworkMonitor, setPreferredStreamQuality } from '../services/networkMonitor'
-import { topTasteLabels, applyTasteSignal, buildTasteSuggestions, buildRadioContinuation } from '../core/tasteEngine.js'
+import { topTasteLabels, applyTasteSignal, buildTasteSuggestions, buildArtistRadio, artistNames } from '../core/tasteEngine.js'
 import { playbackProgressStore } from '../state/playbackStore'
 import { initials, normalizeArtworkUrl } from '../lib/media'
 import { clearPreloadSession } from '../services/preloadManager'
@@ -225,6 +225,8 @@ export function useEchoSyncController() {
     setJoinPill,
     guestPreview,
     setGuestPreview,
+    previewCard,
+    setPreviewCard,
     leavePrompt,
     setLeavePrompt,
     micOn,
@@ -667,7 +669,7 @@ export function useEchoSyncController() {
   useEffect(() => {
     if (!currentUserId) return
     writeUserValue(SETTINGS_KEY, currentUserId, settings)
-    setPreferredStreamQuality(settings.quality || 'high')
+    setPreferredStreamQuality(settings.quality || 'auto')
   }, [currentUserId, settings])
 
   useEffect(() => {
@@ -891,7 +893,7 @@ export function useEchoSyncController() {
     setTasteProfile(loadTasteProfile(id))
     setSettings(userSettings)
     setTranslateOn(Boolean(userSettings.autoTranslate))
-    setPreferredStreamQuality(userSettings.quality || 'high')
+    setPreferredStreamQuality(userSettings.quality || 'auto')
     if (userSettings.defaultVolume !== undefined) {
       const level = Math.max(0, Math.min(1, Number(userSettings.defaultVolume)))
       setVolume(level)
@@ -1114,15 +1116,32 @@ export function useEchoSyncController() {
   }
 
   async function autoplayTracks(seed) {
-    if (settings.autoplay === false) return []
-    const artist = topTasteLabels(tasteProfile.artists, 1)[0] || seed?.artist || ''
+    if (settings.autoplay === false || !seed?.id) return []
+    const seedArtist = artistNames(seed)[0] || ''
+    const seedArtistKey = seedArtist.toLowerCase().trim()
+    const localPool = Object.values(libraryRef.current || {}).filter((track) => track?.id && track.id !== seed.id)
+    const localArtistCount = seedArtistKey
+      ? localPool.filter((track) => artistNames(track).some((artist) => artist.toLowerCase().trim() === seedArtistKey)).length
+      : 0
+    let pool = localPool
+    if (seedArtistKey && localArtistCount < 6) {
+      try {
+        const fresh = await fetchJioSearch(`${seedArtist} songs`, 18, { fresh: true })
+        fresh.forEach((track) => rememberTrack(track))
+        pool = [...localPool, ...fresh]
+      } catch {
+        /* the local catalog still drives the station */
+      }
+    }
+    const radio = buildArtistRadio(seed, pool, tasteProfile, { limit: 14 })
+    if (radio.length >= 6) return radio
     const vibe = topTasteLabels(tasteProfile.vibes, 1)[0] || ''
-    const query = artist ? `${artist} songs` : vibe ? `${vibe} songs` : 'trending Hindi hits'
+    const fallbackQuery = seedArtist ? `${seedArtist} songs` : vibe ? `${vibe} songs` : 'trending Hindi hits'
     try {
-      const tracks = await fetchJioSearch(query, 18, { fresh: true })
-      return buildRadioContinuation(tasteProfile, tracks, seed, 14)
+      const tracks = await fetchJioSearch(fallbackQuery, 18, { fresh: true })
+      return buildArtistRadio(seed, [...pool, ...tracks], tasteProfile, { limit: 14 })
     } catch {
-      return []
+      return radio
     }
   }
 
@@ -1276,6 +1295,8 @@ export function useEchoSyncController() {
       leader: currentUserId,
       ownerId: currentUserId,
       createdBy: currentUserId,
+      hostName: currentUser?.name || '',
+      ownerHandle: currentUser?.handle ? `@${String(currentUser.handle).replace(/^@/, '')}` : '',
       createdAt: Date.now(),
       currentTrack: trackIds[0] || null,
     }
@@ -2327,6 +2348,9 @@ export function useEchoSyncController() {
     queueSearchTrack,
     playSoloQueue,
     playSoloTrack,
+    prefetchTrack,
+    replayGuestPreview,
+    stageTrack,
     queueSoloTrack,
     findFullVersion,
     handleTimeUpdate,
@@ -2363,6 +2387,7 @@ export function useEchoSyncController() {
       joinPill,
       guestPreview,
       setGuestPreview,
+      setPreviewCard,
       activeRoomId,
       setRooms,
       currentUserId,
@@ -2781,7 +2806,7 @@ export function useEchoSyncController() {
   function saveUserSettings(next, options = {}) {
     const merged = { ...settings, ...next }
     setSettings(merged)
-    setPreferredStreamQuality(merged.quality || 'high')
+    setPreferredStreamQuality(merged.quality || 'auto')
     if (next.defaultVolume !== undefined) {
       const level = Math.max(0, Math.min(1, Number(next.defaultVolume)))
       setVolume(level)
@@ -3219,6 +3244,10 @@ export function useEchoSyncController() {
     joinPill,
     guestPreview,
     setGuestPreview,
+    previewCard,
+    setPreviewCard,
+    replayGuestPreview,
+    prefetchTrack,
     leavePrompt,
     requestLeaveRoom,
     confirmLeaveRoom,

@@ -1,8 +1,29 @@
-import { Radio, Plus, Lock, Globe2, Headphones, KeyRound, UsersRound, Pencil, Trash2, RotateCcw } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Radio, Plus, Lock, Globe2, Headphones, KeyRound, UsersRound, Pencil, Trash2, RotateCcw, Search, X } from 'lucide-react'
 import { Cover } from '../components/Cover'
 import { AvatarStack } from '../components/shared/AvatarStack'
 
 export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, onCreate, onJoinCode, onEditRoom, onDeleteRoom }) {
+  const [query, setQuery] = useState('')
+  const viewerId = currentUser?.id || ''
+  const visibleRooms = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return rooms.filter((room) => {
+      const owners = [room.ownerId, room.createdBy, room.dj, room.leader].filter(Boolean)
+      const isOwner = Boolean(viewerId && owners.includes(viewerId))
+      const isMember = Boolean(viewerId && (room.members || []).includes(viewerId))
+      // Private rooms never surface in the public directory for anyone else;
+      // the creator keeps them in their saved list and invite codes still work.
+      if ((room.private || room.isPrivate) && !isOwner && !isMember) return false
+      if (!needle) return true
+      const hostName = room.hostName || room.ownerName || ''
+      const ownerHandle = room.ownerHandle || room.hostHandle || ''
+      return [room.name, hostName, ownerHandle, room.vibe]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle))
+    })
+  }, [rooms, viewerId, query])
+
   return (
     <div className="rooms-view">
       <div className="eyebrow">
@@ -15,7 +36,27 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
       <h1 className="page-title">Find your <em>frequency.</em></h1>
       <p className="page-sub">Small rooms, shared speakers, and a queue that moves together. Start one, invite a friend, or join with a code.</p>
 
-      {!rooms.length&&<div className="rooms-empty-banner" role="status">No rooms saved yet — Start a room below to host a session, or click 'Join with code' if a friend shared a private invite code.</div>}
+      <div className="rooms-search" role="search">
+        <Search size={15} aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="🔍 Search rooms by room name, host name, or @username..."
+          aria-label="Search rooms by room name, host name, or username"
+          data-testid="rooms-search"
+        />
+        {query && (
+          <button type="button" className="rooms-search-clear" onClick={() => setQuery('')} aria-label="Clear room search">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {!rooms.length && <div className="rooms-empty-banner" role="status">No rooms saved yet — Start a room below to host a session, or click 'Join with code' if a friend shared a private invite code.</div>}
+      {Boolean(rooms.length) && !visibleRooms.length && (
+        <div className="rooms-empty-banner" role="status">No rooms match “{query.trim()}”. Try another host, room name, or @username.</div>
+      )}
       <div className="rooms-grid">
         <button className="room-card create-room-card" onClick={onCreate}>
           <div className="rc-create-glyph"><Plus /></div>
@@ -25,12 +66,13 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
             <span className="rc-join"><UsersRound size={11} /> Create listening room</span>
           </div>
         </button>
-        {rooms.map((room) => {
+        {visibleRooms.map((room) => {
           const firstCover = room.trackIds.map((id) => library[id]?.cover).find(Boolean)
           const members = room.members || []
           const saved = members.length === 0
           const owned = Boolean(currentUser?.id && (room.ownerId || room.createdBy) === currentUser.id)
           const joined = currentRoom && room.id === currentRoom.id
+          const host = room.hostName || room.ownerHandle || ''
           return (
             <div
               key={room.id}
@@ -55,6 +97,7 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
                 <span className="rc-listeners">{saved ? 'No one inside · Rejoin anytime' : `${members.length} in the room`}</span>
               </div>
               <h2 className="rc-title">{room.name}</h2>
+              {host && <span className="rc-host">{room.ownerHandle || host}{room.ownerHandle && room.hostName ? ` · ${host}` : ''}</span>}
               <p className="rc-sub">{room.tagline}</p>
               <div className="rc-foot">
                 <AvatarStack ids={members} size="xs" max={3} />

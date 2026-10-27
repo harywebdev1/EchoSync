@@ -28,6 +28,7 @@ export function SearchOverlay({
   query, onQueryChange, liked = [], onLike,
   onPlay,
   onQueue,
+  onPrefetch,
   onAddToPlaylist,
   onSearch,
   catalog = {},
@@ -43,6 +44,17 @@ export function SearchOverlay({
   pendingTrackId = '',
 }) {
   const setQuery = onQueryChange
+  const prefetchTimer = useRef(0)
+  const cancelPrefetch = () => {
+    if (prefetchTimer.current) clearTimeout(prefetchTimer.current)
+    prefetchTimer.current = 0
+  }
+  const schedulePrefetch = (track) => {
+    if (!onPrefetch || !track?.id) return
+    cancelPrefetch()
+    prefetchTimer.current = setTimeout(() => onPrefetch(track), 120)
+  }
+  useEffect(() => () => cancelPrefetch(), [])
   const [anchor, setAnchor] = useState({})
   const [results, setResults] = useState([])
   const [status, setStatus] = useState('idle')
@@ -167,7 +179,7 @@ export function SearchOverlay({
               {picks.length > 0 && (
                 <section className="search-block">
                   <div className="search-caption"><span>Quick Picks for You</span></div>
-                  <div className="search-quick-rows">{picks.map(track => <div className="search-quick-row" key={track.id}><Cover track={track} /><div><strong>{track.title}</strong><span>{track.artist}</span></div><button className="icon-btn" aria-label={`Play ${track.title}`} onClick={() => onPlay(track, picks)}><Play /></button><button className="icon-btn" aria-label={`Queue ${track.title}`} onClick={() => onQueue(track)} disabled={context.mode === 'room' && !canAddToRoom}><Plus /></button></div>)}</div>
+                  <div className="search-quick-rows">{picks.map(track => <div className="search-quick-row" key={track.id} onMouseEnter={() => schedulePrefetch(track)} onMouseLeave={cancelPrefetch}><Cover track={track} /><div><strong>{track.title}</strong><span>{track.artist}</span></div><button className="icon-btn" aria-label={`Play ${track.title}`} onClick={() => onPlay(track, picks)}><Play /></button><button className="icon-btn" aria-label={`Queue ${track.title}`} onClick={() => onQueue(track)} disabled={context.mode === 'room' && !canAddToRoom}><Plus /></button></div>)}</div>
                 </section>
               )}
             </div>
@@ -199,6 +211,10 @@ export function SearchOverlay({
                   tabIndex={0}
                   data-provider={track.provider}
                   data-track-id={track.id}
+                  onMouseEnter={() => schedulePrefetch(track)}
+                  onMouseLeave={cancelPrefetch}
+                  onFocus={() => schedulePrefetch(track)}
+                  onBlur={cancelPrefetch}
                   onClick={() => onPlay(track, visibleResults)}
                   onKeyDown={(event) => event.key === 'Enter' && onPlay(track, visibleResults)}
                 >
