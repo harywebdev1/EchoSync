@@ -246,7 +246,7 @@ let passed = 0
       assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node, previous) => node === previous, audio), true)
       await page.evaluate(() => window.__peer.close())
     })
-    await check('Queue filter chips select deterministic upcoming rows and preserve playing audio', { trackOverrides: { kesariya: { duration: 360 } } }, async page => {
+    await check('Queue drawer lists upcoming rows, reorders and removes without interrupting audio', { trackOverrides: { kesariya: { duration: 360 } } }, async page => {
       await page.addInitScript(() => {
         localStorage.setItem('echosync.likes.v1', JSON.stringify({ integrity: ['kesariya'] }))
         localStorage.setItem('echosync_recent_v1', JSON.stringify({ integrity: ['excuses'] }))
@@ -265,16 +265,17 @@ let passed = 0
       const titles = () => drawer.locator('[data-testid=queue-drawer-row] .queue-copy strong').allTextContents()
       const all = await titles()
       assert.ok(all.length > 2)
-      await drawer.getByRole('button', { name: 'Familiar', exact: true }).click()
-      assert.ok((await titles()).includes('Kesariya'))
-      assert.ok((await titles()).length < all.length)
-      await drawer.getByRole('button', { name: 'Discover', exact: true }).click()
-      assert.ok(!(await titles()).includes('Kesariya'))
-      assert.ok(!(await titles()).includes('Excuses'))
-      await drawer.getByRole('button', { name: 'Deep Cuts', exact: true }).click()
-      assert.ok((await titles()).includes('Kesariya'))
-      await drawer.getByRole('button', { name: 'All', exact: true }).click()
+      // Phase B removed the numbered/filter chrome from the drawer markup.
+      assert.equal(await drawer.locator('.queue-filter-chips').count(), 0)
+      assert.equal(await drawer.locator('.queue-index').count(), 0)
+      await drawer.getByRole('button', { name: 'Shuffle queue', exact: true }).waitFor()
+      const movable = all[1]
+      await drawer.getByRole('button', { name: `Move ${movable} down`, exact: true }).click()
+      assert.equal((await titles())[2], movable)
+      await drawer.getByRole('button', { name: `Move ${movable} up`, exact: true }).click()
       assert.deepEqual(await titles(), all)
+      await drawer.getByRole('button', { name: `Remove ${movable} from queue`, exact: true }).click()
+      assert.ok(!(await titles()).includes(movable))
       assert.match(await drawer.locator('[data-testid=queue-now-playing]').innerText(), /Chaleya/)
       assert.deepEqual(await page.locator('[data-testid=root-audio]').evaluate((audio, previous) => ({ same: audio === previous, paused: audio.paused, source: audio.currentSrc }), original), { same: true, paused: false, source })
     })

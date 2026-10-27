@@ -340,7 +340,7 @@ export function useRoomSync({
   }, [roomPlaybackActive, activeRoomId])
 
   useEffect(() => {
-    const channel = createRealtimeTransport({onError: error=>showToast('Cloud sync failed — '+error.message),getContext:()=>({library:libraryRef.current})})
+    const channel = createRealtimeTransport({onError: error=>console.warn('[EchoSync] realtime sync warning:',error?.message||error),getContext:()=>({library:libraryRef.current})})
     channelRef.current = channel
 
     channel.onmessage = (event) => {

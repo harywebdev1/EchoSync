@@ -51,6 +51,8 @@ export const PlayerDock = memo(function PlayerDock({
   queueOpen = false,
   inRoom,
   canSeek = true,
+  previewMode = false,
+  onPreviewUpgrade,
 }) {
   const liveProgress = usePlaybackProgress()
   const total = duration || track?.duration || 0
@@ -70,6 +72,19 @@ export const PlayerDock = memo(function PlayerDock({
           <strong title={track?.title || 'Nothing playing'}>{track?.title || 'Nothing playing'}</strong>
           <span>{track?.artist || 'EchoSync'}</span>
         </button>
+        {previewMode && (
+          <button
+            type="button"
+            className="guest-preview-pill"
+            data-testid="guest-preview-pill"
+            onClick={(event) => {
+              event.stopPropagation()
+              onPreviewUpgrade?.()
+            }}
+          >
+            <span aria-hidden="true">🔒</span> 30s Preview · Log in for full track
+          </button>
+        )}
         <div className="dock-quick-actions">
           <button
             className={`like-btn dock-like ${liked.includes(track?.id) ? 'liked' : ''}`}

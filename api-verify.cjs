@@ -26,7 +26,11 @@ let passed = 0
       const song = { id: 'song', title: 'Fixture Song', image: 'https://c.saavncdn.com/953/poster-150x150.jpg', more_info: { duration: '180', '320kbps': 'true', encrypted_media_url: 'ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzuqGTOuWwLCDJLDzxR2mfeGuSltMxpC8EVSLt0T06A18y5d+wSWdIRw7tS9a8Gtq', artistMap: { primary_artists: [{ name: 'Artist' }] } } }
       const base = await endpoint(createSaavnHandler({ fetchImpl: async (url, options) => {
         requests.push({ url: String(url), options })
-        return Response.json(new URL(url).searchParams.get('__call') === 'search.getResults' ? { results: [song] } : { song })
+        const parsed = new URL(url)
+        if (parsed.hostname === 'www.jiosaavn.com') {
+          return Response.json(parsed.searchParams.get('__call') === 'search.getResults' ? { results: [song] } : { song })
+        }
+        return Response.json({ data: { results: [] } })
       } }))
       for (const path of ['/api/saavn/api/search/songs?query=Atif%20Aslam&limit=30', '/api/saavn?route=api%2Fsearch%2Fsongs&query=Atif%20Aslam&limit=30']) {
         const response = await fetch(base + path)
@@ -35,20 +39,56 @@ let passed = 0
         assert.equal(response.headers.get('access-control-allow-origin'), '*')
         assert.equal((await response.json()).data.results[0].duration, 180)
       }
-      assert.equal(requests[0].url, requests[4].url)
-      assert.equal(new URL(requests[0].url).origin, 'https://www.jiosaavn.com')
-      assert.equal(new URL(requests[0].url).searchParams.get('__call'), 'search.getResults')
-      assert.equal(new URL(requests[0].url).searchParams.get('q'), 'Atif Aslam')
-      assert.equal(new URL(requests[0].url).searchParams.get('n'), '30')
+      const officialSearches = requests.filter(({ url }) => {
+        const parsed = new URL(url)
+        return parsed.origin === 'https://www.jiosaavn.com' && parsed.searchParams.get('__call') === 'search.getResults'
+      })
+      assert.ok(officialSearches.length >= 2)
+      assert.equal(new URL(officialSearches[0].url).searchParams.get('q'), 'Atif Aslam')
+      assert.equal(new URL(officialSearches[0].url).searchParams.get('n'), '30')
       await (await fetch(base + '/api/saavn/api/songs/abc_123')).json()
-      assert.equal(new URL(requests[8].url).searchParams.get('__call'), 'song.getDetails')
-      assert.equal(new URL(requests[8].url).searchParams.get('pids'), 'abc_123')
+      const detail = requests.find(({ url }) => new URL(url).searchParams.get('__call') === 'song.getDetails')
+      assert.equal(new URL(detail.url).searchParams.get('pids'), 'abc_123')
       for (const path of ['/api/saavn?route=https://evil.test', '/api/saavn/api/admin', '/api/saavn?route=../private']) assert.equal((await fetch(base + path)).status, 400)
       assert.equal((await fetch(base + '/api/saavn', { method: 'POST' })).status, 405)
       assert.equal((await fetch(base + '/api/saavn', { method: 'OPTIONS' })).status, 204)
-      assert.equal(requests.length, 9)
       const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'))
       assert.equal(config.rewrites.find(item => item.source === '/api/saavn/:route*').destination, '/api/saavn?route=:route*')
+    })
+    await check('search fans out to JioSaavn, Deezer and YouTube in parallel and preserves streams and previews', async () => {
+      const { createSaavnHandler } = await import('./server/saavn.js')
+      const song = { id: 'jio-merged', title: 'Jio Night', image: 'https://c.saavncdn.com/953/poster-150x150.jpg', more_info: { duration: '200', '320kbps': 'true', encrypted_media_url: 'ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzuqGTOuWwLCDJLDzxR2mfeGuSltMxpC8EVSLt0T06A18y5d+wSWdIRw7tS9a8Gtq', artistMap: { primary_artists: [{ name: 'Jio Artist' }] } } }
+      const seen = []
+      const base = await endpoint(createSaavnHandler({ fetchImpl: async url => {
+        const parsed = new URL(url)
+        seen.push(parsed.hostname)
+        if (parsed.hostname === 'www.jiosaavn.com') return Response.json({ results: [song] })
+        if (parsed.hostname === 'api.deezer.com') {
+          return Response.json({ data: [{ id: 77, title_short: 'Deezer Night', duration: 205, preview: 'https://cdns-preview.dzcdn.net/stream/preview.mp3', artist: { name: 'Deezer Artist' }, album: { title: 'Deezer Album', cover_big: 'https://e-cdns-images.dzcdn.net/cover.jpg' }, link: 'https://www.deezer.com/track/77', rank: 900 }] })
+        }
+        if (parsed.pathname === '/search') {
+          return Response.json({ items: [{ url: '/watch?v=abc123def45', title: 'Piped Night', duration: 220, uploaderName: 'Piped Artist', thumbnail: 'https://i.ytimg.com/vi/abc123def45/hqdefault.jpg', views: 1200 }] })
+        }
+        return Response.json({ data: { results: [] } })
+      } }))
+      const response = await fetch(base + '/api/saavn/api/search/songs?query=night&limit=20')
+      assert.equal(response.status, 200)
+      const rows = (await response.json()).data.results
+      const providers = new Set(rows.map(row => row.provider))
+      assert.ok(providers.has('jiosaavn'))
+      assert.ok(providers.has('deezer'))
+      assert.ok(providers.has('youtube'))
+      const deezer = rows.find(row => row.provider === 'deezer')
+      assert.equal(deezer.duration, 205)
+      assert.equal(deezer.previewUrl, 'https://cdns-preview.dzcdn.net/stream/preview.mp3')
+      assert.equal(deezer.image[0].url, 'https://e-cdns-images.dzcdn.net/cover.jpg')
+      const youtube = rows.find(row => row.provider === 'youtube')
+      assert.equal(youtube.youtubeVideoId, 'abc123def45')
+      assert.equal(youtube.duration, 220)
+      assert.ok(seen.includes('api.deezer.com'))
+      assert.match(response.headers.get('x-echosync-catalog'), /jiosaavn-direct/)
+      assert.match(response.headers.get('x-echosync-catalog'), /deezer/)
+      assert.match(response.headers.get('x-echosync-catalog'), /youtube/)
     })
     await check('official DES known vector, 320/160 URLs, artwork and fixed-origin mirror fallback', async () => {
       const { decryptMediaUrl, normalizeOfficialSong } = await import('./server/jiosaavn.js')
@@ -61,10 +101,17 @@ let passed = 0
       assert.equal(song.image[0].url, 'https://c.saavncdn.com/a-500x500.jpg')
       const { createSaavnHandler } = await import('./server/saavn.js')
       const seen = []
-      const base = await endpoint(createSaavnHandler({ fetchImpl: async url => { seen.push(new URL(url).hostname); return seen.length === 1 ? new Response('', { status: 503 }) : Response.json({ data: { results: [song] } }) } }))
+      const base = await endpoint(createSaavnHandler({ fetchImpl: async url => {
+        const parsed = new URL(url)
+        seen.push(parsed.hostname)
+        if (parsed.hostname === 'www.jiosaavn.com') return new Response('', { status: 503 })
+        if (parsed.hostname.startsWith('saavn-api')) return Response.json({ data: { results: [song] } })
+        return Response.json({ data: { results: [] } })
+      } }))
       const response = await fetch(base + '/api/saavn/api/search/songs?query=test&limit=5')
       assert.equal(response.status, 200); assert.equal(response.headers.get('x-echosync-catalog'), 'mirror-fallback')
-      assert.deepEqual(seen, ['www.jiosaavn.com', 'saavn-api-zeta.vercel.app', 'www.jiosaavn.com', 'saavn-api-zeta.vercel.app'])
+      assert.ok(seen.includes('www.jiosaavn.com'))
+      assert.ok(seen.includes('saavn-api-zeta.vercel.app'))
       assert.equal((await response.json()).data.results[0].id, 'id')
     })
     await check('Saavn timeout, non-JSON failure and upstream JSON status are reported honestly', async () => {
@@ -80,7 +127,7 @@ let passed = 0
       const {createSaavnHandler}=await import('./server/saavn.js')
       let calls=0
       const base=await endpoint(createSaavnHandler({fetchImpl:async()=>{calls++;return Response.json(calls===1?{results:[]}:calls===2?{error:'unavailable'}:{data:{results:[{id:'mirror',title:'Mirror Song',duration:180,downloadUrl:[{quality:'160kbps',url:'https://aac.saavncdn.com/mirror_160.mp4'}]}]}})}}))
-      const result=await fetch(base+'/api/saavn/api/search/songs?query=empty');assert.equal(result.status,200);assert.equal((await result.json()).data.results[0].id,'mirror');assert.equal(calls,5)
+      const result=await fetch(base+'/api/saavn/api/search/songs?query=empty');assert.equal(result.status,200);assert.equal((await result.json()).data.results[0].id,'mirror');assert.ok(calls>=6)
       const empty=await endpoint(createSaavnHandler({fetchImpl:async url=>Response.json(new URL(url).hostname==='www.jiosaavn.com'?{results:[]}:{data:{results:[]}})}))
       const response=await fetch(empty+'/api/saavn/api/search/songs?query=unmatched');assert.equal(response.status,200);assert.deepEqual((await response.json()).data.results,[])
     })

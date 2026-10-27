@@ -117,8 +117,8 @@ export function RoomView({
               disabled={Boolean(pendingRequest)}
               title={pendingRequest ? `${pendingRequest.requested} access pending approval` : undefined}
             >
-              {pendingRequest ? <Clock3 size={12} /> : <ShieldCheck size={12} />}
-              {pendingRequest ? 'Awaiting DJ approval' : 'Request DJ Role'}
+              {pendingRequest ? <Check size={12} /> : <ShieldCheck size={12} />}
+              {pendingRequest ? 'DJ role requested' : 'Request DJ Role'}
             </button>
           )}
           <button className="text-btn" onClick={onOpenMembers}>
@@ -138,45 +138,12 @@ export function RoomView({
         </div>
       </section>
 
-      {role === 'admin' && roleRequests?.length > 0 && (
-        <section className="request-banner">
-          <div className="request-banner-copy">
-            <span className="request-icon"><ShieldCheck /></span>
-            <div>
-              <strong>{roleRequests.length === 1 ? '1 role request' : `${roleRequests.length} role requests`} waiting</strong>
-              <p>Listener and DJ members are asking for more access in {room.name}.</p>
-            </div>
-          </div>
-          <div className="request-banner-list">
-            {roleRequests.map((request) => {
-              const requester = members[request.userId]
-              return (
-                <div className="request-row" key={request.id}>
-                  <Avatar member={requester} size="sm" />
-                  <span className="request-row-copy">
-                    <strong>{requester?.name || request.userId}</strong>
-                    <small>@{requester?.handle || 'listener'} · wants <b>{request.requested === 'admin' ? 'Admin' : 'DJ'}</b></small>
-                  </span>
-                  <button className="request-approve" onClick={() => onResolveRequest(request.id, true)}>
-                    <Check size={12} /> Approve
-                  </button>
-                  <button className="request-decline" onClick={() => onResolveRequest(request.id, false)}>
-                    <X size={12} /> Decline
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-
       {!hasTrack ? <section className="room-stage-empty"><h2>Room stage is ready</h2><p>Pick a starter song below or search above to kick off the session</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span>{item.artist}</span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
-        <Cover track={track} size="cover-size-hero" showQuality playing={isPlaying} />
+        <Cover track={track} size="cover-size-hero" playing={isPlaying} />
         <div className="now-main">
           <div className="now-kicker">
             <span className={isPlaying ? 'live-dot' : ''} style={isPlaying ? { color: room.accent } : undefined} />
-            <span>{isPlaying ? 'PLAYING NOW' : 'UP NEXT IN THE ROOM'}</span>
+            <span>NOW SPINNING IN ROOM</span>
             {pending && <span className="source-badge"><span className="spinner" style={{ width: 8, height: 8 }} /> Tuning</span>}
           </div>
 
@@ -186,7 +153,11 @@ export function RoomView({
             {track?.album && <><span> · </span><span className="album">{track.album}</span></>}
           </p>
 
-          <div className="room-stage-attribution">Hosted by {members[room.dj || room.createdBy]?.name || 'the room admin'} · {ROLE_COPY[role]?.label}</div>
+          <div className="room-stage-attribution">
+            Hosted by {members[room.ownerId || room.dj || room.createdBy]?.name || 'the room admin'}
+            <span className="host-badge">Admin</span>
+            <span className="attribution-you">· You are {ROLE_COPY[role]?.label}</span>
+          </div>
           <div className="room-sync-actions"><TelemetryPill className="room-transport-sync" /><button className="text-btn" onClick={onResync}><RefreshCw size={14} /> Resync</button><button className="text-btn" onClick={onOpenFull}><Maximize2 size={14} /> Open full player</button></div>
           <div className="now-foot">
             <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full-length stream' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
@@ -205,7 +176,28 @@ export function RoomView({
         </div>
       </section>}
 
-      <div className="room-member-strip" aria-label="Room member sync">{room.members.map(id=><button key={id} className="room-member" onClick={()=>social.openProfile(id)} aria-label={`Open ${members[id]?.name || id}'s profile`}><Avatar member={members[id]} size="sm"/><span>{members[id]?.name || id}</span><MemberDrift roomId={room.id} userId={id}/></button>)}{canControlRoom&&<button className="text-btn" onClick={social.forceResync}>⚡ Sync All</button>}</div>
+      <div className="room-member-strip" aria-label="Room member sync">
+        {room.members.map((id) => {
+          const request = role === 'admin' ? (roleRequests || []).find((item) => item.userId === id) : null
+          return (
+            <div className="room-member-wrap" key={id}>
+              {request && (
+                <div className="inline-role-request" role="status">
+                  <span>Wants {request.requested === 'admin' ? 'Admin' : 'DJ'} role</span>
+                  <button type="button" className="inline-role-accept" onClick={() => onResolveRequest(request.id, true)} aria-label="Accept role request"><Check size={11} /> Accept</button>
+                  <button type="button" className="inline-role-decline" onClick={() => onResolveRequest(request.id, false)} aria-label="Decline role request"><X size={11} /></button>
+                </div>
+              )}
+              <button className="room-member" onClick={() => social.openProfile(id)} aria-label={`Open ${members[id]?.name || id}'s profile`}>
+                <Avatar member={members[id]} size="sm" />
+                <span>{members[id]?.name || id}</span>
+                <MemberDrift roomId={room.id} userId={id} />
+              </button>
+            </div>
+          )
+        })}
+        {canControlRoom && <button className="text-btn" onClick={social.forceResync}>⚡ Sync All</button>}
+      </div>
       <div className="section-head">
         <div>
           <h3>The room queue</h3>

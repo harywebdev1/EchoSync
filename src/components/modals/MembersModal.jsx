@@ -152,7 +152,7 @@ export function MembersModal({
                     {member?.online && member?.showActivity !== false && (
                       <em className="member-live"><span className="live-dot" /> Listening</em>
                     )}
-                    <MemberDrift roomId={room.id} userId={id}/>
+                    <span className="member-drift-wrap"><MemberDrift roomId={room.id} userId={id}/></span>
                   </small>
                 </span>
                 {canModerate && !isSelf ? (

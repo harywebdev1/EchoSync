@@ -23,6 +23,9 @@ import { preloadQueueWindow, preloadCandidateAt } from '../services/preloadManag
 import { useEffect, useRef } from 'react'
 import { useMediaSession, publishMediaSessionPosition } from './useMediaSession.js'
 
+const GUEST_PREVIEW_SECONDS = 30
+export const GUEST_PREVIEW_BANNER = 'Unlock full-length 320kbps streaming — Sign in or create a free account to hear the complete track.'
+
 export function usePlaybackEngine({
   state: {
     setIsPlaying,
@@ -52,6 +55,8 @@ export function usePlaybackEngine({
     setStreamRecovering,
     setRecoverySignal,
     joinPill,
+    guestPreview,
+    setGuestPreview,
     activeRoomId,
     setRooms,
     currentUserId,
@@ -132,6 +137,7 @@ export function usePlaybackEngine({
     recordTasteSignal,
     lockToast,
     requireAuth,
+    openAuth,
     roomClockTime,
     advanceRoomClock,
     broadcastRoom,
@@ -142,6 +148,29 @@ export function usePlaybackEngine({
   },
 }) {
   const radioActive = useRef(false)
+  const guestPreviewRef = useRef(false)
+  const previewGateRef = useRef(false)
+  const previewUpgradeRef = useRef(false)
+  const openPreviewGateRef = useRef(() => {})
+
+  useEffect(() => {
+    guestPreviewRef.current = Boolean(guestPreview)
+    if (!guestPreview) previewGateRef.current = false
+  }, [guestPreview])
+
+  function openPreviewGate() {
+    previewGateRef.current = true
+    guestPreviewRef.current = true
+    setGuestPreview(true)
+    openAuth('signin', GUEST_PREVIEW_BANNER)
+  }
+  openPreviewGateRef.current = openPreviewGate
+
+  function previewSeconds(track) {
+    const full = Number(track?.duration) || GUEST_PREVIEW_SECONDS
+    return Math.min(GUEST_PREVIEW_SECONDS, Math.max(1, full))
+  }
+
   const { sleepTimer, setSleepTimer: selectSleepTimer, onSleepTrackEnded } = useSleepTimer(() => {
     sleepPausedRef.current = true
     playAttemptIdRef.current += 1
@@ -541,7 +570,7 @@ export function usePlaybackEngine({
     playbackProgressStore.set(0)
     setCurrentByRoom((previous) => ({ ...previous, [key]: index }))
     updatePlaybackProgress(0)
-    setDuration(candidate?.duration || 0)
+    setDuration(guestPreviewRef.current ? previewSeconds(candidate) : (candidate?.duration || 0))
     pendingSeekRef.current = null
     // Re-selecting the active Quick Pick must restart even when React batches
     // the pause/play state updates and the source URL stays identical.
@@ -693,6 +722,85 @@ export function usePlaybackEngine({
     }
   }
 
+  async function prepareGuestPreview(candidate) {
+    const source = sanitizeTrack(candidate)
+    if (!source.id) return null
+    const previewUrl = source.previewUrl || source.streamUrl || null
+    let resolved = null
+    if (!previewUrl) {
+      try {
+        resolved = await withTimeout(resolveFullTrack({ ...source, preview: false }), 5200, 'Preview lookup timed out')
+      } catch {
+        resolved = null
+      }
+    }
+    if (!previewUrl && !resolved?.streamUrl && !resolved?.youtubeVideoId) {
+      try {
+        resolved = await withTimeout(resolveByMetadata(source), 6000, 'Preview lookup timed out')
+      } catch {
+        resolved = null
+      }
+    }
+    const streamUrl = previewUrl || resolved?.streamUrl || null
+    const youtubeVideoId = resolved?.youtubeVideoId || (!streamUrl ? source.youtubeVideoId : '')
+    if (!streamUrl && !youtubeVideoId) {
+      showToast(`“${source.title}” has no preview available right now.`, 'lock')
+      return null
+    }
+    return sanitizeTrack({
+      ...source,
+      ...(resolved || {}),
+      id: source.id,
+      title: source.title,
+      artist: source.artist,
+      album: source.album,
+      duration: source.duration || resolved?.duration || 0,
+      cover: source.cover || resolved?.cover || null,
+      previewUrl: source.previewUrl || previewUrl,
+      streamUrl,
+      youtubeVideoId: youtubeVideoId || undefined,
+      preview: false,
+      needsHydration: false,
+      status: 'ready',
+    })
+  }
+
+  async function startGuestPreview(candidate, contextTracks = null, options = {}) {
+    if (!candidate?.id) return
+    radioActive.current = options.radio === true
+    const playable = await prepareGuestPreview(candidate)
+    if (!playable) return
+    guestPreviewRef.current = true
+    previewGateRef.current = false
+    setGuestPreview(true)
+    setLibrary((previous) => ({ ...previous, [playable.id]: playable }))
+    const context = Array.isArray(contextTracks) ? contextTracks.filter((item) => item?.id) : []
+    context.forEach((item) => {
+      if (item.id !== playable.id) rememberTrack(item)
+    })
+    const contextIds = context.map((item) => item.id)
+    const naturalIds = contextIds.includes(playable.id)
+      ? contextIds
+      : soloQueue.includes(playable.id)
+        ? soloQueue
+        : [...soloQueue, playable.id]
+    const playOrder = commitSoloQueue(naturalIds, {
+      currentId: playable.id,
+      shuffle: shuffleEnabled,
+    })
+    const index = Math.max(0, playOrder.indexOf(playable.id))
+    const wasRoomView = viewRef.current === 'room'
+    if (wasRoomView) suspendRoomPlayback()
+    soloResumeRef.current = null
+    if (wasRoomView) {
+      setView('home')
+      viewRef.current = 'home'
+    }
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    beginPlayback(SOLO_ROOM_ID, playOrder, index, playable)
+  }
+
   async function playIndex(index) {
     if (!canControl) {
       lockToast()
@@ -702,6 +810,10 @@ export function usePlaybackEngine({
     const bounded = Math.max(0, Math.min(index, queueIds.length - 1))
     const candidate = queue[bounded] || library[queueIds[bounded]] || SEED_BY_ID[queueIds[bounded]]
     if (!candidate) return
+    if (!currentUser) {
+      await startGuestPreview(candidate, queue)
+      return
+    }
     const playable = await ensurePlayable(candidate)
     if (!playable) return
     startPlaybackAt(bounded, playable)
@@ -716,7 +828,10 @@ export function usePlaybackEngine({
   }
 
   async function togglePlay() {
-    if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
+    if (!currentUser && guestPreviewRef.current && Number(progressRef.current) >= GUEST_PREVIEW_SECONDS - 0.1) {
+      openPreviewGate()
+      return
+    }
     if (sleepPausedRef.current) {
       sleepPausedRef.current = false
       if (roomPlaybackActive) { pendingSeekRef.current = roomClockTime(); setSeekSignal(value => value + 1) }
@@ -730,6 +845,16 @@ export function usePlaybackEngine({
     if (!queueIds.length) {
       showToast('Add a song to start listening.')
       return
+    }
+    if (!currentUser) {
+      if (track.id === 'empty') {
+        await playIndex(0)
+        return
+      }
+      if (!guestPreviewRef.current) {
+        await startGuestPreview(track, queue)
+        return
+      }
     }
     if (track.id === 'empty') {
       await playIndex(0)
@@ -774,7 +899,6 @@ export function usePlaybackEngine({
   }
 
   async function nextTrack() {
-    if (requireAuth({ type: 'next' }, 'Log in to play full tracks.')) return
     if (!canControl) {
       lockToast()
       return
@@ -784,7 +908,6 @@ export function usePlaybackEngine({
   }
 
   async function previousTrack() {
-    if (requireAuth({ type: 'previous' }, 'Log in to play full tracks.')) return
     if (!canControl) {
       lockToast()
       return
@@ -800,6 +923,20 @@ export function usePlaybackEngine({
   function seekTo(seconds) {
     if (!canControl) {
       lockToast()
+      return
+    }
+    if (!currentUser && guestPreviewRef.current && Number(seconds) > GUEST_PREVIEW_SECONDS) {
+      try {
+        if (track.streamUrl) audioRef.current.currentTime = GUEST_PREVIEW_SECONDS
+        else ytPlayerRef.current?.seekTo?.(GUEST_PREVIEW_SECONDS, true)
+      } catch {
+        /* ignore */
+      }
+      updatePlaybackProgress(GUEST_PREVIEW_SECONDS)
+      setIsPlaying(false)
+      audioRef.current?.pause()
+      ytPlayerRef.current?.pauseVideo?.()
+      openPreviewGate()
       return
     }
     if (!track.streamUrl && !track.youtubeVideoId) return
@@ -832,6 +969,14 @@ export function usePlaybackEngine({
   function handleEnded() {
     if (sleepPausedRef.current) return
     if (onSleepTrackEnded()) return
+    if (!currentUser && guestPreviewRef.current) {
+      setIsPlaying(false)
+      isPlayingRef.current = false
+      audioRef.current?.pause()
+      updatePlaybackProgress(GUEST_PREVIEW_SECONDS)
+      openPreviewGate()
+      return
+    }
     if (roomPlaybackActive) {
       if (!canControlRoom) {
         setIsPlaying(false)
@@ -1264,11 +1409,10 @@ export function usePlaybackEngine({
         lockToast()
         return
       }
-    } else if (requireAuth(
-      { type: 'playSolo', track: candidate },
-      'Sign up to play full-length tracks. Your first listen starts right after.',
-      'signup',
-    )) return
+    } else if (!currentUser) {
+      await startGuestPreview(candidate, contextTracks)
+      return
+    }
     if (playRequestRef.current.id === candidate.id) return
     playRequestRef.current = { seq: requestId, id: candidate.id }
     setPendingPlayId(candidate.id)
@@ -1320,7 +1464,7 @@ export function usePlaybackEngine({
     const targetRoom = searchRoomTarget()
     if (targetRoom) {
       const targetRole = targetRoom.roles?.[currentUserId]
-      if (targetRole !== 'admin' && targetRole !== 'dj') {
+      if (targetRole !== 'admin' && targetRole !== 'dj' && targetRole !== 'listener') {
         lockToast()
         return
       }
@@ -1347,12 +1491,15 @@ export function usePlaybackEngine({
 
   async function playSoloQueue(ids, startIndex = 0) {
     radioActive.current = false
-    if (requireAuth({ type: 'togglePlay' }, 'Log in to play full tracks.')) return
     const clean = ids.filter(Boolean)
     if (!clean.length) return
     const index = Math.max(0, Math.min(startIndex, clean.length - 1))
     const candidate = library[clean[index]] || SEED_BY_ID[clean[index]]
     if (!candidate) return
+    if (!currentUser) {
+      await startGuestPreview(candidate, clean.map((id) => library[id] || SEED_BY_ID[id]).filter(Boolean))
+      return
+    }
     const wasRoomView = viewRef.current === 'room'
     if (wasRoomView) suspendRoomPlayback()
     soloResumeRef.current = null
@@ -1381,11 +1528,10 @@ export function usePlaybackEngine({
 
   async function playSoloTrack(candidate, contextTracks = null, options = {}) {
     if (!candidate?.id) return
-    if (requireAuth(
-      { type: 'playSolo', track: candidate },
-      'Sign up to play full-length tracks. Your first listen starts right after.',
-      'signup',
-    )) return
+    if (!currentUser) {
+      await startGuestPreview(candidate, contextTracks, options)
+      return
+    }
     const playable = await ensurePlayable(candidate)
     if (!playable) return
     radioActive.current = options.radio === true
@@ -1477,6 +1623,15 @@ export function usePlaybackEngine({
             const time = audio.currentTime || 0
             progressRef.current = time
             playbackProgressStore.set(time)
+            if (!currentUser && guestPreviewRef.current && time >= GUEST_PREVIEW_SECONDS - 0.05) {
+              audio.pause()
+              setIsPlaying(false)
+              isPlayingRef.current = false
+              progressRef.current = GUEST_PREVIEW_SECONDS
+              playbackProgressStore.set(GUEST_PREVIEW_SECONDS)
+              openPreviewGate()
+              return
+            }
             publishMediaSessionPosition(time, audio.duration)
             if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.buffered.length) {
               const end = audio.buffered.end(audio.buffered.length - 1)
@@ -1488,6 +1643,18 @@ export function usePlaybackEngine({
 
   function handleLoadedMetadata(event) {
             const audio = event.currentTarget
+            if (!currentUser && guestPreviewRef.current) {
+              if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(Math.min(audio.duration, GUEST_PREVIEW_SECONDS))
+              if (pendingSeekRef.current != null) {
+                try {
+                  audio.currentTime = Math.min(pendingSeekRef.current, GUEST_PREVIEW_SECONDS)
+                } catch {
+                  /* ignore */
+                }
+                pendingSeekRef.current = null
+              }
+              return
+            }
             if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.duration < 60) {
               blockShortPlayback(audio)
               return
@@ -1545,8 +1712,54 @@ export function usePlaybackEngine({
     audio.src = sourceUrl
     audio.load()
     updatePlaybackProgress(0)
-    setDuration(track?.duration || 0)
+    setDuration(guestPreviewRef.current ? previewSeconds(track) : (track?.duration || 0))
   }, [track?.streamUrl, track?.duration])
+
+  // A guest preview auto-upgrades the instant the account is created or the
+  // listener signs in: same track, same position, now the full-length stream.
+  useEffect(() => {
+    if (!currentUser || !guestPreviewRef.current || previewUpgradeRef.current) return
+    const current = track
+    if (!current?.id || current.id === 'empty') {
+      guestPreviewRef.current = false
+      setGuestPreview(false)
+      return
+    }
+    previewUpgradeRef.current = true
+    const resumeTime = Math.max(0, Number(audioRef.current?.currentTime) || Number(progressRef.current) || 0)
+    const wasPlaying = isPlayingRef.current
+    ;(async () => {
+      try {
+        const playable = await ensurePlayable({
+          ...current,
+          streamUrl: null,
+          youtubeVideoId: null,
+          previewUrl: null,
+          preview: false,
+          needsHydration: true,
+          status: 'pending',
+        })
+        if (!playable) return
+        guestPreviewRef.current = false
+        previewGateRef.current = false
+        setGuestPreview(false)
+        setLibrary((previous) => ({ ...previous, [playable.id]: playable }))
+        pendingSeekRef.current = playable.duration
+          ? Math.min(resumeTime, Math.max(0, playable.duration - 3))
+          : resumeTime
+        setSeekSignal((value) => value + 1)
+        setDuration(playable.duration || 0)
+        if (wasPlaying) {
+          setIsPlaying(true)
+          isPlayingRef.current = true
+        }
+        showToast(`Full track unlocked — “${playable.title}”`)
+      } finally {
+        previewUpgradeRef.current = false
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id])
 
   useEffect(() => {
     if (!youtubeActive || !ytContainerRef.current) {
@@ -1588,7 +1801,7 @@ export function usePlaybackEngine({
               instance.setVolume(Math.round((muted ? 0 : volume) * (settings.normalization ? 0.9 : 1) * crossfadeGain * 100))
               if (pendingSeekRef.current != null) instance.seekTo(pendingSeekRef.current, true)
               const total = instance.getDuration?.() || 0
-              if (total > 0) setDuration(total)
+              if (total > 0) setDuration(guestPreviewRef.current ? Math.min(total, GUEST_PREVIEW_SECONDS) : total)
               if (isPlayingRef.current) safeYouTubePlay(instance)
             },
             onStateChange: (event) => {
@@ -1597,7 +1810,7 @@ export function usePlaybackEngine({
                 handleEndedRef.current?.()
               } else if (event.data === 1) {
                 const total = event.target.getDuration?.() || 0
-                if (total > 0) setDuration(total)
+                if (total > 0) setDuration(guestPreviewRef.current ? Math.min(total, GUEST_PREVIEW_SECONDS) : total)
                 setBuffering(false)
                 setStreamRecovering(false)
                 setIsPlaying(true)
@@ -1744,9 +1957,18 @@ export function usePlaybackEngine({
       const time = player.getCurrentTime() || 0
       progressRef.current = time
       playbackProgressStore.set(time)
+      if (guestPreviewRef.current && time >= GUEST_PREVIEW_SECONDS) {
+        player.pauseVideo?.()
+        setIsPlaying(false)
+        isPlayingRef.current = false
+        progressRef.current = GUEST_PREVIEW_SECONDS
+        playbackProgressStore.set(GUEST_PREVIEW_SECONDS)
+        openPreviewGateRef.current()
+        return
+      }
       const total = player.getDuration?.() || 0
       publishMediaSessionPosition(time, total)
-      if (total > 0) setDuration(total)
+      if (total > 0) setDuration(guestPreviewRef.current ? Math.min(total, GUEST_PREVIEW_SECONDS) : total)
       if (isPlayingRef.current && player.getPlayerState) {
         const state = player.getPlayerState()
         if (state === 1) {

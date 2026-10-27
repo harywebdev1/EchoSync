@@ -49,6 +49,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
   }
 
   const switching = mode === 'signin' ? 'signup' : 'signin'
+  const previewUnlock = typeof reason === 'string' && reason.startsWith('Unlock full-length 320kbps streaming')
 
   return (
     <ModalShell onClose={onClose} size="modal-auth">
@@ -59,8 +60,15 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
       <div className="auth-modal-copy">
         <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'WELCOME BACK' : 'CREATE ACCOUNT'}</span>
         <h2>{mode==='recovery'?'Choose a new password':resetView?'Reset your password':mode === 'signin' ? 'Sign in to EchoSync' : 'Join EchoSync'}</h2>
-        <p>{reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'Stream full tracks, join live listening rooms, and chat in the Lounge.')}</p>
+        <p>{previewUnlock ? 'Your 30-second preview is up. Sign in and the full-length track resumes exactly where it stopped.' : reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'Stream full tracks, join live listening rooms, and chat in the Lounge.')}</p>
       </div>
+
+      {previewUnlock && (
+        <div className="auth-preview-banner" role="status" data-testid="auth-preview-banner">
+          <Lock size={15} />
+          <span>{reason}</span>
+        </div>
+      )}
 
       {(pendingRoom || notice) && (
         <div className="auth-invite-note">

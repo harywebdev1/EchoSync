@@ -9,3 +9,15 @@ dist/
 .vercel/
 supabase/.temp/
 .cloud-provision.local
+
+# Verification / test artifacts never belong in git
+performance-results.local/
+performance-results/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+*.png
+*.webm
+*.log
+*.tmp

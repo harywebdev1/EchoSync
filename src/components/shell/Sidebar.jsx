@@ -10,10 +10,11 @@ import {
   MessageCircle,
   Lock,
   ListMusic,
-  UserPlus,
-  DoorOpen,
   Crown,
   MoreHorizontal,
+  Pencil,
+  Trash2,
+  RotateCcw,
 } from 'lucide-react'
 import { Equalizer } from './Equalizer.jsx'
 import { Avatar } from '../Avatar'
@@ -25,7 +26,6 @@ export function Sidebar({
   onNavigate,
   onJoinRoom,
   role,
-  onInvite,
   likedCount,
   onOpenProfile,
   onCreateRoom,
@@ -33,7 +33,8 @@ export function Sidebar({
   onCreatePlaylist,
   playlists,
   onOpenPlaylist,
-  onLeaveRoom,
+  onEditRoom,
+  onDeleteRoom,
   currentUser,
   inRoom,
   unreadRoomCounts,
@@ -155,8 +156,10 @@ export function Sidebar({
                 const unread = unreadRoomCounts?.[item.id] || 0
                 const preview = latestRoomPreview?.[item.id]
                 const connected = inRoom && room.id === item.id
+                const owned = Boolean(currentUser?.id && (item.ownerId || item.createdBy) === currentUser.id)
+                const saved = !item.members?.length
                 return (
-                  <div key={item.id} className={`room-item-wrap ${unread ? 'has-unread' : ''}`}>
+                  <div key={item.id} className={`room-item-wrap ${unread ? 'has-unread' : ''} ${saved ? 'saved-room' : ''}`}>
                     {preview && (
                       <button
                         key={preview.id}
@@ -185,6 +188,7 @@ export function Sidebar({
                         ? <Lock size={9} style={{ opacity: 0.45 }} aria-label="Private room" />
                         : <Globe2 size={9} style={{ opacity: 0.3 }} aria-label="Public room" />}
                       <Equalizer />
+                      {saved && <span className="room-saved-tag">Saved</span>}
                       {unread > 0 && (
                         <span className="room-unread-pill" data-testid={`room-unread-${item.id}`}>
                           <MessageCircle size={9} />
@@ -192,6 +196,21 @@ export function Sidebar({
                         </span>
                       )}
                     </button>
+                    {owned && (
+                      <div className="room-owner-actions">
+                        {!connected && (
+                          <button type="button" title="Rejoin as Admin" onClick={() => joinRoom(item)}>
+                            <RotateCcw size={10} /> Rejoin
+                          </button>
+                        )}
+                        <button type="button" title="Edit room" aria-label={`Edit ${item.name}`} onClick={() => { onEditRoom?.(item); close() }}>
+                          <Pencil size={10} />
+                        </button>
+                        <button type="button" title="Delete room" aria-label={`Delete ${item.name}`} onClick={() => { onDeleteRoom?.(item); close() }}>
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -217,14 +236,6 @@ export function Sidebar({
         </div>
 
         <div className="side-bottom">
-          {inRoom && (
-            <div className="invite-card">
-              <strong>Listening is better together.</strong>
-              <p>Code <b>{room.code}</b> - playback stays in lockstep.</p>
-              <button onClick={onInvite}><UserPlus size={11} /> Copy invite link</button>
-              <button className="leave-room-btn" onClick={() => { onLeaveRoom(); close() }}><DoorOpen size={11} /> Leave room</button>
-            </div>
-          )}
           <button className="profile" onClick={openProfile}>
             <Avatar member={currentUser} online />
             <span className="profile-meta">

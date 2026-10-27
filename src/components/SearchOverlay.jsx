@@ -39,6 +39,7 @@ export function SearchOverlay({
   tasteTracks = [],
   context = { mode: 'solo', roomName: '' },
   canControlRoom = false,
+  canAddToRoom = canControlRoom,
   pendingTrackId = '',
 }) {
   const setQuery = onQueryChange
@@ -117,7 +118,7 @@ export function SearchOverlay({
       <button className="search-dismiss" aria-label="Dismiss search" onClick={onClose} />
       <section id="search-command-surface" className="search-modal search-command-surface" aria-label="Search results">
         <button className="icon-btn search-compact-close" onClick={onClose} aria-label="Close search"><X /></button>
-        {context.mode === 'room' && <div className="search-room-context" data-testid="search-context"><Radio size={14} /> {context.roomName}{!canControlRoom && ' · Admin/DJ only'}</div>}
+        {context.mode === 'room' && <div className="search-room-context" data-testid="search-context"><Radio size={14} /> {context.roomName}{!canAddToRoom && ' · Admin/DJ only'}</div>}
         <div className="search-results">
           {status === 'idle' && (
             <div className="search-idle">
@@ -166,7 +167,7 @@ export function SearchOverlay({
               {picks.length > 0 && (
                 <section className="search-block">
                   <div className="search-caption"><span>Quick Picks for You</span></div>
-                  <div className="search-quick-rows">{picks.map(track => <div className="search-quick-row" key={track.id}><Cover track={track} /><div><strong>{track.title}</strong><span>{track.artist}</span></div><button className="icon-btn" aria-label={`Play ${track.title}`} onClick={() => onPlay(track, picks)}><Play /></button><button className="icon-btn" aria-label={`Queue ${track.title}`} onClick={() => onQueue(track)} disabled={context.mode === 'room' && !canControlRoom}><Plus /></button></div>)}</div>
+                  <div className="search-quick-rows">{picks.map(track => <div className="search-quick-row" key={track.id}><Cover track={track} /><div><strong>{track.title}</strong><span>{track.artist}</span></div><button className="icon-btn" aria-label={`Play ${track.title}`} onClick={() => onPlay(track, picks)}><Play /></button><button className="icon-btn" aria-label={`Queue ${track.title}`} onClick={() => onQueue(track)} disabled={context.mode === 'room' && !canAddToRoom}><Plus /></button></div>)}</div>
                 </section>
               )}
             </div>
@@ -238,7 +239,7 @@ export function SearchOverlay({
                     }}
                     aria-label={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
                     title={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
-                    disabled={context.mode === 'room' && !canControlRoom}
+                    disabled={context.mode === 'room' && !canAddToRoom}
                   >
                     <Plus />
                     <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>

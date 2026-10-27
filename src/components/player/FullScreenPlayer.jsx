@@ -109,6 +109,8 @@ export function FullScreenPlayer({
   translateOn,
   translating,
   onToggleTranslate,
+  previewMode = false,
+  onPreviewUpgrade,
 }) {
   const total = duration || track?.duration || 0
   return (
@@ -138,6 +140,16 @@ export function FullScreenPlayer({
               <h2 className="fp-title">{track?.title}</h2>
               <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
 
+              {previewMode && (
+                <button
+                  type="button"
+                  className="guest-preview-pill full"
+                  data-testid="guest-preview-pill-full"
+                  onClick={onPreviewUpgrade}
+                >
+                  <span aria-hidden="true">🔒</span> 30s Preview · Log in for full track
+                </button>
+              )}
 
               <div className="fp-timeline">
                 <FullPlayerTimeline

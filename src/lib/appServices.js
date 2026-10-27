@@ -358,6 +358,8 @@ function normalizeRoom(room) {
   })
   if (!Object.values(roles).includes('admin') && members[0]) roles[members[0]] = 'admin'
   const trackIds = Array.isArray(room.trackIds) ? room.trackIds.map((id) => safeText(id)).filter(Boolean) : []
+  const ownerId = safeText(room.ownerId || room.createdBy || room.dj)
+  if (ownerId && !roles[ownerId]) roles[ownerId] = 'admin'
   const next = {
     ...room,
     name: safeText(room.name, 'Listening room'),
@@ -367,7 +369,11 @@ function normalizeRoom(room) {
     requests: Array.isArray(room.requests) ? room.requests.filter((request) => request?.id && request?.userId) : [],
     trackIds: [...new Set(trackIds)],
     code: normalizeRoomCode(room.code) || roomCode(),
-    leader: members.find((id) => roles[id] === 'admin') || members[0] || null,
+    leader: members.find((id) => roles[id] === 'admin') || members[0] || ownerId || null,
+    ownerId: ownerId || null,
+    isPrivate: Boolean(room.isPrivate ?? room.private),
+    vibe: safeText(room.vibe || room.tagline, 'Open canvas'),
+    currentTrack: safeText(room.currentTrack) || trackIds[0] || null,
     listeners: undefined,
   }
   return next
@@ -864,6 +870,7 @@ function sanitizeTrack(raw) {
     duration: Number.isFinite(duration) ? Math.max(0, duration) : 0,
     fullDuration: Number.isFinite(fullDuration) ? Math.max(0, fullDuration) : undefined,
     streamUrl: safeMediaUrl(source.streamUrl),
+    previewUrl: safeMediaUrl(source.previewUrl),
     cover: normalizeArtworkUrl(source.cover) || resolveTrackArtwork(source),
     youtubeVideoId: safeText(source.youtubeVideoId) || undefined,
     quality: safeText(source.quality),
@@ -1370,8 +1377,14 @@ function pickSaavnDownload(downloads = []) {
 
 function normalizeSaavn(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
-  const providerId = safeText(source.id)
+  const provider = safeText(source.provider, 'jiosaavn').toLowerCase()
+  const providerId = safeText(source.providerId || source.id)
   if (!providerId) return null
+  const youtubeVideoId = safeText(source.youtubeVideoId || (provider === 'youtube' ? providerId : ''))
+  const prefixes = { jiosaavn: 'jio', jio: 'jio', deezer: 'dz', youtube: 'yt', audius: 'au' }
+  const labels = { jiosaavn: 'JioSaavn', jio: 'JioSaavn', deezer: 'Deezer', youtube: 'YouTube', audius: 'Audius' }
+  const prefix = prefixes[provider] || 'ext'
+  const id = provider === 'youtube' && youtubeVideoId ? `yt-${youtubeVideoId}` : `${prefix}-${providerId}`
   const downloads = Array.isArray(source.downloadUrl) ? source.downloadUrl.filter((item) => item?.url) : []
   const images = Array.isArray(source.image) ? source.image.filter((item) => item?.url) : []
   const stream = pickSaavnDownload(downloads)
@@ -1384,20 +1397,24 @@ function normalizeSaavn(raw) {
   const artist =
     (artists.length ? artists.join(', ') : null) ||
     decodeEntities(source.primaryArtists || source.artist || 'Unknown artist')
+  const resolvedStream = stream?.url || safeMediaUrl(source.streamUrl) || null
   return sanitizeTrack({
-    id: `jio-${providerId}`,
+    id,
     providerId,
-    provider: 'jiosaavn',
-    providerLabel: 'JioSaavn',
-    title: decodeEntities(source.name || 'Unknown track'),
+    provider,
+    providerLabel: labels[provider] || 'EchoSync',
+    title: decodeEntities(source.name || source.title || 'Unknown track'),
     artist: decodeEntities(artist),
     album: decodeEntities(source.album?.name || 'Single'),
     duration: Number(source.duration) || 0,
     language: safeText(source.language),
     year: safeText(source.year || source.releaseDate).slice(0, 4),
-    streamUrl: stream?.url || null,
+    streamUrl: resolvedStream,
+    previewUrl: safeMediaUrl(source.previewUrl) || (provider === 'deezer' ? null : undefined),
+    youtubeVideoId: youtubeVideoId || undefined,
     cover: cover?.url || null,
     quality: stream?.quality || '',
+    needsHydration: !resolvedStream,
   })
 }
 

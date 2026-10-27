@@ -74,7 +74,8 @@ declare r public.rooms;u text:=auth.uid()::text;begin
  if u is null then raise exception 'Sign in to join a room';end if;
  select * into r from public.rooms where (p_room_id is not null and id=p_room_id) or (p_room_id is null and code=p_code) for update;
  if r.id is null or (r.privacy='private' and not(r.members ? u) and r.code<>coalesce(p_code,'')) then raise exception 'Room unavailable or invalid code';end if;
- if not(r.members ? u) then update public.rooms set members=members||jsonb_build_array(u),roles=roles||jsonb_build_object(u,'listener') where id=r.id returning * into r;end if;
+ if not(r.members ? u) then update public.rooms set members=members||jsonb_build_array(u),roles=roles||jsonb_build_object(u,case when r.host_id=u then 'admin' else 'listener' end) where id=r.id returning * into r;
+ elsif r.host_id=u and coalesce(r.roles->>u,'')<>'admin' then update public.rooms set roles=roles||jsonb_build_object(u,'admin') where id=r.id returning * into r;end if;
  return r;
 end$$;
 
@@ -115,6 +116,8 @@ declare e jsonb:=p_event;typ text:=p_event->>'type';u text:=auth.uid()::text;rid
    elsif role='admin' then
      update public.rooms set name=c->>'name',tagline=c->>'tagline',description=c->>'description',privacy=coalesce(c->>'privacy',privacy),queue=coalesce(c->'queue',queue),members=coalesce(c->'members',members),roles=coalesce(c->'roles',roles),metadata=coalesce(c->'metadata',metadata) where id=rid returning * into r;
    elsif role='dj' then update public.rooms set queue=coalesce(c->'queue',queue) where id=rid returning * into r;
+   elsif role='listener' then
+     update public.rooms set queue=coalesce(queue,'[]'::jsonb)||coalesce((select jsonb_agg(item) from jsonb_array_elements(coalesce(c->'queue','[]'::jsonb)) item where not exists(select 1 from jsonb_array_elements(coalesce(r.queue,'[]'::jsonb)) old where old->>'id'=item->>'id')),'[]'::jsonb) where id=rid returning * into r;
    else raise exception 'Only room controllers may update the queue';end if;
    e:=e||jsonb_build_object('room',public.echosync_room_payload(r),'cloudRoom',to_jsonb(r));
  elsif typ in ('state','FORCE_RESYNC') then

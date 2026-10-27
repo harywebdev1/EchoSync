@@ -223,6 +223,10 @@ export function useEchoSyncController() {
     setRecoverySignal,
     joinPill,
     setJoinPill,
+    guestPreview,
+    setGuestPreview,
+    leavePrompt,
+    setLeavePrompt,
     micOn,
     setMicOn,
     micLevel,
@@ -894,29 +898,35 @@ export function useEchoSyncController() {
       setMuted(level === 0)
     }
     setActiveRoomId(null)
-    setSoloQueue([])
-    setSoloPlayOrder([])
-    soloQueueRef.current = []
-    soloPlayOrderRef.current = []
-    setCurrentByRoom({ [SOLO_ROOM_ID]: 0 })
     setActivePlaylistId(null)
     setView('home')
-    setIsPlaying(false)
-    playbackProgressStore.set(0)
-    progressRef.current = 0
-    updatePlaybackProgress(0)
-    setDuration(0)
+    // A guest preview keeps its queue and position across sign-in so the
+    // playback engine can swap in the full-length stream from the same spot.
+    if (!guestPreview) {
+      setSoloQueue([])
+      setSoloPlayOrder([])
+      soloQueueRef.current = []
+      soloPlayOrderRef.current = []
+      setCurrentByRoom({ [SOLO_ROOM_ID]: 0 })
+      setIsPlaying(false)
+      playbackProgressStore.set(0)
+      progressRef.current = 0
+      updatePlaybackProgress(0)
+      setDuration(0)
+    }
     setDraft('')
     setReplyTo(null)
     setJoinPill(null)
     setSearchOpen(false)
-    setFullPlayer(false)
+    if (!guestPreview) setFullPlayer(false)
     setSettingsOpen(false)
     setMembersOpen(false)
     setJoinRoomOpen(false)
     setRoomEditor(null)
-    soloSnapshotRef.current = { track: null, currentTime: 0, isPlaying: false, queue: [], index: 0 }
-    soloResumeRef.current = null
+    if (!guestPreview) {
+      soloSnapshotRef.current = { track: null, currentTime: 0, isPlaying: false, queue: [], index: 0 }
+      soloResumeRef.current = null
+    }
     searchRoomRef.current = null
     setPlaylistDialog(null)
     setAddTrack(null)
@@ -1163,15 +1173,18 @@ export function useEchoSyncController() {
     }
     acceptedInviteRoomsRef.current.delete(candidate.id)
     const wasMember = candidate.members.includes(userId)
+    const ownerId = candidate.ownerId || candidate.createdBy || candidate.dj
     const roles = { ...(candidate.roles || {}) }
-    if (!roles[userId]) roles[userId] = candidate.dj === userId ? 'admin' : 'listener'
+    if (!roles[userId]) roles[userId] = ownerId === userId || candidate.dj === userId ? 'admin' : 'listener'
+    if (ownerId === userId) roles[userId] = 'admin'
+    const roleChanged = wasMember && candidate.roles?.[userId] !== roles[userId]
     const nextRoom = wasMember
       ? { ...candidate, roles }
       : { ...candidate, members: [...candidate.members, userId], roles }
-    if (!wasMember) {
+    if (!wasMember || roleChanged) {
       setRooms((previous) => previous.map((room) => (room.id === candidate.id ? nextRoom : room)))
       broadcastRoom(nextRoom)
-      pushSystemMessage(candidate.id, `${accounts[userId]?.name || 'A listener'} joined ${candidate.name}`)
+      if (!wasMember) pushSystemMessage(candidate.id, `${accounts[userId]?.name || 'A listener'} joined ${candidate.name}`)
     }
     const changed = activeRoomId !== candidate.id
     if (changed) {
@@ -1256,11 +1269,15 @@ export function useEchoSyncController() {
       roles: { [currentUserId]: 'admin' },
       requests: [],
       private: Boolean(input.private),
+      isPrivate: Boolean(input.private),
+      vibe: String(input.vibe || input.tagline || 'Open canvas').trim() || 'Open canvas',
       dj: currentUserId,
       code,
       leader: currentUserId,
+      ownerId: currentUserId,
       createdBy: currentUserId,
       createdAt: Date.now(),
+      currentTrack: trackIds[0] || null,
     }
     captureSoloSnapshot()
     audioRef.current?.pause()
@@ -1284,7 +1301,8 @@ export function useEchoSyncController() {
   }
 
   function updateRoom(patch) {
-    if (!activeRoom || !canModerate) {
+    const owner = activeRoom && (activeRoom.ownerId || activeRoom.createdBy) === currentUserId
+    if (!activeRoom || (!canModerate && !owner)) {
       lockToast()
       return
     }
@@ -1295,13 +1313,19 @@ export function useEchoSyncController() {
         nextCode = roomCode()
       }
     }
+    const nextTrackIds = Array.isArray(patch.trackIds) && patch.trackIds.length
+      ? patch.trackIds
+      : activeRoom.trackIds
     const nextRoom = {
       ...activeRoom,
       ...patch,
       code: nextCode,
-      trackIds: Array.isArray(patch.trackIds) && patch.trackIds.length
-        ? patch.trackIds
-        : activeRoom.trackIds,
+      trackIds: nextTrackIds,
+      private: patch.private ?? activeRoom.private,
+      isPrivate: patch.private ?? activeRoom.isPrivate,
+      vibe: patch.vibe ?? activeRoom.vibe,
+      ownerId: activeRoom.ownerId || activeRoom.createdBy || currentUserId,
+      currentTrack: nextTrackIds[0] || activeRoom.currentTrack || null,
     }
     setRooms((previous) => previous.map((room) => (room.id === nextRoom.id ? nextRoom : room)))
     broadcastRoom(nextRoom)
@@ -1318,13 +1342,16 @@ export function useEchoSyncController() {
     showToast('Room updated')
   }
 
-  function deleteRoom() {
-    if (!activeRoom || !canModerate) {
+  function deleteRoom(target) {
+    const room = target?.id ? (roomsRef.current.find((item) => item.id === target.id) || target) : activeRoom
+    const owner = room && (room.ownerId || room.createdBy) === currentUserId
+    const moderator = room && room.id === activeRoomRef.current && canModerate
+    if (!room || (!owner && !moderator)) {
       lockToast()
       return
     }
-    const roomId = activeRoom.id
-    setRooms((previous) => previous.filter((room) => room.id !== roomId))
+    const roomId = room.id
+    setRooms((previous) => previous.filter((item) => item.id !== roomId))
     setInvites((previous) => previous.filter((invite) => invite.roomId !== roomId))
     setMessages((previous) => {
       const next = { ...previous }
@@ -1337,24 +1364,15 @@ export function useEchoSyncController() {
       return next
     })
     clearRoomPreview(roomId)
-    leaveRoomPlayback()
-    setView('rooms')
-    viewRef.current = 'rooms'
+    if (activeRoomRef.current === roomId) {
+      leaveRoomPlayback()
+      setView('rooms')
+      viewRef.current = 'rooms'
+      setMembersOpen(false)
+    }
     setRoomEditor(null)
-    setMembersOpen(false)
     channelRef.current?.postMessage({ type: 'room-deleted', sender: tabIdRef.current, roomId })
     showToast('Room deleted')
-  }
-
-  async function copyInvite() {
-    if (!activeRoom) return
-    const url = `${window.location.origin}/?room=${encodeURIComponent(activeRoom.code)}`
-    try {
-      await navigator.clipboard.writeText(url)
-      showToast('Invite link copied — listening is better together')
-    } catch {
-      showToast(`Share room code ${activeRoom.code} to invite a friend`)
-    }
   }
 
   function inviteUser(query) {
@@ -1545,16 +1563,7 @@ export function useEchoSyncController() {
       requests: activeRoom.requests.filter((item) => item.id !== requestId),
     }
     setRooms((previous) => previous.map((room) => (room.id === nextRoom.id ? nextRoom : room)))
-    channelRef.current?.postMessage({
-      type: 'role-resolved',
-      sender: tabIdRef.current,
-      roomId: nextRoom.id,
-      requestId,
-      userId: request.userId,
-      role: request.requested,
-      approved: Boolean(approve),
-      roles,
-    })
+    broadcastRoom(nextRoom)
     const targetName = accounts[request.userId]?.name || 'A member'
     pushSystemMessage(
       nextRoom.id,
@@ -1578,16 +1587,7 @@ export function useEchoSyncController() {
     }
     const nextRoom = { ...activeRoom, roles }
     setRooms((previous) => previous.map((room) => (room.id === nextRoom.id ? nextRoom : room)))
-    channelRef.current?.postMessage({
-      type: 'role-resolved',
-      sender: tabIdRef.current,
-      roomId: nextRoom.id,
-      requestId: null,
-      userId,
-      role: nextRole,
-      approved: true,
-      roles,
-    })
+    broadcastRoom(nextRoom)
     pushSystemMessage(nextRoom.id, `${accounts[userId]?.name || 'A member'} is now ${ROLE_COPY[nextRole]?.label || 'Listener'}`)
     showToast('Role updated')
   }
@@ -1614,22 +1614,40 @@ export function useEchoSyncController() {
     showToast('Member removed')
   }
 
-  function leaveRoom() {
+  function requestLeaveRoom() {
+    if (!activeRoom) return
+    const others = activeRoom.members.filter((id) => id !== currentUserId)
+    if (role === 'admin' && others.length) {
+      setLeavePrompt({ roomId: activeRoom.id, members: others })
+      return
+    }
+    leaveRoom()
+  }
+
+  function confirmLeaveRoom(assigneeId) {
+    if (!activeRoom) return
+    setLeavePrompt(null)
+    leaveRoom(assigneeId)
+  }
+
+  function leaveRoom(assigneeId = null) {
     if (!activeRoom) return
     const roomId = activeRoom.id
     const roles = { ...(activeRoom.roles || {}) }
-    delete roles[currentUserId]
     const members = activeRoom.members.filter((id) => id !== currentUserId)
+    // Keep the owner's role so a Rejoin always restores Admin, then make sure
+    // any remaining member can still control the room.
+    const ownerId = activeRoom.ownerId || activeRoom.createdBy
+    if (roles[currentUserId] === 'admin' && currentUserId !== ownerId) delete roles[currentUserId]
+    if (ownerId) roles[ownerId] = roles[ownerId] || 'admin'
+    if (assigneeId) roles[assigneeId] = 'admin'
+    if (members.length && !members.some((id) => roles[id] === 'admin')) roles[members[0]] = 'admin'
     const nextRoom = { ...activeRoom, members, roles }
-    if (members.length && !Object.values(roles).includes('admin')) roles[members[0]] = 'admin'
-    if (members.length) {
-      setRooms((previous) => previous.map((room) => (room.id === roomId ? nextRoom : room)))
-      broadcastRoom(nextRoom)
-      pushSystemMessage(roomId, `${currentUser?.name || 'A listener'} left ${activeRoom.name}`)
-    } else {
-      setRooms((previous) => previous.filter((room) => room.id !== roomId))
-      channelRef.current?.postMessage({ type: 'room-deleted', sender: tabIdRef.current, roomId })
-    }
+    setRooms((previous) => previous.map((room) => (room.id === roomId ? nextRoom : room)))
+    broadcastRoom(nextRoom)
+    if (assigneeId) pushSystemMessage(roomId, `${accounts[assigneeId]?.name || 'A member'} is now Admin`)
+    if (members.length) pushSystemMessage(roomId, `${currentUser?.name || 'A listener'} left ${activeRoom.name}`)
+    setLeavePrompt(null)
     leaveRoomPlayback()
     setView('rooms')
     viewRef.current = 'rooms'
@@ -2343,6 +2361,8 @@ export function useEchoSyncController() {
       setStreamRecovering,
       setRecoverySignal,
       joinPill,
+      guestPreview,
+      setGuestPreview,
       activeRoomId,
       setRooms,
       currentUserId,
@@ -2423,6 +2443,7 @@ export function useEchoSyncController() {
       recordTasteSignal,
       lockToast,
       requireAuth,
+      openAuth,
       roomClockTime: (...args) => roomClockTime(...args),
       advanceRoomClock: (...args) => advanceRoomClock(...args),
       broadcastRoom: (...args) => broadcastRoom(...args),
@@ -3076,8 +3097,12 @@ export function useEchoSyncController() {
     setDailyRefresh((value) => value + 1)
   }
 
-  function requestEditRoom() {
+  function requestEditRoom(target) {
     if (requireAuth({ type: 'settings' }, 'Log in to manage room settings.')) return
+    if (target?.id && activeRoomRef.current !== target.id) {
+      const room = roomsRef.current.find((item) => item.id === target.id)
+      if (room) joinRoom(room)
+    }
     setRoomEditor('edit')
   }
 
@@ -3178,7 +3203,6 @@ export function useEchoSyncController() {
     openSearchExperience,
     joinRoom,
     requestJoinCode,
-    copyInvite,
     requestCreateRoom,
     openProfile,
     openCreatePlaylist,
@@ -3193,6 +3217,11 @@ export function useEchoSyncController() {
     sidebarOpen,
     setSidebarOpen,
     joinPill,
+    guestPreview,
+    setGuestPreview,
+    leavePrompt,
+    requestLeaveRoom,
+    confirmLeaveRoom,
     inRoom,
     acceptJoin,
     chatOpen,

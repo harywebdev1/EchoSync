@@ -107,6 +107,8 @@ const [toast, setToast] = useState(null)
 const [lyrics, setLyrics] = useState({ status: 'idle' })
 const [lyricsRefresh, setLyricsRefresh] = useState(0)
 const [joinPill, setJoinPill] = useState(null)
+const [guestPreview, setGuestPreview] = useState(false)
+const [leavePrompt, setLeavePrompt] = useState(null)
 const [micOn, setMicOn] = useState(false)
 const [micLevel, setMicLevel] = useState(0)
 const [speaking, setSpeaking] = useState(false)
@@ -264,6 +266,10 @@ const searchTargetRef = useRef({ mode: 'solo', roomId: null })
     setLyricsRefresh,
     joinPill,
     setJoinPill,
+    guestPreview,
+    setGuestPreview,
+    leavePrompt,
+    setLeavePrompt,
     micOn,
     setMicOn,
     micLevel,

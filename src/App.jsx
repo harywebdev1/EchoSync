@@ -17,8 +17,8 @@ import { PlayerDock } from './components/player/PlayerDock'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
 import { QueueDrawer } from './components/player/QueueDrawer'
 import { InviteBanner } from './components/shell/InviteBanner.jsx'
-import { RoleRequestPopup } from './components/shell/RoleRequestPopup.jsx'
 import { Toast } from './components/shell/Toast.jsx'
+import { GUEST_PREVIEW_BANNER } from './hooks/usePlaybackEngine.js'
 
 const RoomsView = makeLazySurface(() => import('./views/RoomsView'), 'RoomsView', 'view', () => import('./views/RoomsView?retry=1'))
 const LibraryView = makeLazySurface(() => import('./views/LibraryView'), 'LibraryView', 'view', () => import('./views/LibraryView?retry=1'))
@@ -34,6 +34,7 @@ const RoomModal = makeLazySurface(() => import('./components/modals/RoomModal.js
 const JoinRoomModal = makeLazySurface(() => import('./components/modals/JoinRoomModal.jsx'), 'JoinRoomModal', 'modal', () => import('./components/modals/JoinRoomModal.jsx?retry=1'))
 const PasscodeModal = makeLazySurface(() => import('./components/modals/PasscodeModal.jsx'), 'PasscodeModal', 'modal', () => import('./components/modals/PasscodeModal.jsx?retry=1'))
 const AuthModal = makeLazySurface(() => import('./components/modals/AuthModal.jsx'), 'AuthModal', 'modal', () => import('./components/modals/AuthModal.jsx?retry=1'))
+const LeaveRoomModal = makeLazySurface(() => import('./components/modals/LeaveRoomModal.jsx'), 'LeaveRoomModal', 'modal', () => import('./components/modals/LeaveRoomModal.jsx?retry=1'))
 const PlaylistModal = makeLazySurface(() => import('./components/modals/PlaylistModal.jsx'), 'PlaylistModal', 'modal', () => import('./components/modals/PlaylistModal.jsx?retry=1'))
 const AddToPlaylistModal = makeLazySurface(() => import('./components/modals/AddToPlaylistModal.jsx'), 'AddToPlaylistModal', 'modal', () => import('./components/modals/AddToPlaylistModal.jsx?retry=1'))
 
@@ -69,16 +70,18 @@ export default function App() {
     library,
     currentUser,
     playlists,
+    guestPreview,
+    leavePrompt,
+    requestLeaveRoom,
+    confirmLeaveRoom,
     navigateView,
     openSearchExperience,
     joinRoom,
     requestJoinCode,
-    copyInvite,
     requestCreateRoom,
     openProfile,
     openCreatePlaylist,
     openPlaylist,
-    leaveRoom,
     unreadRoomCounts,
     latestRoomPreview,
     loungeOpen,
@@ -196,7 +199,6 @@ export default function App() {
     queueOpen,
     pendingInvite,
     resolveInvite,
-    moderatorRequest,
     searchOpen,
     closeSearchExperience,
     playSearchTrack,
@@ -297,12 +299,12 @@ export default function App() {
             onSearch={openSearchExperience}
             onJoinRoom={joinRoom}
             onJoinCode={requestJoinCode}
-            onInvite={copyInvite}
             onCreateRoom={requestCreateRoom}
             onOpenProfile={openProfile}
             onCreatePlaylist={createPlaylist}
             onOpenPlaylist={openPlaylist}
-            onLeaveRoom={leaveRoom}
+            onEditRoom={requestEditRoom}
+            onDeleteRoom={deleteRoom}
             unreadRoomCounts={unreadRoomCounts}
             latestRoomPreview={latestRoomPreview}
             loungeOpen={loungeOpen}
@@ -373,10 +375,13 @@ export default function App() {
                 <RoomsView
                   rooms={rooms}
                   library={library}
+                  currentUser={currentUser}
                   currentRoom={activeRoom}
                   onJoin={joinRoom}
                   onCreate={requestCreateRoom}
                   onJoinCode={requestJoinCode}
+                  onEditRoom={requestEditRoom}
+                  onDeleteRoom={deleteRoom}
                 />
               )}
 
@@ -431,7 +436,7 @@ export default function App() {
                   onOpenSettings={requestEditRoom}
                   onFindFull={findFullVersion}
                   onRetryFull={findFullVersion}
-                  onLeaveRoom={leaveRoom}
+                  onLeaveRoom={requestLeaveRoom}
                   onLock={lockToast}
                   onTogglePlay={togglePlay}
                   onNext={nextTrack}
@@ -484,6 +489,8 @@ export default function App() {
                 shuffleEnabled={shuffleEnabled}
                 queueCount={Math.max(0, queue.length - currentIndex - 1)}
                 queueOpen={shellQueueOpen}
+                previewMode={!currentUser && guestPreview}
+                onPreviewUpgrade={() => openAuth('signin', GUEST_PREVIEW_BANNER)}
               />
             </ErrorBoundary>
 
@@ -632,16 +639,6 @@ export default function App() {
             />
           )}
 
-        {moderatorRequest && activeRoom && (
-          <RoleRequestPopup
-            request={moderatorRequest}
-            requester={memberIndex[moderatorRequest.userId]}
-            roomName={activeRoom.name}
-            onApprove={() => resolveRoleRequest(moderatorRequest.id, true)}
-            onDecline={() => resolveRoleRequest(moderatorRequest.id, false)}
-          />
-        )}
-
         {searchOpen && (
           <SearchOverlay
             query={searchQuery} onQueryChange={setSearchQuery} liked={likedSet} onLike={toggleLike}
@@ -659,6 +656,7 @@ export default function App() {
             tasteTracks={searchTasteTracks}
             context={searchContext}
             canControlRoom={canControlRoom}
+            canAddToRoom={Boolean(currentUser)}
             pendingTrackId={pendingPlayId}
           />
         )}
@@ -698,6 +696,8 @@ export default function App() {
             translateOn={translateOn}
             translating={translating}
             onToggleTranslate={toggleTranslation}
+            previewMode={!currentUser && guestPreview}
+            onPreviewUpgrade={() => openAuth('signin', GUEST_PREVIEW_BANNER)}
           />
         )}
 
@@ -717,6 +717,16 @@ export default function App() {
             onClearCache={clearAllCaches}
             onClearHistory={clearHistory}
             onSignOut={signOut}
+          />
+        )}
+
+        {leavePrompt && activeRoom && (
+          <LeaveRoomModal
+            prompt={leavePrompt}
+            room={activeRoom}
+            members={memberIndex}
+            onClose={() => setLeavePrompt(null)}
+            onAssignLeave={confirmLeaveRoom}
           />
         )}
 
