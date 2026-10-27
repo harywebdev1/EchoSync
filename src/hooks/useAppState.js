@@ -39,7 +39,7 @@ const [currentUserId, setCurrentUserId] = useState(() => {
 const [view, setView] = useState('home')
 const [rooms, setRooms] = useState(() => loadStoredRooms().map(normalizeRoom).filter(Boolean))
 const [activeRoomId, setActiveRoomId] = useState(null)
-const [tasteProfile, setTasteProfile] = useState(() => loadTasteProfile(currentUserId))
+const [tasteProfile, setTasteProfile] = useState(() => ({...loadTasteProfile(currentUserId),sessionMomentum:[]}))
 const [library, setLibrary] = useState(() => {
     const base = buildInitialLibrary()
     return mergeLikedTracks(base, readUserValue(LIKES_KEY, currentUserId || 'guest', [])).library
@@ -111,6 +111,7 @@ const [guestPreview, setGuestPreview] = useState(false)
 const [previewCard, setPreviewCard] = useState(false)
 const [leavePrompt, setLeavePrompt] = useState(null)
 const [micOn, setMicOn] = useState(false)
+const [micMuted, setMicMuted] = useState(false)
 const [micLevel, setMicLevel] = useState(0)
 const [speaking, setSpeaking] = useState(false)
 const [duckTest, setDuckTest] = useState(false)
@@ -275,6 +276,7 @@ const searchTargetRef = useRef({ mode: 'solo', roomId: null })
     setLeavePrompt,
     micOn,
     setMicOn,
+    micMuted, setMicMuted,
     micLevel,
     setMicLevel,
     speaking,

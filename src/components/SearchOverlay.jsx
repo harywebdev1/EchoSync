@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Cover } from './Cover'
 import { getCanonicalSongStem } from '../core/songStem.js'
+import { rankBySearchSimilarity, searchSimilarity } from '../core/searchRanking.js'
 
 const SEARCH_CATEGORIES = [
   { id: 'coke-studio-indie', label: 'Coke Studio & Indie', query: 'Coke Studio indie songs', c1: '#633317', c2: '#e9a665' },
@@ -82,13 +83,13 @@ export function SearchOverlay({
     const words=query.toLowerCase().trim().split(/\s+/).filter(Boolean)
     if(query.trim().length<2)return[]
     const seen=new Set()
-    return Object.values(catalog).filter(t=>{
+    return rankBySearchSimilarity(Object.values(catalog), query).filter(t=>{
       if(!t?.id||t.preview||(t.duration>0&&t.duration<60))return false
-      if(!words.every(word=>(t.title+' '+t.artist).toLowerCase().includes(word)))return false
+      if(searchSimilarity(t,query)<.48)return false
       const stem=getCanonicalSongStem(t)
       if(!stem||seen.has(stem))return false
       seen.add(stem);return true
-    }).slice(0,20)
+    }).slice(0,50)
   },[catalog,query])
   const visibleResults=useMemo(()=>{
     const seen=new Set(),merged=[]

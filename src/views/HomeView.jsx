@@ -44,14 +44,14 @@ function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
   </section>
 }
 
-export const HomeView = memo(function HomeView({ currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
+export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
   const [mood, setMood] = useState('all')
   const live = useLiveMoodFeed(mood, tasteProfile)
   const options = useMemo(() => ({ profile: tasteProfile, liked, recent: recentIds, mood }), [tasteProfile, liked, recentIds, mood])
   const catalog = useMemo(() => {
     const daily = dailyFeed?.users?.[currentUser?.id || 'guest'] || {}
-    return mergeMoodCatalog(live.tracks, [...(daily.madeForYou || []), ...(daily.basedOnRecent || []), ...(dailyFeed?.trending || []), ...Object.values(library)])
-  }, [dailyFeed, currentUser?.id, library, live.tracks])
+    return mergeMoodCatalog([...dynamicCatalogTracks,...live.tracks], [...(daily.madeForYou || []), ...(daily.basedOnRecent || []), ...(dailyFeed?.trending || []), ...Object.values(library)])
+  }, [dailyFeed, currentUser?.id, library, live.tracks, dynamicCatalogTracks])
   const { quickPicks: rawQuick, radio } = useMemo(() => buildQuickPicksAndRadio(catalog, options), [catalog, options])
   const recent = useMemo(() => recentIds.map(id => library[id]).filter(Boolean), [recentIds, library])
   const ranked = useMemo(() => rankHomeTracks(catalog, options), [catalog, options])
@@ -66,7 +66,7 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
   const collage = recent.length >= 4 ? recent : ranked
   const showcaseTracks = useMemo(() => {
     const seen = new Set()
-    return [...recent, ...ranked].filter((track) => {
+    return [...ranked, ...recent].filter((track) => {
       if (!track?.id || seen.has(track.id)) return false
       seen.add(track.id)
       return true
@@ -88,7 +88,7 @@ export const HomeView = memo(function HomeView({ currentUser, library, liked = [
   return <div className="home-view home-v2 home-v81" data-testid="home-v2" style={{ '--mood-tint': tint }}>
     <div className="home-chips" role="group" aria-label="Mood filters">{HOME_MOODS.map(item => <button key={item.id} className={`home-chip ${mood === item.id ? 'active' : ''}`} aria-pressed={mood === item.id} onClick={() => setMood(item.id)}>{item.label}{mood === item.id && live.status === 'loading' && <span className="mood-loading" aria-label="Loading fresh tracks" />}</button>)}</div>
     <header className="home-hero">
-      <div className="home-hero-copy"><span className="home-kicker">Made for your moment</span><h1>{!currentUser ? 'Welcome to EchoSync.' : <>{greeting}, <em>{firstName}.</em></>}</h1><p>{!currentUser ? 'Stream full tracks instantly, explore curated mixes, or jump into a live listening room.' : artists.length ? `A little ${artists.join(', ')}, a few familiar favorites, and something new to fall for.` : 'The songs you come back to. The ones you haven’t met yet. All in one place.'}</p>
+      <div className="home-hero-copy"><span className="home-kicker">Made for your moment</span><h1>{!currentUser ? 'Welcome to EchoSync.' : <>{greeting}, <em>{firstName}.</em></>}</h1><p>{!currentUser ? 'Preview your next favorite, explore curated mixes, or join a live listening room.' : artists.length ? `A little ${artists.join(', ')}, a few familiar favorites, and something new to fall for.` : 'The songs you come back to. The ones you haven’t met yet. All in one place.'}</p>
         <div className="home-hero-actions"><button className="primary-btn" disabled={!radio.length} onClick={() => onPlayTrack(radio[0], radio)}><Play /> Play Supermix</button><button className="secondary-btn" disabled={!radio.length} onClick={() => onStartRadio(radio[0], radio)}><Shuffle /> Start Radio</button><button className="text-btn" onClick={onCreateRoom}><Radio /> Create Room</button></div>
       </div>
       <HeroShowcase tracks={showcaseTracks} onPlay={playHero} />

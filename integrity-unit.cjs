@@ -328,6 +328,29 @@ async function check(name, fn) { await fn(); passed++; console.log(`PASS ${name}
     assert.equal(sections.quickPicks.length,12);assert.equal(sections.familiar.length,10);assert.equal(sections.fresh.length,8)
     const all=[...sections.quickPicks,...sections.familiar,...sections.fresh];assert.equal(new Set(all.map(songStem)).size,30);assert.equal(JSON.stringify(tracks),before)
   })
+  await check('phonetic and partial search ranks intended songs without hiding the provider tail', async () => {
+    const {rankBySearchSimilarity,phoneticNormalize}=await import('./src/core/searchRanking.js')
+    const cases=[['pasuri','Pasoori','Ali Sethi'],['kesria','Kesariya','Arijit Singh'],['apna bna','Apna Bana Le','Arijit Singh'],['tu jhum','Tu Jhoom','Abida Parveen'],['arz kia','Arz Kiya','Anuv Jain'],['atif','Tera Hone Laga Hoon','Atif Aslam'],['anuv','Baarishein','Anuv Jain']]
+    for(const [query,title,artist] of cases){const rows=[{id:'tail',title:query==='tu jhum'?'Tu Jhumata Huva Saawan':'Unrelated provider song',artist:query==='kesria'?'Kesria':'Different Singer'},{id:'hit',title,artist}];const before=JSON.stringify(rows);const result=rankBySearchSimilarity(rows,query);assert.equal(result[0].id,'hit',query);assert.equal(result.length,2);assert.equal(JSON.stringify(rows),before)}
+    assert.equal(rankBySearchSimilarity([{id:'variant',title:'Pasoori (Reprise)'},{id:'original',title:'Pasoori'}],'pasuri')[0].id,'original')
+    assert.equal(phoneticNormalize('aa ee oo ph kh gh z sh q w'),'a i u f k g j s k v')
+  })
+  await check('taste learns five affinity dimensions, caps session to three and allocates artist radio 55/30/15', () => {
+    let profile=taste.applyTasteSignal(null,'play',{track:{id:'collab',title:'Sufi Soul',artist:'Atif Aslam & Arijit Singh',language:'Hindi'}})
+    assert.ok(profile.artistWeights['atif aslam'].weight>0);assert.ok(Object.keys(profile.vibeWeights).length);assert.ok(profile.languageWeights.hindi.weight>0);assert.ok(profile.coArtistGraph['atif aslam']['arijit singh'].weight>0)
+    for(let i=0;i<4;i++)profile=taste.applyTasteSignal(profile,'play',{track:{id:'p'+i,title:'Acoustic '+i,artist:'Anuv Jain',language:'Hindi'}})
+    assert.deepEqual(profile.sessionMomentum.map(t=>t.id),['p3','p2','p1'])
+    const english=taste.applyTasteSignal(null,'like',{track:{id:'pop',title:'Pop',artist:'Artist',language:'english'}});assert.equal(english.languageWeights.english.name,'English');assert.ok(taste.tasteVibesForTrack({language:'english'}).includes('Global Pop'))
+    const seed={id:'seed',title:'Seed',artist:'Atif Aslam',language:'Hindi',duration:180}
+    const rows=[...Array.from({length:20},(_,i)=>({id:'same'+i,title:'Same '+i,artist:'Atif Aslam',language:'Hindi',duration:180})),...Array.from({length:20},(_,i)=>({id:'related'+i,title:'Related '+i,artist:'Arijit Singh',language:'Hindi',duration:180})),...Array.from({length:20},(_,i)=>({id:'favorite'+i,title:'Favorite '+i,artist:'Global Artist',language:'English',duration:180}))]
+    const radio=taste.buildArtistRadio(seed,rows,profile,{limit:20,liked:rows.filter(t=>t.id.startsWith('favorite')).map(t=>t.id)})
+    assert.equal(radio.filter(t=>t.id.startsWith('same')).length,11);assert.equal(radio.filter(t=>t.id.startsWith('related')).length,6);assert.equal(radio.filter(t=>t.id.startsWith('favorite')).length,3);assert.equal(new Set(radio.map(t=>t.id)).size,20)
+  })
+  await check('dynamic recommendations query top three artists and session vibe while retaining partial successes',async()=>{
+    const {refreshDynamicTasteCatalog}=await import('./src/hooks/useDynamicTasteCatalog.js');const queries=[];const profile={artistWeights:{a:{name:'Atif Aslam',weight:9},b:{name:'Anuv Jain',weight:8},c:{name:'Arijit Singh',weight:7},d:{name:'Ignored Fourth',weight:6}},sessionMomentum:[{id:'last',title:'Sufi Soul',artist:'Atif Aslam'}]}
+    const rows=await refreshDynamicTasteCatalog(profile,{search:async(query,limit)=>{queries.push(query);assert.equal(limit,40);if(query.startsWith('Anuv'))throw Error('upstream offline');return [{id:query,title:query,artist:query,duration:180}]}})
+    assert.ok(queries.includes('Atif Aslam songs'));assert.ok(queries.includes('Arijit Singh songs'));assert.ok(queries.includes('Sufi & Soul songs'));assert.ok(!queries.some(q=>q.includes('Fourth')));assert.equal(rows.length,3)
+  })
   await check('core modules load without platform globals or UI imports', () => {
     for (const file of fs.readdirSync(__dirname + '/src/core').filter(file => file.endsWith('.js'))) {
       const source = read('src/core/' + file)

@@ -1,3 +1,4 @@
+import { MessageContextMenu } from './MessageContextMenu.jsx'
 import { SongDrop } from './SongDrop.jsx'
 import { useSocial } from './SocialContext.jsx'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -53,14 +54,6 @@ export function PublicLoungeDrawer({
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [menuFor, setMenuFor] = useState(null)
-  useEffect(() => {
-    if (!menuFor) return
-    const frame = requestAnimationFrame(() => document.querySelector('.msg-actions.menu-open')?.scrollIntoView({ block: 'nearest' }))
-    const dismiss = event => { if (!event.target.closest('.msg-actions')) setMenuFor(null) }
-    const escape = event => { if (event.key === 'Escape') setMenuFor(null) }
-    document.addEventListener('pointerdown', dismiss); document.addEventListener('keydown', escape)
-    return () => { cancelAnimationFrame(frame); document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape) }
-  }, [menuFor])
   const [cardFor, setCardFor] = useState(null)
   const [mention, setMention] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
@@ -358,14 +351,13 @@ export function PublicLoungeDrawer({
                 </button>
               )}
               <div className="msg-main">
+<div className={`bubble lounge-bubble ${message.type === 'voice' ? 'voice' : ''}`}>
                 {!mine && (
                   <div className="msg-author">
-                    <button className="lounge-author-btn" onClick={() => setCardFor(author.id)}>{author.name}</button>
-                    <span className="msg-handle">@{author.handle}</span>
+                    <button className="lounge-author-btn" onClick={() => setCardFor(author.id)}>@{author.handle}</button>
                   </div>
                 )}
-                <div className={`bubble lounge-bubble ${message.type === 'voice' ? 'voice' : ''}`}>
-                  {message.replyTo && (
+                                  {message.replyTo && (
                     <button className="reply-quote" onClick={() => scrollToLoungeMessage(message.replyTo.id)}>
                       <strong>{message.replyTo.name || message.replyTo.handle}</strong>
                       <span>{message.replyTo.text || 'Voice note'}</span>
@@ -382,38 +374,8 @@ export function PublicLoungeDrawer({
                     <MessageText text={message.text} members={members} currentUserId={currentUser?.id} onTag={insertMention} />
                   )}
                   <span className="bubble-meta">{message.time}</span>
-                  <div className={`msg-actions ${menuFor === message.id ? 'menu-open' : ''}`}>
-                    <button className="msg-action" onClick={() => onReply(message, author)} aria-label="Reply in Public Lounge">
-                      <CornerUpLeft />
-                    </button>
-                    <button
-                      className="msg-action"
-                      onClick={() => setMenuFor((value) => (value === message.id ? null : message.id))}
-                      aria-label="Lounge message options"
-                    >
-                      <MoreHorizontal />
-                    </button>
-                    {menuFor === message.id && (
-                      <div className="msg-menu">
-                        <button onClick={() => { onReply(message, author); setMenuFor(null) }}><CornerUpLeft /> Reply</button>
-                        {!mine && (
-                          <button onClick={() => { setCardFor(author.id); setMenuFor(null) }}>
-                            <UserPlus /> View @{author.handle}
-                          </button>
-                        )}
-                        <div className="msg-menu-emojis">
-                          {LOUNGE_REACTIONS.map((emoji) => (
-                            <button key={emoji} onClick={() => { onReact(message.id, emoji); setMenuFor(null) }}>{emoji}</button>
-                          ))}
-                        </div>
-                        {mine && (
-                          <button className="danger" onClick={() => { onDelete(message.id); setMenuFor(null) }}>
-                            <Trash2 /> Delete
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <button className="message-chevron" aria-label="Lounge message options" aria-haspopup="menu" aria-expanded={menuFor?.id === message.id} onClick={event=>setMenuFor(menuFor?.id===message.id?null:{id:message.id,anchor:event.currentTarget})}>⌄</button>
+                  {menuFor?.id === message.id && <MessageContextMenu anchor={menuFor.anchor} onClose={()=>setMenuFor(null)} onReply={()=>onReply(message, author)} onProfile={()=>setCardFor(author.id)} onPlay={message.track ? ()=>social.play(message.track) : undefined} onDelete={mine ? ()=>onDelete(message.id) : undefined} onReact={emoji=>onReact(message.id,emoji)} />}
                 </div>
                 {message.reactions?.length > 0 && (
                   <div className="msg-reactions">

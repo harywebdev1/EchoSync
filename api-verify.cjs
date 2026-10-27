@@ -45,7 +45,7 @@ let passed = 0
       })
       assert.ok(officialSearches.length >= 2)
       assert.equal(new URL(officialSearches[0].url).searchParams.get('q'), 'Atif Aslam')
-      assert.equal(new URL(officialSearches[0].url).searchParams.get('n'), '30')
+      assert.equal(new URL(officialSearches[0].url).searchParams.get('n'), '40')
       await (await fetch(base + '/api/saavn/api/songs/abc_123')).json()
       const detail = requests.find(({ url }) => new URL(url).searchParams.get('__call') === 'song.getDetails')
       assert.equal(new URL(detail.url).searchParams.get('pids'), 'abc_123')
@@ -130,6 +130,11 @@ let passed = 0
       const result=await fetch(base+'/api/saavn/api/search/songs?query=empty');assert.equal(result.status,200);assert.equal((await result.json()).data.results[0].id,'mirror');assert.ok(calls>=6)
       const empty=await endpoint(createSaavnHandler({fetchImpl:async url=>Response.json(new URL(url).hostname==='www.jiosaavn.com'?{results:[]}:{data:{results:[]}})}))
       const response=await fetch(empty+'/api/saavn/api/search/songs?query=unmatched');assert.equal(response.status,200);assert.deepEqual((await response.json()).data.results,[])
+    })
+    await check('high recall preserves 50 valid unique provider songs, autocomplete and fuzzy title hits',async()=>{
+      const {createSaavnHandler}=await import('./server/saavn.js');const calls=[]
+      const base=await endpoint(createSaavnHandler({fetchImpl:async value=>{const url=new URL(value);calls.push(url);if(url.hostname==='www.jiosaavn.com'){const make=i=>({id:'j'+i,title:i===0?'Pasoori':'Catalog Song '+i,more_info:{duration:'180',artistMap:{primary_artists:[{name:'Ali Sethi'}]}}});return Response.json(url.searchParams.get('__call')==='autocomplete.get'?{songs:{data:[{id:'auto',title:'Pasoori Acoustic',more_info:{duration:'180'}}]}}:{results:Array.from({length:40},(_,i)=>make(i))})}if(url.hostname==='api.deezer.com')return Response.json({data:Array.from({length:30},(_,i)=>({id:1000+i,title:'Deezer Song '+i,duration:180,artist:{name:'Other'},album:{title:'Album'}}))});return Response.json([])}}))
+      const payload=await(await fetch(base+'/api/saavn/api/search/songs?query=pasuri&limit=50')).json();assert.equal(payload.data.results.length,50);assert.equal(payload.data.results[0].name,'Pasoori');assert.equal(new Set(payload.data.results.map(t=>t.name)).size,50);assert.ok(payload.data.results.some(t=>t.id==='auto'));assert.ok(calls.some(u=>u.searchParams.get('__call')==='autocomplete.get'));assert.equal(calls.find(u=>u.hostname==='api.deezer.com').searchParams.get('limit'),'30')
     })
     await check('serverless entrypoints import as Node handlers without initializing upstream clients', () => {
       assert.equal(typeof mediaRoute.default, 'function'); assert.equal(typeof youtubeRoute.default, 'function')

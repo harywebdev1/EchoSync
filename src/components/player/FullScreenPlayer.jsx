@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import {
   Heart,
   Play,
@@ -75,6 +76,7 @@ function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
 }
 
 export function FullScreenPlayer({
+  initialPanel = 'player',
   room,
   track,
   queue,
@@ -110,6 +112,8 @@ export function FullScreenPlayer({
   previewMode = false,
   onPreviewUpgrade,
 }) {
+  const lyricsRef = useRef(null)
+  useEffect(() => { if(initialPanel === 'lyrics') lyricsRef.current?.scrollIntoView({block:'start'}) }, [initialPanel])
   const total = duration || track?.duration || 0
   return (
     <div className="full-player">
@@ -217,7 +221,7 @@ export function FullScreenPlayer({
             </div>
           </div>
 
-          <div className="fp-right">
+          <div ref={lyricsRef} className="fp-right">
             <div className="social-head">
               <div className="social-head-copy">
                 <h3>Live lyrics</h3>

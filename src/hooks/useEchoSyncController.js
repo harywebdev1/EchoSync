@@ -83,6 +83,8 @@ import { clearPreloadSession } from '../services/preloadManager'
 import { ROLE_COPY } from '../components/shared/roomRoles'
 import { usePlaybackEngine } from './usePlaybackEngine.js'
 import { useRoomSync } from './useRoomSync.js'
+import { useDynamicTasteCatalog } from './useDynamicTasteCatalog.js'
+import { rankBySearchSimilarity, searchSimilarity } from '../core/searchRanking.js'
 import { useTrackPalette } from './useTrackPalette.js'
 
 // Connects session, library and community actions to the playback/sync hooks.
@@ -230,6 +232,7 @@ export function useEchoSyncController() {
     leavePrompt,
     setLeavePrompt,
     micOn,
+    micMuted, setMicMuted,
     setMicOn,
     micLevel,
     setMicLevel,
@@ -326,6 +329,8 @@ export function useEchoSyncController() {
     searchTargetRef,
     playRequestRef,
   } = useAppState()
+  const dynamicTasteCatalog = useDynamicTasteCatalog(tasteProfile, currentUserId || 'guest', fetchJioSearch)
+  const dynamicCatalogTracks = dynamicTasteCatalog.tracks
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
 
@@ -890,7 +895,7 @@ export function useEchoSyncController() {
     setLibrary((previous) => mergeLikedTracks(previous, userLikes).library)
     setPlaylists(Array.isArray(userPlaylists) ? userPlaylists : [])
     setRecent(Array.isArray(userRecent) ? userRecent : [])
-    setTasteProfile(loadTasteProfile(id))
+    setTasteProfile({...loadTasteProfile(id),sessionMomentum:[]})
     setSettings(userSettings)
     setTranslateOn(Boolean(userSettings.autoTranslate))
     setPreferredStreamQuality(userSettings.quality || 'auto')
@@ -1020,7 +1025,7 @@ export function useEchoSyncController() {
     soloQueueRef.current = []
     soloPlayOrderRef.current = []
     setCurrentByRoom({ [SOLO_ROOM_ID]: 0 })
-    setTasteProfile(loadTasteProfile('guest'))
+    setTasteProfile({...loadTasteProfile('guest'),sessionMomentum:[]})
     setSettings({ ...DEFAULT_SETTINGS })
     setTranslateOn(false)
     setActiveRoomId(null)
@@ -1112,14 +1117,15 @@ export function useEchoSyncController() {
   function recordSearchQuery(query) {
     const clean = safeText(query)
     if (!clean) return
-    recordTasteSignal('search', { query: clean })
+    const match=rankBySearchSimilarity(Object.values(libraryRef.current),clean)[0]
+    recordTasteSignal('search', { query: clean, track:match&&searchSimilarity(match,clean)>=.8?match:undefined })
   }
 
   async function autoplayTracks(seed) {
     if (settings.autoplay === false || !seed?.id) return []
     const seedArtist = artistNames(seed)[0] || ''
     const seedArtistKey = seedArtist.toLowerCase().trim()
-    const localPool = Object.values(libraryRef.current || {}).filter((track) => track?.id && track.id !== seed.id)
+    const localPool = [...dynamicCatalogTracks,...Object.values(libraryRef.current || {})].filter((track) => track?.id && track.id !== seed.id)
     const localArtistCount = seedArtistKey
       ? localPool.filter((track) => artistNames(track).some((artist) => artist.toLowerCase().trim() === seedArtistKey)).length
       : 0
@@ -1133,13 +1139,13 @@ export function useEchoSyncController() {
         /* the local catalog still drives the station */
       }
     }
-    const radio = buildArtistRadio(seed, pool, tasteProfile, { limit: 14 })
+    const radio = buildArtistRadio(seed, pool, tasteProfile, { limit: 14, liked: likedSet })
     if (radio.length >= 6) return radio
     const vibe = topTasteLabels(tasteProfile.vibes, 1)[0] || ''
     const fallbackQuery = seedArtist ? `${seedArtist} songs` : vibe ? `${vibe} songs` : 'trending Hindi hits'
     try {
       const tracks = await fetchJioSearch(fallbackQuery, 18, { fresh: true })
-      return buildArtistRadio(seed, [...pool, ...tracks], tasteProfile, { limit: 14 })
+      return buildArtistRadio(seed, [...pool, ...tracks], tasteProfile, { limit: 14, liked: likedSet })
     } catch {
       return radio
     }
@@ -1159,7 +1165,9 @@ export function useEchoSyncController() {
 
   function rememberTrack(candidate) {
     if (!candidate?.id) return
-    const entry = sanitizeTrack({ ...candidate, status: candidate.status || 'ready' })
+    const previous = libraryRef.current[candidate.id]
+    const keepStream = audioRef.current && track?.id === candidate.id && previous?.streamUrl
+    const entry = sanitizeTrack({ ...candidate, ...(keepStream ? {streamUrl:previous.streamUrl,status:previous.status,quality:previous.quality}:{}), status: keepStream ? previous.status : candidate.status || 'ready' })
     setLibrary((previous) => ({
       ...previous,
       [entry.id]: sanitizeTrack({ ...(previous[entry.id] || {}), ...entry }),
@@ -2623,14 +2631,14 @@ export function useEchoSyncController() {
       writeUserValue(PLAYLISTS_KEY,user.id,data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
       finishAuth(user.id,true)
       // PostgreSQL hydration must not depend on a successful local cache write.
-      setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(normalizeTasteProfile(p.taste_profile));setRecent(p.activity_status?.recent||[])
+      setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(previous => ({...normalizeTasteProfile(p.taste_profile), sessionMomentum: previous.sessionMomentum || []}));setRecent(p.activity_status?.recent||[])
       setPlaylists(data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
       setRooms([]);setMessages({});setLoungeMessages([])
     },
     onRemoteLibrary:data=>{
       const p=data.profile;[...(p.liked_tracks||[]),...data.playlists.flatMap(list=>list.tracks||[])].forEach(rememberCloudTrack)
       setRecent(p.activity_status?.recent||[])
-      setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(normalizeTasteProfile(p.taste_profile));setPlaylists(data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
+      setLiked(likedIdsFrom(p.liked_tracks||[]));setTasteProfile(previous => ({...normalizeTasteProfile(p.taste_profile), sessionMomentum: previous.sessionMomentum || []}));setPlaylists(data.playlists.map(list=>({...list,trackIds:(list.tracks||[]).map(t=>t.id)})))
       setAccounts(previous=>({...previous,[p.id]:{...previous[p.id],handle:p.username,name:p.display_name,showActivity:p.privacy_settings?.showActivity!==false,allowInvites:p.privacy_settings?.allowInvites!==false}}))
     },
     updatePublicAccount:patch=>setAccounts(previous=>({...previous,[currentUserId]:{...previous[currentUserId],handle:patch.handle,name:patch.name||displayNameFromHandle(patch.handle),bio:patch.bio??previous[currentUserId]?.bio,avatarId:patch.avatarId??previous[currentUserId]?.avatarId,av1:patch.avatar?.av1||previous[currentUserId]?.av1,av2:patch.avatar?.av2||previous[currentUserId]?.av2,showActivity:patch.showActivity,allowInvites:patch.allowInvites}})),
@@ -2843,22 +2851,31 @@ export function useEchoSyncController() {
     showToast('Listening history cleared')
   }
 
+  const micRequestRef = useRef(0)
+  useEffect(() => () => stopMic(), [activeRoomId])
+
   async function toggleMic() {
     if (micOn) {
       stopMic()
       return
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      showToast('This browser cannot reach a microphone. Try the duck test instead.')
+    if (requireAuth(null, 'Log in to join room voice.')) return
+    if (!activeRoom?.members?.includes(currentUserId)) { showToast('Join the room before joining voice.'); return }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      showToast('Microphone unavailable — voice was not joined. Retry Join Voice.')
       return
     }
+    const request = ++micRequestRef.current
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       })
+      if(request !== micRequestRef.current) { stream.getTracks().forEach(track=>track.stop()); return }
+      micRef.current.stream = stream
       const AudioCtx = window.AudioContext || window.webkitAudioContext
       const context = new AudioCtx()
       await context.resume()
+      if(request !== micRequestRef.current) { context.close(); stream.getTracks().forEach(track=>track.stop()); return }
       const analyser = context.createAnalyser()
       analyser.fftSize = 512
       analyser.smoothingTimeConstant = 0.72
@@ -2874,6 +2891,7 @@ export function useEchoSyncController() {
       let speakingSince = 0
       const loop = () => {
         if (!micRef.current.analyser) return
+        if (stream.getAudioTracks().every(track => !track.enabled)) { setSpeaking(false); setMicLevel(0); micRef.current.raf = requestAnimationFrame(loop); return }
         analyser.getByteTimeDomainData(data)
         let sum = 0
         for (let index = 0; index < data.length; index += 1) {
@@ -2881,6 +2899,7 @@ export function useEchoSyncController() {
           sum += offset * offset
         }
         const rms = Math.sqrt(sum / data.length)
+        micRef.current.speaking = rms * 7 > .075
         const level = Math.min(1, rms * 7)
         const now = performance.now()
         if (now - lastPaint > 90) {
@@ -2898,7 +2917,7 @@ export function useEchoSyncController() {
         micRef.current.raf = requestAnimationFrame(loop)
       }
       micRef.current.raf = requestAnimationFrame(loop)
-      if (activeRoom?.private && activeRoomId && currentUserId && typeof MediaRecorder !== 'undefined') {
+      if (activeRoomId && currentUserId) {
         try {
           const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
           const mimeType = candidates.find((type) => MediaRecorder.isTypeSupported?.(type))
@@ -2913,34 +2932,46 @@ export function useEchoSyncController() {
             sender: tabIdRef.current,
           })
           recorder.ondataavailable = async (event) => {
-            if (!event.data?.size) return
+            if (!event.data?.size || request !== micRequestRef.current) return
             try {
               const chunk = await event.data.arrayBuffer()
+              if(request !== micRequestRef.current) return
               channelRef.current?.postMessage({
                 type: 'voice-chunk',
                 roomId: activeRoomId,
                 userId: currentUserId,
                 mimeType: micRef.current.mimeType,
-                chunk,
+                chunk, speaking: Boolean(micRef.current.speaking),
                 sender: tabIdRef.current,
               })
             } catch {
               /* skip a dropped chunk */
             }
           }
+          recorder.onerror = () => { stopMic(); showToast('Live voice interrupted — Retry Join Voice.') }
           recorder.start(250)
         } catch {
-          showToast('Mic is live locally, but live broadcast is unavailable in this browser.')
+          throw new Error('Live voice recording unavailable')
         }
       }
+      setMicMuted(false)
       setMicOn(true)
       showToast(activeRoom?.private ? 'Mic is live in the room — music ducks when you speak' : 'Mic is live — music ducks when you speak')
     } catch {
-      showToast('Microphone unavailable. Try the duck test to preview voice ducking.')
+      stopMic()
+      showToast('Microphone blocked or voice unavailable — voice was not joined. Retry Join Voice.')
     }
   }
 
+  function toggleMicMute() {
+    const muted = !micMuted
+    micRef.current.stream?.getAudioTracks().forEach(track => { track.enabled = !muted })
+    setMicMuted(muted)
+    if (muted) { setSpeaking(false); setMicLevel(0) }
+  }
+
   function stopMic() {
+    micRequestRef.current += 1
     if (micRef.current.raf) cancelAnimationFrame(micRef.current.raf)
     if (micRef.current.recorder && micRef.current.recorder.state !== 'inactive') {
       try { micRef.current.recorder.stop() } catch { /* already stopped */ }
@@ -2956,29 +2987,10 @@ export function useEchoSyncController() {
     micRef.current.stream?.getTracks().forEach((streamTrack) => streamTrack.stop())
     micRef.current.ctx?.close()
     micRef.current = { stream: null, ctx: null, analyser: null, raf: null, loudAt: 0, quietAt: 0, recorder: null, mimeType: '' }
+    setMicMuted(false)
     setMicOn(false)
     setMicLevel(0)
     if (!duckTest) setSpeaking(false)
-  }
-
-  function runDuckTest() {
-    if (duckTest) return
-    if (micOn) stopMic()
-    setDuckTest(true)
-    setSpeaking(true)
-    setMicLevel(0.65)
-    duckRef.current.interval = setInterval(() => {
-      setMicLevel(0.35 + Math.random() * 0.6)
-    }, 110)
-    duckRef.current.timer = setTimeout(() => {
-      clearInterval(duckRef.current.interval)
-      duckRef.current.interval = null
-      setDuckTest(false)
-      setSpeaking(false)
-      setMicLevel(0)
-      showToast('Duck test complete — music back at full volume')
-    }, 4000)
-    showToast(`Duck test: a friend is talking — music dips to ${settings.duckLevel || 20}%`)
   }
 
   function openAuth(mode = 'signin', reason = '', notice = '') {
@@ -3198,6 +3210,8 @@ export function useEchoSyncController() {
   ])
 
   return useStableActions({
+    dynamicCatalogTracks,
+    micMuted, toggleMicMute, stopMic,
     social, googleSignIn:cloud.google, cloudMode:cloud.configured, resetPassword:cloud.resetPassword, completePasswordRecovery:cloud.completePasswordRecovery,
     queueFilter, setQueueFilter, sleepTimer, setSleepTimer,
     queueSoloTrack, startTasteRadio,
@@ -3335,7 +3349,6 @@ export function useEchoSyncController() {
     voiceSpeaking,
     duckTest,
     toggleMic,
-    runDuckTest,
     settings,
     setQueueOpen,
     reorderSoloQueue,

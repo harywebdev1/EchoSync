@@ -48,7 +48,7 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, sleepTimer, setSleepTimer,
+    dynamicCatalogTracks, social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, sleepTimer, setSleepTimer,
     artworkContextValue,
     memberIndex,
     rootStyle,
@@ -173,13 +173,11 @@ export default function App() {
     translateOn,
     translating,
     toggleTranslation,
-    micOn,
+    micOn, micMuted, toggleMicMute, stopMic,
     micLevel,
     remoteSpeaking,
     voiceSpeaking,
-    duckTest,
     toggleMic,
-    runDuckTest,
     settings,
     setQueueOpen,
     reorderSoloQueue,
@@ -353,7 +351,7 @@ export default function App() {
             <ErrorBoundary resetKey={`${view}:${activeRoom?.id || ''}:${activePlaylistId || ''}`}>
               <div className="stage-scroll">
                 {view === 'home' && (
-                <HomeView onQueue={queueSoloTrack} onStartRadio={startTasteRadio}
+                <HomeView dynamicCatalogTracks={dynamicCatalogTracks} onQueue={queueSoloTrack} onStartRadio={startTasteRadio}
                   currentUser={currentUser}
                   library={library}
                   liked={likedSet}
@@ -492,6 +490,7 @@ export default function App() {
                 onToggleMute={toggleMute}
                 onSeek={seekTo}
                 canSeek={canControl}
+                onOpenLyrics={() => setFullPlayer('lyrics')}
                 onOpenFull={openFullPlayer}
                 onToggleQueue={toggleQueuePanel}
                 onCycleRepeat={cycleRepeatMode}
@@ -500,12 +499,10 @@ export default function App() {
                 shuffleEnabled={shuffleEnabled}
                 queueCount={Math.max(0, queue.length - currentIndex - 1)}
                 queueOpen={shellQueueOpen}
-                previewMode={!currentUser && guestPreview}
-                onPreviewUpgrade={() => openAuth('signin', GUEST_PREVIEW_BANNER)}
               />
             </ErrorBoundary>
 
-            <MobileMiniPlayer
+            <MobileMiniPlayer onNext={nextTrack}
               track={track}
               isPlaying={isPlaying}
               buffering={buffering || streamRecovering}
@@ -515,7 +512,7 @@ export default function App() {
               onLike={toggleLike}
               onOpenFull={openFullPlayer}
             />
-            <MobileBottomBar
+            <MobileBottomBar onAccount={openProfile}
               view={view}
               inRoom={roomPlaybackActive}
               chatOpen={chatOpen}
@@ -571,11 +568,10 @@ export default function App() {
               translating={translating}
               onToggleTranslate={toggleTranslation}
               micOn={micOn}
+              micMuted={micMuted} onMuteMic={toggleMicMute} onLeaveVoice={stopMic}
               micLevel={micOn ? micLevel : remoteSpeaking ? 0.62 : 0}
               speaking={voiceSpeaking}
-              duckTest={duckTest}
               onToggleMic={toggleMic}
-              onDuckTest={runDuckTest}
               duckLevel={settings.duckLevel}
               open={chatOpen}
               onOpenLounge={openLounge}
@@ -674,7 +670,7 @@ export default function App() {
         )}
 
         {fullPlayer && (
-          <FullPlayer
+          <FullPlayer initialPanel={fullPlayer === 'lyrics' ? 'lyrics' : 'player'}
             sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
             room={displayRoom}
             inRoom={roomPlaybackActive}

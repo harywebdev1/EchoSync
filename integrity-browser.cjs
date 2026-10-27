@@ -10,6 +10,7 @@ let passed = 0
   async function check(name, options, test) {
     if (process.env.ECHOSYNC_CASE && !name.includes(process.env.ECHOSYNC_CASE)) return
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: fixtureState(options), permissions: ['microphone'] })
+    context.setDefaultTimeout(20000)
     await installFixtures(context)
     const page = await context.newPage()
     const errors = []
@@ -364,6 +365,48 @@ let passed = 0
         await cdp.send('Debugger.removeBreakpoint', { breakpointId })
         assert.equal(renders, 0, 'Home catalog rerendered for unrelated playback UI settings')
       } finally { await cdp.detach() }
+    })
+    for(const mobile of [false,true]) await check('Phase D '+(mobile?'Mobile':'Desktop')+' glass navigation, stable message popup and player identity',{},async page=>{
+      await page.setViewportSize(mobile?{width:390,height:844}:{width:1440,height:900})
+      await open(page)
+      if(mobile){assert.deepEqual(await page.locator('.mobile-bottom-bar>button>span:last-of-type').allTextContents(),['Home','Rooms','Lounge','Library','Account']);assert.equal(await page.locator('.sidebar').isVisible(),false)}
+      if(process.env.ECHOSYNC_SCREENSHOTS)await page.screenshot({path:'performance-results.local/phase-d-home-'+(mobile?'mobile':'desktop')+'.png'})
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
+      assert.ok(await page.locator('.quick-picks-section').evaluate(el=>el.getBoundingClientRect().top)<(mobile?650:900),'Quick picks pushed below first screen')
+      await page.getByRole('button',{name:'Play Chaleya',exact:true}).first().click()
+      await page.waitForFunction(()=>!document.querySelector('[data-testid=root-audio]').paused)
+      const audio=await page.locator('[data-testid=root-audio]').elementHandle()
+      assert.equal(await page.locator('.player-dock .guest-preview-pill').count(),0)
+      if(mobile){assert.equal(await page.locator('.mobile-mini').evaluate(el=>el.offsetHeight),58);await page.locator('.mobile-mini').getByRole('button',{name:'Next track'}).waitFor()}
+      else {assert.equal(await page.locator('.player-dock').evaluate(el=>el.offsetHeight),76);await page.getByRole('button',{name:'Open lyrics',exact:true}).waitFor()}
+      await page.locator(mobile?'[data-testid=lounge-mobile-btn]':'[data-testid=lounge-header-btn]').click()
+      const input=page.getByRole('textbox',{name:'Public Lounge message'});await input.fill('Phase D layout invariant');await page.getByRole('button',{name:'Send Lounge message',exact:true}).click()
+      const row=page.locator('[data-testid=lounge-message]').filter({hasText:'Phase D layout invariant'});await row.waitFor()
+      const before=await row.boundingBox();await row.hover();const after=await row.boundingBox();assert.equal(after.height,before.height)
+      await row.getByRole('button',{name:'Lounge message options'}).click();const menu=page.getByRole('menu',{name:'Message actions'});await menu.waitFor();assert.equal(await menu.locator('.message-reaction-row>button').count(),5);await menu.getByRole('menuitem',{name:'View profile'}).waitFor();const pos=await menu.boundingBox();assert.ok(pos.x>=0 && pos.x+pos.width<=(mobile?390:1440));assert.equal((await row.boundingBox()).height,before.height)
+      await menu.getByRole('menuitem',{name:'Reply',exact:false}).click();await page.locator('.lounge-composer .reply-bar').waitFor()
+      await row.getByRole('button',{name:'Lounge message options'}).click();await page.getByRole('menuitem',{name:'View profile'}).click();const card=page.getByTestId('lounge-user-card');await card.waitFor();await card.getByRole('heading',{name:'Saved Rooms',exact:true}).waitFor();assert.equal(await card.locator('.lounge-user-top .avatar').evaluate(el=>el.offsetWidth),72);await page.getByRole('button',{name:'Close user card'}).click()
+      await page.evaluate(()=>{const peer=new BroadcastChannel('echosync-room-sync');peer.postMessage({type:'lounge-message',sender:'peer-test',message:{id:'phase-d-peer',author:'peer-test',userName:'Peer Listener',authorHandle:'peer',text:'Phase D other bubble',time:'12:00',reactions:[]}});setTimeout(()=>peer.close(),100)})
+      const other=page.locator('[data-testid=lounge-message]').filter({hasText:'Phase D other bubble'});await other.waitFor();assert.equal(await other.locator('.avatar').evaluate(el=>el.offsetWidth),28);assert.equal(await other.locator('.msg-author button').textContent(),'@peer');const otherHeight=await other.evaluate(el=>el.offsetHeight);await other.hover();assert.equal(await other.evaluate(el=>el.offsetHeight),otherHeight)
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate((node,old)=>node===old,audio),true)
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate(node=>node.paused),false)
+      if(process.env.ECHOSYNC_SCREENSHOTS)await page.screenshot({path:'performance-results.local/phase-d-'+(mobile?'mobile':'desktop')+'.png'})
+    })
+    await check('Phase D live voice sends actual microphone bytes, mutes and leaves cleanly',{},async page=>{
+      await page.addInitScript(()=>{const Native=BroadcastChannel;window.__voiceEvents=[];window.__voicePeer=new Native('echosync-room-sync');window.__voicePeer.onmessage=event=>{if(event.data.type.startsWith('voice-'))window.__voiceEvents.push({type:event.data.type,bytes:event.data.chunk?.byteLength||0})};const original=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);navigator.mediaDevices.getUserMedia=async options=>{window.__voiceStream=await original(options);return window.__voiceStream}})
+      await open(page);await page.getByRole('button',{name:/Integrity Room/}).first().click();await page.locator('.room-head').waitFor();await page.locator('.chat-live-mic').waitFor()
+      assert.equal(await page.getByRole('button',{name:'Duck test',exact:true}).count(),0)
+      await page.getByRole('button',{name:'Join Voice',exact:true}).click();await page.getByRole('button',{name:'Mute Mic',exact:true}).waitFor();await page.waitForFunction(()=>window.__voiceEvents.some(e=>e.type==='voice-chunk'&&e.bytes>120))
+      await page.getByRole('button',{name:'Mute Mic',exact:true}).click();assert.equal(await page.evaluate(()=>window.__voiceStream.getAudioTracks().every(t=>!t.enabled)),true)
+      await page.getByRole('button',{name:'Unmute Mic',exact:true}).click();assert.equal(await page.evaluate(()=>window.__voiceStream.getAudioTracks().every(t=>t.enabled)),true)
+      await page.getByRole('button',{name:'Leave Voice',exact:true}).click();assert.equal(await page.evaluate(()=>window.__voiceStream.getTracks().every(t=>t.readyState==='ended')),true);await page.getByRole('button',{name:'Join Voice',exact:true}).waitFor();await page.waitForFunction(()=>window.__voiceEvents.some(e=>e.type==='voice-live-stop'))
+    })
+    await check('Phase D guest preview keeps its 30-second stop and dismissible notice without a dock pill',{},async page=>{
+      await page.addInitScript(()=>{localStorage.removeItem('echosync_remember_user_id');sessionStorage.removeItem('echosync_active_user_id')})
+      await open(page);await page.getByRole('button',{name:'Play Chaleya',exact:true}).first().click();await page.waitForFunction(()=>!document.querySelector('[data-testid=root-audio]').paused)
+      assert.equal(await page.locator('.player-dock .guest-preview-pill').count(),0)
+      await page.locator('[data-testid=root-audio]').evaluate(audio=>{audio.currentTime=30.1;audio.dispatchEvent(new Event('timeupdate'))})
+      await page.getByTestId('preview-ended-card').waitFor();assert.equal(await page.getByTestId('root-audio').evaluate(audio=>audio.paused),true);await page.getByRole('button',{name:'Dismiss preview notice'}).click();assert.equal(await page.getByTestId('preview-ended-card').count(),0)
     })
     console.log(`Application browser integrity: ${passed} checks passed`)
   } finally { await browser.close() }

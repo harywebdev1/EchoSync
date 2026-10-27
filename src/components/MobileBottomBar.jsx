@@ -8,7 +8,7 @@ import {
   Play,
   Radio,
   RefreshCw,
-  Search,
+  Search, UserRound, SkipForward,
 } from 'lucide-react'
 import { Cover } from './Cover'
 import { usePlaybackProgress } from '../state/playbackStore'
@@ -20,7 +20,7 @@ export function MobileMiniPlayer({
   duration,
   liked,
   onTogglePlay,
-  onLike,
+  onLike, onNext,
   onOpenFull,
 }) {
   const progress = usePlaybackProgress()
@@ -38,20 +38,13 @@ export function MobileMiniPlayer({
       </button>
       <button
         type="button"
-        className={`mini-like ${liked.includes(track.id) ? 'liked' : ''}`}
-        onClick={() => onLike(track)}
-        aria-label="Like track"
-      >
-        <Heart />
-      </button>
-      <button
-        type="button"
         className="mini-play"
         onClick={onTogglePlay}
         aria-label={buffering ? 'Buffering' : isPlaying ? 'Pause' : 'Play'}
       >
         {buffering ? <RefreshCw className="spin" /> : isPlaying ? <Pause /> : <Play />}
       </button>
+      <button type="button" className="mini-next" onClick={onNext} aria-label="Next track"><SkipForward/></button>
       <span className="mini-progress" aria-hidden="true"><i style={{ width: `${pct}%` }} /></span>
     </div>
   )
@@ -66,7 +59,7 @@ export function MobileBottomBar({
   unreadRoomCount = 0,
   likedCount = 0,
   onNavigate,
-  onSearch,
+  onSearch, onAccount,
   onChat,
   onLounge,
 }) {
@@ -78,10 +71,6 @@ export function MobileBottomBar({
       <button className={homeActive ? 'active' : ''} onClick={() => onNavigate('home')}>
         <span className="tab-icon"><Home /></span>
         <span>Home</span>
-      </button>
-      <button onClick={onSearch}>
-        <span className="tab-icon"><Search /></span>
-        <span>Search</span>
       </button>
       <button className={roomsActive && !chatOpen ? 'active' : ''} onClick={() => onNavigate('rooms')}>
         <span className="tab-icon"><Radio /></span>
@@ -113,6 +102,7 @@ export function MobileBottomBar({
           </span>
         )}
       </button>
+      <button onClick={onAccount}><span className="tab-icon"><UserRound/></span><span>Account</span></button>
     </nav>
   )
 }

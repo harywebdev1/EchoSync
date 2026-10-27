@@ -1,3 +1,4 @@
+import { MessageContextMenu } from './MessageContextMenu.jsx'
 import { SongDrop } from './SongDrop.jsx'
 import { useSocial } from './SocialContext.jsx'
 import { useEffect, useRef, useState } from 'react'
@@ -32,44 +33,12 @@ import { MessageText } from '../MessageText'
 import { VoiceNoteBubble } from '../VoiceNoteBubble'
 import { LyricsPanel } from '../player/LyricsPanel'
 
-function VoiceRow({
-  micOn,
-  micLevel,
-  speaking,
-  duckTest,
-  ducked,
-  onToggleMic,
-  onDuckTest,
-  duckLevel = 20,
-}) {
-  const bars = [0.35, 0.7, 1, 0.55, 0.82, 0.42, 0.65]
-  return (
-    <div className="voice-row">
-      <button className={`voice-btn ${micOn ? 'on' : ''}`} onClick={onToggleMic}>
-        {micOn ? <Mic /> : <MicOff />}
-        <span>{micOn ? 'Mic live' : 'Join mic'}</span>
-        {micOn && <i className="voice-live-dot" />}
-      </button>
-      <button className={`voice-test ${duckTest ? 'busy' : ''}`} onClick={onDuckTest} disabled={duckTest}>
-        {duckTest ? <span className="spinner" /> : <Sparkles />}
-        <span>{duckTest ? 'Ducking…' : 'Duck test'}</span>
-      </button>
-      {speaking && (
-        <span className="duck-indicator on">
-          <span className="mic-bars">
-            {bars.map((height, index) => (
-              <i
-                key={index}
-                style={{ height: `${Math.max(3, height * (micLevel || 0.3) * 11)}px` }}
-              />
-            ))}
-          </span>
-          {ducked ? `Music ducked to ${duckLevel}%` : 'Voice detected'}
-        </span>
-      )}
-      <span className="voice-note"><Lock size={8} /> Private room · live voice</span>
-    </div>
-  )
+function VoiceRow({micOn,micMuted,micLevel,speaking,onToggleMic,onMuteMic,onLeaveVoice}) {
+ return <div className="voice-row">
+ <button className={`voice-btn ${micOn?'on':''}`} onClick={onToggleMic}><Mic/><span>{micOn?'Voice connected':'Join Voice'}</span></button>
+ {micOn && <><button className="voice-btn" onClick={onMuteMic}>{micMuted?<MicOff/>:<Mic/>}<span>{micMuted?'Unmute Mic':'Mute Mic'}</span></button><button className="voice-btn" onClick={onLeaveVoice}>Leave Voice</button></>}
+ <span className="voice-note" role="status">{micMuted?'Mic muted':speaking?'● Speaking':micOn?'Listening · mic ready':'Room-only live audio'}</span>
+ </div>
 }
 
 export function ChatDrawer({
@@ -103,11 +72,10 @@ export function ChatDrawer({
   translating,
   onToggleTranslate,
   micOn,
+  micMuted, onMuteMic, onLeaveVoice,
   micLevel,
   speaking,
-  duckTest,
   onToggleMic,
-  onDuckTest,
   duckLevel,
   onOpenLounge,
   unreadLoungeCount = 0,
@@ -118,14 +86,6 @@ export function ChatDrawer({
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [menuFor, setMenuFor] = useState(null)
-  useEffect(() => {
-    if (!menuFor) return
-    const frame = requestAnimationFrame(() => document.querySelector('.msg-actions.menu-open')?.scrollIntoView({ block: 'nearest' }))
-    const dismiss = event => { if (!event.target.closest('.msg-actions')) setMenuFor(null) }
-    const escape = event => { if (event.key === 'Escape') setMenuFor(null) }
-    document.addEventListener('pointerdown', dismiss); document.addEventListener('keydown', escape)
-    return () => { cancelAnimationFrame(frame); document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape) }
-  }, [menuFor])
   const [mention, setMention] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [recording, setRecording] = useState(false)
@@ -434,17 +394,14 @@ export function ChatDrawer({
         )}
       </div>
 
-      {activeTab === 'chat' && room.private && (
+      {activeTab === 'chat' && (
         <div className="chat-live-mic" data-testid="chat-live-mic">
           <VoiceRow
             micOn={micOn}
+            micMuted={micMuted} onMuteMic={onMuteMic} onLeaveVoice={onLeaveVoice}
             micLevel={micLevel}
             speaking={speaking}
-            duckTest={duckTest}
-            ducked={speaking}
-            duckLevel={duckLevel}
             onToggleMic={onToggleMic}
-            onDuckTest={onDuckTest}
           />
         </div>
       )}
@@ -473,15 +430,14 @@ export function ChatDrawer({
                 >
                   {!mine && <button className="lounge-avatar-btn" onClick={()=>social.openProfile(author.id)} aria-label={`Open ${author.name}'s profile`}><Avatar member={author} size="sm" /></button>}
                   <div className="msg-main">
-                    {!mine && (
+    <div className={`bubble ${message.type === 'voice' ? 'voice' : ''}`}>
+                {!mine && (
                       <div className="msg-author">
-                        <button className="lounge-author-btn" onClick={()=>social.openProfile(author.id)}>{author.name}</button>
-                        <span className="msg-handle">@{author.handle}</span>
+                        <button className="lounge-author-btn" onClick={()=>social.openProfile(author.id)}>@{author.handle}</button>
                         {roleOf(message.author) === 'dj' && <span className="dj-tag">DJ</span>}
                       </div>
                     )}
-                    <div className={`bubble ${message.type === 'voice' ? 'voice' : ''}`}>
-                      {message.replyTo && (
+                                          {message.replyTo && (
                         <button className="reply-quote" onClick={() => scrollToMessage(message.replyTo.id)}>
                           <strong>{message.replyTo.name || message.replyTo.handle}</strong>
                           <span>{message.replyTo.text || 'Voice note'}</span>
@@ -501,34 +457,8 @@ export function ChatDrawer({
                         {message.time}
                         {mine && (message.read ? <CheckCheck /> : <Check />)}
                       </span>
-                      <div className={`msg-actions ${menuFor === message.id ? 'menu-open' : ''}`}>
-                        <button className="msg-action" onClick={() => onReply(message)} aria-label="Reply to message">
-                          <CornerUpLeft />
-                        </button>
-                        <button
-                          className="msg-action"
-                          onClick={() => setMenuFor((value) => (value === message.id ? null : message.id))}
-                          aria-label="Message options"
-                        >
-                          <MoreHorizontal />
-                        </button>
-                        {menuFor === message.id && (
-                          <div className="msg-menu">
-                            <button onClick={() => { onReply(message); setMenuFor(null) }}><CornerUpLeft /> Reply</button>
-                            <button onClick={() => { insertMention(author); setMenuFor(null) }}><AtSign /> Tag @{author.handle}</button>
-                            <div className="msg-menu-emojis">
-                              {REACTION_EMOJIS.map((emoji) => (
-                                <button key={emoji} onClick={() => { onReact(message.id, emoji); setMenuFor(null) }}>{emoji}</button>
-                              ))}
-                            </div>
-                            {canDelete && (
-                              <button className="danger" onClick={() => { onDeleteMessage(message.id); setMenuFor(null) }}>
-                                <Trash2 /> Delete
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                          <button className="message-chevron" aria-label="Message options" aria-haspopup="menu" aria-expanded={menuFor?.id === message.id} onClick={event=>setMenuFor(menuFor?.id===message.id?null:{id:message.id,anchor:event.currentTarget})}>⌄</button>
+                      {menuFor?.id === message.id && <MessageContextMenu anchor={menuFor.anchor} onClose={()=>setMenuFor(null)} onReply={()=>onReply(message)} onProfile={()=>social.openProfile(author.id)} onPlay={message.track ? ()=>social.play(message.track) : undefined} onDelete={canDelete ? ()=>onDeleteMessage(message.id) : undefined} onReact={emoji=>onReact(message.id,emoji)} />}
                     </div>
                     {message.reactions?.length > 0 && (
                       <div className="msg-reactions">
@@ -666,7 +596,7 @@ export function ChatDrawer({
             )}
           </div>
           <div className="social-note">
-            <Lock size={9} /> {room.private ? 'Live mic is room-only · voice notes stay in chat' : 'Voice notes only · live mic is available in private rooms'}
+            <Lock size={9} /> Room-only live audio · voice notes stay in chat
           </div>
         </>
       ) : (

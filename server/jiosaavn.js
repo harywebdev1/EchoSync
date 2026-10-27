@@ -13,11 +13,12 @@ export function decryptMediaUrl(encrypted) {
   return url.href
 }
 const text = value => String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/<[^>]*>/g, '').trim()
-export function normalizeOfficialSong(raw) {
+export function normalizeOfficialSong(raw, {allowUnresolved = false} = {}) {
   const info = raw?.more_info || raw || {}
   if (!raw?.id) return null
   let source
-  try { source = decryptMediaUrl(info.encrypted_media_url || raw.encrypted_media_url) } catch { return null }
+  const encrypted = info.encrypted_media_url || raw.encrypted_media_url
+  try { source = decryptMediaUrl(encrypted) } catch { if (!allowUnresolved || encrypted) return null }
   const supports320 = String(info['320kbps'] ?? raw['320kbps']).toLowerCase() === 'true'
   const atQuality = quality => source.replace(/_(?:96|160|320)\.mp4(?=\?|$)/, `_${quality}.mp4`)
   const primary = info.artistMap?.primary_artists || []
@@ -28,7 +29,7 @@ export function normalizeOfficialSong(raw) {
     primaryArtists: artist, artists: { primary: primary.map(a => ({ name: text(a.name) })) }, album: { name: text(info.album || raw.album) },
     language: text(info.language || raw.language), year: text(raw.year || info.year),
     image: art ? [{ quality: '500x500', url: art }] : [],
-    downloadUrl: [...(supports320 ? [{ quality: '320kbps', url: atQuality(320) }] : []), { quality: '160kbps', url: atQuality(160) }, { quality: '96kbps', url: atQuality(96) }],
+    downloadUrl: source ? [...(supports320 ? [{ quality: '320kbps', url: atQuality(320) }] : []), { quality: '160kbps', url: atQuality(160) }, { quality: '96kbps', url: atQuality(96) }] : [],
   }
 }
 export function officialUrl(route, params) {
@@ -40,6 +41,6 @@ export function officialUrl(route, params) {
 export function normalizeOfficialPayload(data, search) {
   const rows = search ? data?.results : data?.songs || data
   const values = Array.isArray(rows) ? rows : rows && typeof rows === 'object' ? Object.values(rows) : []
-  const songs = values.map(normalizeOfficialSong).filter(Boolean)
+  const songs = values.map(row => normalizeOfficialSong(row, {allowUnresolved: search})).filter(Boolean)
   return search ? { data: { results: songs, total: Number(data.total) || songs.length } } : { data: songs }
 }

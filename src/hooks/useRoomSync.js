@@ -571,12 +571,11 @@ export function useRoomSync({
       }
 
       if (data.type === 'voice-live-start' && data.roomId && data.userId) {
-        markRemoteVoice(data.roomId, data.userId, data.mimeType)
         return
       }
 
       if (data.type === 'voice-chunk' && data.roomId && data.userId) {
-        markRemoteVoice(data.roomId, data.userId, data.mimeType)
+        if(data.speaking !== false) markRemoteVoice(data.roomId, data.userId, data.mimeType)
         pushRemoteAudioChunk(data)
         return
       }
