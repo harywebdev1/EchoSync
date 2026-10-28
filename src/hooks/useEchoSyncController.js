@@ -1,5 +1,5 @@
 import { roomFromCloud, cloudFingerprint, messageFromCloud } from '../cloud/cloudAdapter.js'
-import { normalizeTasteProfile } from '../core/tasteEngine.js'
+import { normalizeTasteProfile } from '../core/listenerProfile.js'
 import { useCloudBackend } from './useCloudBackend.js'
 import { isCloudVoiceUrl, isSupabaseConfigured } from '../lib/supabaseClient.js'
 import { useSocialFeatures } from './useSocialFeatures.js'
@@ -73,10 +73,12 @@ import {
   replaceTrackArtwork,
   fetchArtworkFallback,
   fetchJioSearch,
+  fetchYtRadio,
+  resolveVideoId,
 } from '../lib/appServices.js'
 import { useAppState } from './useAppState.js'
 import { startNetworkMonitor, setPreferredStreamQuality } from '../services/networkMonitor'
-import { topTasteLabels, applyTasteSignal, buildTasteSuggestions, buildArtistRadio, artistNames } from '../core/tasteEngine.js'
+import { topTasteLabels, applyTasteSignal, buildTasteSuggestions, artistNames } from '../core/listenerProfile.js'
 import { playbackProgressStore } from '../state/playbackStore'
 import { initials, normalizeArtworkUrl } from '../lib/media'
 import { clearPreloadSession } from '../services/preloadManager'
@@ -1123,32 +1125,20 @@ export function useEchoSyncController() {
 
   async function autoplayTracks(seed) {
     if (settings.autoplay === false || !seed?.id) return []
-    const seedArtist = artistNames(seed)[0] || ''
-    const seedArtistKey = seedArtist.toLowerCase().trim()
-    const localPool = [...dynamicCatalogTracks,...Object.values(libraryRef.current || {})].filter((track) => track?.id && track.id !== seed.id)
-    const localArtistCount = seedArtistKey
-      ? localPool.filter((track) => artistNames(track).some((artist) => artist.toLowerCase().trim() === seedArtistKey)).length
-      : 0
-    let pool = localPool
-    if (seedArtistKey && localArtistCount < 6) {
-      try {
-        const fresh = await fetchJioSearch(`${seedArtist} songs`, 18, { fresh: true })
-        fresh.forEach((track) => rememberTrack(track))
-        pool = [...localPool, ...fresh]
-      } catch {
-        /* the local catalog still drives the station */
+    // Official Auto-Radio straight from YouTube Music's `next` endpoint. The
+    // first row is the seed, so a station always continues with new songs.
+    const videoId = seed.youtubeVideoId || await resolveVideoId(seed).catch(() => '')
+    if (videoId) {
+      const radio = await fetchYtRadio(videoId, { limit: 25, artist: seed.artist })
+      if (radio.length) {
+        radio.forEach((track) => rememberTrack(track))
+        return radio
       }
     }
-    const radio = buildArtistRadio(seed, pool, tasteProfile, { limit: 14, liked: likedSet })
-    if (radio.length >= 6) return radio
-    const vibe = topTasteLabels(tasteProfile.vibes, 1)[0] || ''
-    const fallbackQuery = seedArtist ? `${seedArtist} songs` : vibe ? `${vibe} songs` : 'trending Hindi hits'
-    try {
-      const tracks = await fetchJioSearch(fallbackQuery, 18, { fresh: true })
-      return buildArtistRadio(seed, [...pool, ...tracks], tasteProfile, { limit: 14, liked: likedSet })
-    } catch {
-      return radio
-    }
+    const query = seed.artist ? `${seed.artist} songs` : 'trending Hindi hits'
+    const tracks = await fetchJioSearch(query, 18, { fresh: true }).catch(() => [])
+    tracks.forEach((track) => rememberTrack(track))
+    return tracks
   }
 
   function removeRecentSearch(query) {

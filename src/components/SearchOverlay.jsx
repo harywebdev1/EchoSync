@@ -8,8 +8,9 @@ import {
   X,
 } from 'lucide-react'
 import { Cover } from './Cover'
-import { getCanonicalSongStem } from '../core/songStem.js'
+import { getCanonicalSongStem } from '../core/trackIdentity.js'
 import { rankBySearchSimilarity, searchSimilarity } from '../core/searchRanking.js'
+import { fetchYtArtist } from '../lib/appServices.js'
 
 const SEARCH_CATEGORIES = [
   { id: 'coke-studio-indie', label: 'Coke Studio & Indie', query: 'Coke Studio indie songs', c1: '#633317', c2: '#e9a665' },
@@ -99,6 +100,42 @@ export function SearchOverlay({
     }
     return merged
   },[results,instant])
+
+  // Artist cards come from the same YouTube Music rows: every song carries its
+  // artists with a browseId, so no extra search is needed to show them.
+  const artistCards = useMemo(() => {
+    const map = new Map()
+    for (const track of visibleResults) {
+      const artists = Array.isArray(track.artists) && track.artists.length
+        ? track.artists
+        : [{ name: track.artist }]
+      for (const artist of artists) {
+        if (!artist?.name) continue
+        const key = artist.browseId || artist.name.toLowerCase()
+        const entry = map.get(key) || {
+          name: artist.name,
+          browseId: artist.browseId || '',
+          avatar: '',
+          count: 0,
+        }
+        entry.count += 1
+        if (!entry.avatar) entry.avatar = track.cover || ''
+        map.set(key, entry)
+      }
+    }
+    return [...map.values()]
+      .filter((artist) => artist.browseId)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6)
+  }, [visibleResults])
+
+  const playArtist = async (artist) => {
+    if (!artist?.name && !artist?.browseId) return
+    const profile = await fetchYtArtist({ browseId: artist.browseId, name: artist.name }).catch(() => null)
+    const songs = profile?.songs || []
+    if (songs.length) onPlay(songs[0], songs)
+    else runQuery(`${artist.name} songs`)
+  }
 
   // Warm the first visible rows so a click starts from an already resolved
   // preview URL instead of a cold provider lookup.
@@ -207,6 +244,28 @@ export function SearchOverlay({
           )}
 
           {instant.length>0 && status!=='ready' && <h3 className="instant-label">Instant matches</h3>}
+          {status === 'ready' && artistCards.length > 0 && (
+            <section className="search-artist-section" aria-label="Matching artists">
+              <div className="search-caption"><span>Artists</span></div>
+              <div className="search-artist-row">
+                {artistCards.map((artist) => (
+                  <button
+                    key={artist.browseId || artist.name}
+                    type="button"
+                    className="search-artist-card"
+                    onClick={() => playArtist(artist)}
+                    aria-label={`Play top songs by ${artist.name}`}
+                  >
+                    <span className="search-artist-avatar">
+                      {artist.avatar ? <img src={artist.avatar} alt="" loading="lazy" /> : <Radio />}
+                    </span>
+                    <strong>{artist.name}</strong>
+                    <small>Artist</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
           {visibleResults.length > 0 && (
             <>
               <div className="search-caption"><span>Top result</span><b>{results.length} streams</b></div>
@@ -228,7 +287,22 @@ export function SearchOverlay({
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
                     <strong>{track.title}</strong>
-                    <span>{track.artist}</span>
+                    <span className="search-artist-links">
+                      {(Array.isArray(track.artists) && track.artists.length ? track.artists : [{ name: track.artist }]).map((artist, artistIndex) => (
+                        <Fragment key={`${artist.browseId || artist.name}-${artistIndex}`}>
+                          {artistIndex > 0 && <span>, </span>}
+                          {artist.browseId ? (
+                            <button
+                              type="button"
+                              className="search-artist-link"
+                              onClick={(event) => { event.stopPropagation(); playArtist(artist) }}
+                            >
+                              {artist.name}
+                            </button>
+                          ) : <span>{artist.name}</span>}
+                        </Fragment>
+                      ))}
+                    </span>
                     {pendingTrackId === track.id && <span className="search-pending-copy">Loading stream...</span>}
                   </div>
                   <button

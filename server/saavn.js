@@ -1,4 +1,7 @@
-// The legacy path keeps working for every existing import while the handler
-// itself lives in saavnHandler.js alongside the OmniRoute provider router.
-export { createSaavnHandler, saavnHandler } from './saavnHandler.js'
-export { saavnHandler as default } from './saavnHandler.js'
+// Compatibility alias: /api/saavn and every legacy import now resolve to the
+// pure YouTube Music InnerTube handler. No other provider is reachable here.
+export {
+  createYtmusicHandler as createSaavnHandler,
+  ytmusicHandler as saavnHandler,
+} from './ytmusicHandler.js'
+export { ytmusicHandler as default } from './ytmusicHandler.js'

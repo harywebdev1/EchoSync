@@ -10,11 +10,18 @@
     "api/youtube-audio.js": {
       "maxDuration": 30
     },
+    "api/ytmusic.js": {
+      "maxDuration": 20
+    },
     "api/saavn.js": {
-      "maxDuration": 15
+      "maxDuration": 20
     }
   },
   "rewrites": [
+    {
+      "source": "/api/ytmusic/:route*",
+      "destination": "/api/ytmusic?route=:route*"
+    },
     {
       "source": "/api/saavn/:route*",
       "destination": "/api/saavn?route=:route*"

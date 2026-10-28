@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchJioSearch } from '../lib/appServices.js'
 import { collectMoodResults, moodQueries } from '../core/moodFeed.js'
-import { topTasteLabels } from '../core/tasteEngine.js'
+import { topTasteLabels } from '../core/listenerProfile.js'
 
 // Immediate local ranking stays in Home. Only the latest mood request can publish.
 export function useLiveMoodFeed(mood, profile) {

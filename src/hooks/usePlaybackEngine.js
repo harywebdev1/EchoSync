@@ -18,13 +18,13 @@ import {
   primeInstantPreview,
   loadRoomStateSnapshot,
   loadYouTubeApi,
+  preResolvedStream,
+  fetchYtRadio,
 } from '../lib/appServices.js'
 import { playbackProgressStore, setLiveTelemetry } from '../state/playbackStore'
 import { preloadQueueWindow, preloadCandidateAt } from '../services/preloadManager'
 import { useEffect, useRef } from 'react'
 import { useMediaSession, publishMediaSessionPosition } from './useMediaSession.js'
-import { buildArtistRadio } from '../core/tasteEngine.js'
-import { omniStreamChain } from '../core/omniMusicEngine.js'
 
 const GUEST_PREVIEW_SECONDS = 30
 export const GUEST_PREVIEW_BANNER = 'Sign in to hear full tracks.'
@@ -156,6 +156,8 @@ export function usePlaybackEngine({
   const previewUpgradeRef = useRef(false)
   const prefetchInFlightRef = useRef(new Set())
   const upgradeInFlightRef = useRef(new Set())
+  const directWarmRef = useRef(new Set())
+  const radioPrimedRef = useRef(new Set())
   const openPreviewGateRef = useRef(() => {})
 
   useEffect(() => {
@@ -625,6 +627,11 @@ export function usePlaybackEngine({
   // tick while the full stream resolves in the background.
   function stageTrack(candidate, options = {}) {
     if (!candidate?.id) return null
+    // A hovered card has already resolved its stream in the prefetch map.
+    const pre = options.forceRefresh ? null : preResolvedStream(candidate)
+    if (pre && (pre.streamUrl || pre.youtubeVideoId)) {
+      candidate = { ...candidate, ...pre, id: candidate.id, cover: candidate.cover || pre.cover }
+    }
     const usePreview = options.usePreview === true
     const fullDirect = Boolean(candidate.streamUrl) && isFullLengthTrack(candidate) && !isPreviewTrack(candidate)
     // A YouTube audio download proxied through our media route is megabytes of
@@ -665,8 +672,7 @@ export function usePlaybackEngine({
   }
 
   // Warm the stream for a hovered or visible card so the click can attach
-  // immediately. Guests get the preview resolved; members hydrate the full
-  // stream in the background.
+  // immediately from the pre-resolved map.
   function prefetchTrack(candidate) {
     if (!candidate?.id) return
     primeInstantPreview(candidate)
@@ -689,6 +695,30 @@ export function usePlaybackEngine({
       })
       .catch(() => {})
       .finally(() => prefetchInFlightRef.current.delete(candidate.id))
+  }
+
+  // Playing any track immediately fills Up Next from that track's official
+  // RDAMVM radio. The queue keeps its current order; radio rows are appended.
+  function primeRadioQueue(candidate) {
+    const videoId = candidate?.youtubeVideoId
+    if (!videoId || inRoom || radioActive.current) return
+    if (radioPrimedRef.current.has(videoId)) return
+    radioPrimedRef.current.add(videoId)
+    fetchYtRadio(videoId, { limit: 25, artist: candidate.artist })
+      .then((tracks) => {
+        const existing = new Set(soloQueueRef.current)
+        const extra = (Array.isArray(tracks) ? tracks : [])
+          .filter((item) => item?.id && item.id !== candidate.id && !existing.has(item.id))
+        if (!extra.length) return
+        setLibrary((previous) => {
+          const next = { ...previous }
+          extra.forEach((item) => { next[item.id] = sanitizeTrack(item) })
+          return next
+        })
+        extra.forEach((item) => saveLibraryEntry(item.id, item))
+        commitSoloQueue([...soloQueueRef.current, ...extra.map((item) => item.id)], { currentId: candidate.id })
+      })
+      .catch(() => {})
   }
 
   // Resolve a full-length stream for a track that is already playing a
@@ -751,6 +781,10 @@ export function usePlaybackEngine({
     const fast = Boolean(options.fast)
     let candidate = sanitizeTrack(rawCandidate)
     if (!candidate.id) return null
+    const pre = forceRefresh ? null : preResolvedStream(candidate)
+    if (pre && (pre.streamUrl || pre.youtubeVideoId)) {
+      candidate = sanitizeTrack({ ...candidate, ...pre, id: candidate.id, cover: candidate.cover || pre.cover })
+    }
     if (forceRefresh) {
       evictLibraryEntry(candidate.id)
       clearResolvedStream(candidate.id)
@@ -789,11 +823,21 @@ export function usePlaybackEngine({
     })
     if (direct) {
       saveLibraryEntry(candidate.id, staged)
+      // The IFrame is already audible. Warm the direct AAC stream in the
+      // background so the cache is hot for the next start (and for hover
+      // pre-resolution) without interrupting what is playing.
+      if (!candidate.streamUrl && candidate.youtubeVideoId && currentUser && !directWarmRef.current.has(candidate.id)) {
+        directWarmRef.current.add(candidate.id)
+        resolveFullTrack({ ...candidate, preview: false }, { budget: 9000 })
+          .catch(() => {})
+          .finally(() => directWarmRef.current.delete(candidate.id))
+      }
       return staged
     }
 
-    // No full stream yet: play a provider preview immediately (Deezer MP3,
-    // JioSaavn clip or a fast Apple preview) while the full stream hydrates.
+    // No full stream yet: attach any already-resolved direct stream in the
+    // same frame; otherwise hand the known video id to the hidden IFrame while
+    // the direct stream hydrates.
     let previewUrl = candidate.previewUrl || (candidate.streamUrl && isPreviewTrack(candidate) ? candidate.streamUrl : null)
     if (!previewUrl && !forceRefresh) {
       try {
@@ -901,7 +945,7 @@ export function usePlaybackEngine({
     if (!previewUrl) {
       resolved = await fullTask
     }
-    if (!previewUrl && !resolved?.streamUrl && !resolved?.youtubeVideoId) {
+    if (!previewUrl && !source.youtubeVideoId && !resolved?.streamUrl && !resolved?.youtubeVideoId) {
       try {
         resolved = await withTimeout(resolveByMetadata(source), 6000, 'Preview lookup timed out')
       } catch {
@@ -1366,11 +1410,17 @@ export function usePlaybackEngine({
     recoveryRef.current.active = false
   }
 
-  // Silent, local fallback ladder: alternate Saavn bitrate, the same-origin
-  // media proxy (only for hosts the proxy may fetch), then the provider
-  // preview. No lookup, no toast, no dead air.
+  // Silent, local fallback ladder: the stream that is already mounted, a
+  // pre-resolved direct stream, then a provider preview. When none of them
+  // answer, handleAudioError hands the same track to the hidden IFrame.
   function streamAlternatives(current) {
-    return omniStreamChain(current)
+    const list = []
+    const direct = String(current?.streamUrl || '')
+    if (direct) list.push(direct)
+    const pre = preResolvedStream(current)
+    if (pre?.streamUrl && pre.streamUrl !== direct) list.push(pre.streamUrl)
+    if (current?.previewUrl && current.previewUrl !== direct) list.push(current.previewUrl)
+    return list
   }
 
   async function trySwapStream(audio, url, resumeTime, attemptId) {
@@ -1830,6 +1880,7 @@ export function usePlaybackEngine({
     audioRef.current?.pause()
     setIsPlaying(false)
     beginPlayback(SOLO_ROOM_ID, playOrder, index, staged)
+    primeRadioQueue(staged)
     ensurePlayable(candidate).then((playable) => {
       if (!playable) return
       setLibrary((previous) => ({ ...previous, [playable.id]: sanitizeTrack({ ...previous[playable.id], ...playable }) }))

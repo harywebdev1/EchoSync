@@ -1,5 +1,8 @@
-import { getCanonicalSongStem } from './songStem.js'
+import { getCanonicalSongStem } from './trackIdentity.js'
 
+// Profile helpers only. Everything that decides *what to recommend* lives in
+// YouTube Music's own radio/search responses now; this module learns enough
+// about the listener to seed those calls and to describe their taste.
 export const ARTIST_LANGUAGE = {
   'atif aslam': 'Urdu',
   'arijit singh': 'Hindi',
@@ -16,7 +19,7 @@ export const ARTIST_LANGUAGE = {
   'kaifi khalil': 'Urdu',
   'rahat fateh ali khan': 'Urdu',
   'jubin nautiyal': 'Hindi',
-  'anuv jain': 'Hindi', 'hasan raheem': 'Urdu', 'abdul hannan': 'Urdu', kaavish:'Urdu', 'prateek kuhad':'Hindi',
+  'anuv jain': 'Hindi', 'hasan raheem': 'Urdu', 'abdul hannan': 'Urdu', kaavish: 'Urdu', 'prateek kuhad': 'Hindi',
 }
 
 // Invisible learning only. Every dimension is artist, vibe, or language-era.
@@ -29,6 +32,18 @@ export const TASTE_WEIGHTS = {
   search: { keyword: 3 },
   skip: { artist: -2, vibe: -2, language: 0 },
 }
+
+export const TASTE_VIBES = ['Romantic', 'Sufi & Soul', 'Indie & Acoustic', 'Punjabi & Upbeat', 'Late Night Lo-Fi', 'Workout & Energy', 'Global Pop']
+
+export const HOME_MOODS = [
+  { id: 'all', label: 'All', tint: '#a78bfa' },
+  { id: 'energize', label: 'Energize', tint: '#f59e0b', pattern: /dance|pop|party|energy|punjabi|hip.hop/i },
+  { id: 'relax', label: 'Relax', tint: '#5eaca5', pattern: /acoustic|chill|soft|calm|romance|dil/i },
+  { id: 'focus', label: 'Focus', tint: '#8c9ecf', pattern: /instrumental|piano|ambient|focus|study|classical/i },
+  { id: 'workout', label: 'Workout', tint: '#ee8273', pattern: /workout|beats|dance|energy|hip.hop|rap/i },
+  { id: 'sufi', label: 'Sufi & Soul', tint: '#d6ac66', pattern: /sufi|qawwali|coke studio|nusrat|rahat|soul|tajdar/i },
+  { id: 'night', label: 'Late Night', tint: '#a695d4', pattern: /lo.fi|night|slow|moon|raat|ambient|chill/i },
+]
 
 function normalize(value = '') {
   return String(value)
@@ -103,8 +118,8 @@ export function normalizeTasteProfile(raw) {
   profile.tuned = []
   profile.events = Math.max(0, Number(raw.events) || 0)
   profile.updatedAt = Number(raw.updatedAt) || 0
-  profile.coArtistGraph = Object.fromEntries(Object.entries(raw.coArtistGraph || {}).slice(0,60).map(([artist, links]) => [artist, copyWeights(links)]))
-  profile.sessionMomentum = (Array.isArray(raw.sessionMomentum) ? raw.sessionMomentum : []).filter(track => track?.id).slice(0,3).map(track => ({id:track.id,title:track.title,artist:track.artist,album:track.album,language:track.language}))
+  profile.coArtistGraph = Object.fromEntries(Object.entries(raw.coArtistGraph || {}).slice(0, 60).map(([artist, links]) => [artist, copyWeights(links)]))
+  profile.sessionMomentum = (Array.isArray(raw.sessionMomentum) ? raw.sessionMomentum : []).filter(track => track?.id).slice(0, 3).map(track => ({ id: track.id, title: track.title, artist: track.artist, album: track.album, language: track.language, youtubeVideoId: track.youtubeVideoId }))
   profile.artistWeights = profile.artists
   profile.vibeWeights = copyWeights(raw.vibeWeights || raw.vibes)
   profile.languageWeights = copyWeights(raw.languageWeights || raw.languages)
@@ -138,7 +153,7 @@ export function languageForTrack(track) {
   if (/\b(naat|qawwali|sufi|hamd|ghazal)\b/.test(title)) return 'Urdu'
   if (/\b(punjabi|bhangra|jatt)\b/.test(title)) return 'Punjabi'
   if (/\b(bollywood|filmi|hindi)\b/.test(title)) return 'Hindi'
-  return track?.provider === 'youtube' ? 'Global' : 'Hindi'
+  return /^english$/i.test(language || '') ? 'English' : 'Hindi'
 }
 
 export function genresForTrack(track) {
@@ -167,20 +182,9 @@ function decadeForTrack(track) {
   return 'timeless'
 }
 
-export const TASTE_VIBES = ['Romantic','Sufi & Soul','Indie & Acoustic','Punjabi & Upbeat','Late Night Lo-Fi','Workout & Energy','Global Pop']
-// Curated discovery associations; actual shared-credit edges are learned below.
-const RELATED_ARTISTS = {
-  'atif aslam':['arijit singh','pritam','rahat fateh ali khan'],
-  'arijit singh':['atif aslam','pritam','jubin nautiyal'],
-  pritam:['arijit singh','atif aslam'],
-  'anuv jain':['hasan raheem','abdul hannan','kaavish','prateek kuhad'],
-  'hasan raheem':['anuv jain','abdul hannan','kaavish'],
-  'abdul hannan':['hasan raheem','kaavish','prateek kuhad'],
-  kaavish:['anuv jain','abdul hannan','prateek kuhad'],
-  'prateek kuhad':['anuv jain','kaavish','abdul hannan'],
-}
 export function tasteVibesForTrack(track) {
-  const text = normalize([track.title,track.artist,track.album,track.genre,...(track.tags || [])].join(' ')), out=[]
+  const text = normalize([track?.title, track?.artist, track?.album, track?.genre, ...(track?.tags || [])].join(' '))
+  const out = []
   if (/romantic|romance|love|ishq|pyaar|dil/.test(text)) out.push(TASTE_VIBES[0])
   if (/sufi|qawwali|coke studio|nusrat|rahat|tajdar/.test(text)) out.push(TASTE_VIBES[1])
   if (/acoustic|indie|unplugged|anuv jain|hasan raheem|abdul hannan|kaavish|prateek kuhad/.test(text)) out.push(TASTE_VIBES[2])
@@ -190,39 +194,19 @@ export function tasteVibesForTrack(track) {
   if (/^english$/i.test(languageForTrack(track))) out.push(TASTE_VIBES[6])
   return out
 }
-function learnAffinities(profile, track, artistAmount, vibeAmount, languageAmount, includeArtists=true) {
-  const names=artistNames(track)
-  if (includeArtists) names.forEach(name=>bumpTasteWeight(profile.artists,normalize(name),name,artistAmount))
-  tasteVibesForTrack(track).forEach(vibe=>bumpTasteWeight(profile.vibeWeights,normalize(vibe),vibe,vibeAmount))
-  const language=languageForTrack(track), label=/urdu|pakistan/i.test(language)?'Urdu/Pakistani':/^hindi$/i.test(language)?'Hindi':/^punjabi$/i.test(language)?'Punjabi':/^english$/i.test(language)?'English':null
-  if (['Hindi','Urdu/Pakistani','Punjabi','English'].includes(label)) bumpTasteWeight(profile.languageWeights,normalize(label),label,languageAmount)
-  if (artistAmount>0) for(const name of names)for(const other of names){
-    if(normalize(name)===normalize(other))continue
-    const links=profile.coArtistGraph[normalize(name)] ||= {}
-    bumpTasteWeight(links,normalize(other),other,artistAmount)
+
+function learnAffinities(profile, track, artistAmount, vibeAmount, languageAmount, includeArtists = true) {
+  const names = artistNames(track)
+  if (includeArtists) names.forEach(name => bumpTasteWeight(profile.artists, normalize(name), name, artistAmount))
+  tasteVibesForTrack(track).forEach(vibe => bumpTasteWeight(profile.vibeWeights, normalize(vibe), vibe, vibeAmount))
+  const language = languageForTrack(track)
+  const label = /urdu|pakistan/i.test(language) ? 'Urdu/Pakistani' : /^hindi$/i.test(language) ? 'Hindi' : /^punjabi$/i.test(language) ? 'Punjabi' : /^english$/i.test(language) ? 'English' : null
+  if (['Hindi', 'Urdu/Pakistani', 'Punjabi', 'English'].includes(label)) bumpTasteWeight(profile.languageWeights, normalize(label), label, languageAmount)
+  if (artistAmount > 0) for (const name of names) for (const other of names) {
+    if (normalize(name) === normalize(other)) continue
+    const links = profile.coArtistGraph[normalize(name)] ||= {}
+    bumpTasteWeight(links, normalize(other), other, artistAmount)
   }
-}
-function coArtistAffinity(track, profile) {
-  const anchors=[...(profile?.sessionMomentum || []).flatMap(artistNames),...topTasteLabels(profile?.artists,3)].map(normalize)
-  return artistNames(track).map(normalize).reduce((best,artist)=>Math.max(best,...anchors.map(anchor=>(profile?.coArtistGraph?.[anchor]?.[artist]?.weight || 0)+(RELATED_ARTISTS[anchor]?.includes(artist)?4:0))),0)
-}
-function sessionAffinity(track, profile) {
-  const names=artistNames(track).map(normalize), vibes=tasteVibesForTrack(track)
-  return (profile?.sessionMomentum || []).slice(0,3).reduce((sum,seed,index)=>sum+(names.some(name=>artistNames(seed).map(normalize).includes(name))?1:vibes.some(vibe=>tasteVibesForTrack(seed).includes(vibe))?.35:0)*(3-index)/3,0)*2.5
-}
-function weightedSelection(buckets, weights, limit) {
-  const cursors=buckets.map(()=>0), counts=buckets.map(()=>0), seen=new Set(), result=[]
-  while(result.length<limit){
-    let chosen=-1, deficit=-Infinity
-    buckets.forEach((bucket,index)=>{
-      while(cursors[index]<bucket.length && seen.has(getCanonicalSongStem(bucket[cursors[index]])))cursors[index]++
-      const score=weights[index]*(result.length+1)-counts[index]
-      if(cursors[index]<bucket.length&&score>deficit){chosen=index;deficit=score}
-    })
-    if(chosen<0)break
-    const track=buckets[chosen][cursors[chosen]++];counts[chosen]++;seen.add(getCanonicalSongStem(track));result.push(track)
-  }
-  return result
 }
 
 export function applyTasteSignal(profile, type, payload = {}, now = Date.now) {
@@ -253,7 +237,7 @@ export function applyTasteSignal(profile, type, payload = {}, now = Date.now) {
     bumpTasteWeight(next.artists, normalize(artist), artist, amount)
   })
   learnAffinities(next, track, amount, Number(config.vibe) || 0, Number(config.language) || 0, false)
-  if (type === 'play' || type === 'replay') next.sessionMomentum = [track, ...next.sessionMomentum.filter(item => item.id !== track.id)].slice(0,3).map(item => ({id:item.id,title:item.title,artist:item.artist,album:item.album,language:item.language}))
+  if (type === 'play' || type === 'replay') next.sessionMomentum = [track, ...next.sessionMomentum.filter(item => item.id !== track.id)].slice(0, 3).map(item => ({ id: item.id, title: item.title, artist: item.artist, album: item.album, language: item.language, youtubeVideoId: item.youtubeVideoId }))
   const vibes = genresForTrack(track)
   vibes.forEach((vibe) => {
     bumpTasteWeight(next.vibes, normalize(vibe), vibe, Number(config.vibe) || 0)
@@ -299,10 +283,7 @@ export function extractTopVibeTags(profile, limit = 3) {
   return topTasteLabels(profile?.vibes || {}, limit)
 }
 
-/** Weighted cosine similarity, 0..99. Empty profiles score 0; this is a heuristic, not a probability.
- * Each dimension is normalized independently so play-count volume cannot dominate compatibility.
- * A missing dimension on one side contributes zero; dimensions empty on both sides are omitted.
- */
+/** Weighted cosine similarity, 0..99. Empty profiles score 0; this is a heuristic, not a probability. */
 export function computeTasteMatchPercentage(profileA, profileB) {
   const a = normalizeTasteProfile(profileA)
   const b = normalizeTasteProfile(profileB)
@@ -332,125 +313,27 @@ export function computeTasteMatchPercentage(profileA, profileB) {
   return totalWeight ? Math.max(0, Math.min(99, Math.round(99 * similarity / totalWeight))) : 0
 }
 
-export const HOME_MOODS = [
-  { id: 'all', label: 'All', tint: '#a78bfa' },
-  { id: 'energize', label: 'Energize', tint: '#f59e0b', pattern: /dance|pop|party|energy|punjabi|hip.hop/i },
-  { id: 'relax', label: 'Relax', tint: '#5eaca5', pattern: /acoustic|chill|soft|calm|romance|dil/i },
-  { id: 'focus', label: 'Focus', tint: '#8c9ecf', pattern: /instrumental|piano|ambient|focus|study|classical/i },
-  { id: 'workout', label: 'Workout', tint: '#ee8273', pattern: /workout|beats|dance|energy|hip.hop|rap/i },
-  { id: 'sufi', label: 'Sufi & Soul', tint: '#d6ac66', pattern: /sufi|qawwali|coke studio|nusrat|rahat|soul|tajdar/i },
-  { id: 'night', label: 'Late Night', tint: '#a695d4', pattern: /lo.fi|night|slow|moon|raat|ambient|chill/i },
-]
-
-function keywordScore(track, profile) {
-  const keywords = Object.entries(profile?.keywords || {})
-  if (!keywords.length) return 0
-  const text = normalize(`${track?.title || ''} ${track?.artist || ''} ${track?.album || ''}`)
-  return keywords.reduce((sum, [keyword, entry]) => text.includes(keyword) ? sum + (Number(entry?.weight) || 0) : sum, 0)
-}
-
-function eraScore(track, profile) {
-  const era = normalize(`${languageForTrack(track)} · ${decadeForTrack(track)}`)
-  return profile?.eras?.[era]?.weight || 0
-}
-
-export function rankHomeTracks(tracks, { profile, liked = [], recent = [], mood = 'all' } = {}) {
+/**
+ * Lightweight ordering for the tracks YouTube already returned. This is not a
+ * recommender: it only keeps liked/recent artists and the active mood on top.
+ */
+export function rankListenerTracks(tracks = [], { profile, liked = [], recent = [], mood = 'all' } = {}) {
   const known = new Set(liked), played = new Set(recent), seen = new Set()
   const pattern = HOME_MOODS.find(item => item.id === mood)?.pattern
   return tracks.filter(track => {
     const duration = Number(track?.duration)
     const stem = getCanonicalSongStem(track)
     if (!track?.id || !stem || seen.has(stem) || track.preview || (duration > 0 && duration < 60)) return false
-    seen.add(stem); return true
+    seen.add(stem)
+    return true
   }).map((track, index) => {
     const artistWeight = artistNames(track).reduce((sum, artist) => sum + (profile?.artists?.[normalize(artist)]?.weight || 0), 0)
-    const vibeWeight = genresForTrack(track).reduce((sum, vibe) => sum + (profile?.vibes?.[normalize(vibe)]?.weight || 0), 0)
-    const genreWeight = genresForTrack(track).reduce((sum, genre) => sum + (profile?.genres?.[normalize(genre)]?.weight || 0), 0)
+    const vibeWeight = tasteVibesForTrack(track).reduce((sum, vibe) => sum + (profile?.vibeWeights?.[normalize(vibe)]?.weight || 0), 0)
     const text = [track.title, track.artist, track.album, track.genre, ...(track.tags || [])].join(' ')
     const score = (pattern?.test(text) ? 1000 : 0) +
-      Math.min(artistWeight * 2 + vibeWeight + genreWeight * 0.5, 160) +
-      eraScore(track, profile) +
-      keywordScore(track, profile) +
+      Math.min(artistWeight * 2 + vibeWeight, 160) +
       (known.has(track.id) ? 20 : 0) +
-      (played.has(track.id) ? 8 : 0) + sessionAffinity(track,profile)*30 + coArtistAffinity(track,profile)*3 +
-      tasteVibesForTrack(track).reduce((sum,vibe)=>sum+(profile?.vibeWeights?.[normalize(vibe)]?.weight || 0),0)
+      (played.has(track.id) ? 8 : 0)
     return { track, score, index }
   }).sort((a, b) => b.score - a.score || a.index - b.index).map(item => item.track)
-}
-
-export function buildQuickPicksAndRadio(tracks, options = {}, seed = null) {
-  const ranked = rankHomeTracks(tracks, options)
-  const stationSeed = seed || ranked[0]
-  const radio = stationSeed ? [stationSeed, ...buildArtistRadio(stationSeed,ranked,options.profile,{limit:15,liked:options.liked})] : []
-  const session = ranked.filter(track=>sessionAffinity(track,options.profile)>0)
-  const discovery = ranked.filter(track=>coArtistAffinity(track,options.profile)>0 && !options.recent?.includes(track.id))
-  const quickPicks=weightedSelection([session,ranked,discovery],[.4,.4,.2],12)
-  return { quickPicks, radio }
-}
-
-// Autoplay continuation: the same learned profile picks the next station seed.
-export function buildRadioContinuation(profile, tracks, seed = null, limit = 12) {
-  const ranked = rankHomeTracks(tracks, { profile })
-  const stem = seed ? getCanonicalSongStem(seed) : ''
-  return ranked.filter(track => track.id !== seed?.id && getCanonicalSongStem(track) !== stem).slice(0, limit)
-}
-
-/** YouTube-Music-style artist radio.
- * 55% primary artist, 30% related same-language/mood, 15% favorites.
- * The interleave guarantees at least two same-artist/collaborator tracks inside
- * the first four picks, so the station immediately sounds like the seed.
- */
-export function buildArtistRadio(seed, tracks = [], profile = null, options = {}) {
-  if (!seed?.id) return []
-  const limit = Math.max(4, Number(options.limit) || 12)
-  const seedStem = getCanonicalSongStem(seed)
-  const names = artistNames(seed).map(normalize).filter(Boolean)
-  const primaryArtist = names[0] || ''
-  const collaborators = new Set(names.slice(1))
-  const seedVibes = new Set(genresForTrack(seed).map(normalize))
-  const seedEra = decadeForTrack(seed)
-  const seedLanguage = languageForTrack(seed)
-  const seen = new Set(seedStem ? [seedStem] : [])
-  const favorites = new Set(options.liked || [])
-
-  const artistPool = []
-  const vibePool = []
-  const tastePool = []
-  ;(tracks || []).forEach((track, index) => {
-    if (!track?.id || track.id === seed.id) return
-    const stem = getCanonicalSongStem(track)
-    if (!stem || seen.has(stem)) return
-    const duration = Number(track.duration)
-    if (track.preview || (duration > 0 && duration < 60)) return
-    seen.add(stem)
-    const trackArtists = artistNames(track).map(normalize)
-    const samePrimary = Boolean(primaryArtist) && trackArtists.includes(primaryArtist)
-    const sameCollaborator = trackArtists.some((artist) => collaborators.has(artist))
-    const sameVibe = genresForTrack(track).map(normalize).some((vibe) => seedVibes.has(vibe))
-    const sameEra = decadeForTrack(track) === seedEra
-    const sameLanguage = languageForTrack(track) === seedLanguage
-    const artistWeight = trackArtists.reduce((sum, artist) => sum + (profile?.artists?.[artist]?.weight || 0), 0)
-    const vibeWeight = genresForTrack(track).reduce((sum, vibe) => sum + (profile?.vibes?.[normalize(vibe)]?.weight || 0), 0)
-    const entry = {
-      track,
-      index,
-      samePrimary,
-      sameCollaborator,
-      sameVibe,
-      sameEra,
-      sameLanguage,
-      tasteScore: artistWeight * 2 + vibeWeight + eraScore(track, profile) + keywordScore(track, profile),
-    }
-    if (favorites.has(track.id)) entry.tasteScore += 1000
-    if (samePrimary || sameCollaborator) artistPool.push(entry)
-    if (!samePrimary && sameLanguage && (sameVibe || coArtistAffinity(track,profile)>0)) vibePool.push(entry)
-    if (favorites.has(track.id)) tastePool.push(entry)
-  })
-
-  const byTasteThenIndex = (a, b) => b.tasteScore - a.tasteScore || a.index - b.index
-  artistPool.sort((a, b) => Number(b.samePrimary) - Number(a.samePrimary) || byTasteThenIndex(a, b))
-  vibePool.sort(byTasteThenIndex)
-  tastePool.sort(byTasteThenIndex)
-
-  return weightedSelection([artistPool.map(e=>e.track),vibePool.map(e=>e.track),tastePool.map(e=>e.track),rankHomeTracks(tracks,{profile,liked:options.liked}).filter(track=>track.id!==seed.id && getCanonicalSongStem(track)!==seedStem)],[.55,.30,.15,0],limit)
 }

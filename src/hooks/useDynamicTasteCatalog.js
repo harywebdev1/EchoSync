@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { topTasteLabels, tasteVibesForTrack } from '../core/tasteEngine.js'
+import { topTasteLabels, tasteVibesForTrack } from '../core/listenerProfile.js'
 import { mergeMoodCatalog } from '../core/moodFeed.js'
 
 export async function refreshDynamicTasteCatalog(

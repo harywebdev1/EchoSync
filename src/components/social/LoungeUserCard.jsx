@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useRef } from 'react'
 import { loadTasteProfile } from '../../lib/appServices.js'
-import { topTasteLabels, normalizeTasteProfile, computeTasteMatchPercentage } from '../../core/tasteEngine.js'
+import { topTasteLabels, normalizeTasteProfile, computeTasteMatchPercentage } from '../../core/listenerProfile.js'
 import { X, UserPlus, Play, ListPlus } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { Cover } from '../Cover'

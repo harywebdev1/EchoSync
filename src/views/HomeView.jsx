@@ -2,9 +2,10 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Heart, Music2, Play, Plus, Radio, Shuffle } from 'lucide-react'
 import { mergeMoodCatalog, allocateHomeShelves } from '../core/moodFeed.js'
 import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
+import { useYtHomeFeed } from '../hooks/useYtHomeFeed.js'
 import { Cover } from '../components/Cover'
 import { TrackCard } from '../components/TrackCard'
-import { HOME_MOODS, buildQuickPicksAndRadio, rankHomeTracks, topTasteLabels } from '../core/tasteEngine.js'
+import { HOME_MOODS, rankListenerTracks, topTasteLabels } from '../core/listenerProfile.js'
 
 function Collage({ tracks, className = '' }) {
   if (!tracks.length) return <div className={`home-collage empty-playlist-cover ${className}`}><Music2/></div>
@@ -49,34 +50,48 @@ function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
 export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onPrefetch, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
   const [mood, setMood] = useState('all')
   const live = useLiveMoodFeed(mood, tasteProfile)
+  const recent = useMemo(() => recentIds.map(id => library[id]).filter(Boolean), [recentIds, library])
+  const home = useYtHomeFeed({
+    profile: tasteProfile,
+    recentTracks: recent,
+    libraryTracks: useMemo(() => Object.values(library), [library]),
+    liked,
+  })
   const options = useMemo(() => ({ profile: tasteProfile, liked, recent: recentIds, mood }), [tasteProfile, liked, recentIds, mood])
   const catalog = useMemo(() => {
     const daily = dailyFeed?.users?.[currentUser?.id || 'guest'] || {}
-    return mergeMoodCatalog([...dynamicCatalogTracks,...live.tracks], [...(daily.madeForYou || []), ...(daily.basedOnRecent || []), ...(dailyFeed?.trending || []), ...Object.values(library)])
-  }, [dailyFeed, currentUser?.id, library, live.tracks, dynamicCatalogTracks])
-  const { quickPicks: rawQuick, radio } = useMemo(() => buildQuickPicksAndRadio(catalog, options), [catalog, options])
-  const recent = useMemo(() => recentIds.map(id => library[id]).filter(Boolean), [recentIds, library])
-  const ranked = useMemo(() => rankHomeTracks(catalog, options), [catalog, options])
-  const fresh = ranked.filter(track => !recentIds.includes(track.id))
-  const listenAgain = recent.length ? rankHomeTracks(recent, options) : ranked.filter(track => liked.includes(track.id)).length ? ranked.filter(track => liked.includes(track.id)) : ranked.slice(0, 10)
-  const sections=useMemo(()=>allocateHomeShelves(rawQuick,[...listenAgain,...ranked],fresh),[rawQuick,listenAgain,ranked,fresh])
-  const quickPicks=sections.quickPicks
-  const guest=!currentUser || !recentIds.length
-  const quickGrid=useRef(null),[quickPage,setQuickPage]=useState(0)
-  const pages=Math.max(1,Math.ceil(quickPicks.length/4))
-  const movePage=direction=>{const node=quickGrid.current;if(node)node.scrollTo({left:(node.clientWidth+16)*Math.max(0,Math.min(pages-1,quickPage+direction)),behavior:'smooth'})}
-  const collage = recent.length >= 4 ? recent : ranked
+    return mergeMoodCatalog(
+      [...live.tracks, ...home.quick, ...home.mixed, ...home.fresh],
+      [...(daily.madeForYou || []), ...(daily.basedOnRecent || []), ...(dailyFeed?.trending || []), ...dynamicCatalogTracks, ...Object.values(library)],
+    )
+  }, [dailyFeed, currentUser?.id, library, live.tracks, home.quick, home.mixed, home.fresh, dynamicCatalogTracks])
+  const ranked = useMemo(() => rankListenerTracks(catalog, options), [catalog, options])
+  const quickPool = useMemo(() => mergeMoodCatalog([...live.tracks, ...home.quick], []), [live.tracks, home.quick])
+  const sections = useMemo(
+    () => allocateHomeShelves(
+      quickPool,
+      home.familiar.length ? home.familiar : ranked,
+      home.fresh.length ? home.fresh : ranked,
+    ),
+    [quickPool, home.familiar, home.fresh, ranked],
+  )
+  const quickPicks = sections.quickPicks
+  const radio = home.supermix.length ? home.supermix : quickPicks
+  const guest = !currentUser || !recentIds.length
+  const quickGrid = useRef(null), [quickPage, setQuickPage] = useState(0)
+  const pages = Math.max(1, Math.ceil(quickPicks.length / 4))
+  const movePage = direction => { const node = quickGrid.current; if (node) node.scrollTo({ left: (node.clientWidth + 16) * Math.max(0, Math.min(pages - 1, quickPage + direction)), behavior: 'smooth' }) }
+  const collage = recent.length >= 4 ? recent : (ranked.length ? ranked : quickPicks)
   const showcaseTracks = useMemo(() => {
     const seen = new Set()
-    return [...ranked, ...recent].filter((track) => {
+    return [...radio, ...quickPicks, ...recent, ...ranked].filter((track) => {
       if (!track?.id || seen.has(track.id)) return false
       seen.add(track.id)
       return true
     }).slice(0, 10)
-  }, [recent, ranked])
-  const playHero = track => onPlayTrack(track, ranked)
+  }, [radio, quickPicks, recent, ranked])
+  const playHero = track => onPlayTrack(track, radio)
   // Buffer the first audible frame of the tracks the listener can see first.
-  // Clicks then start from cached media instead of a cold provider lookup.
   useEffect(() => {
     if (!onPrefetch) return undefined
     const queue = [...showcaseTracks.slice(0, 2), ...quickPicks.slice(0, 2)]
@@ -93,14 +108,14 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const artists = topTasteLabels(tasteProfile?.artists, 2)
-  const tint = HOME_MOODS.find(item => item.id === mood).tint
+  const tint = HOME_MOODS.find(item => item.id === mood)?.tint || '#a78bfa'
   const mixes = [
     { title: 'My Supermix', subtitle: guest ? 'Your everyday mix' : 'Your favorites', tracks: radio },
-    { title: 'Desi & Coke Studio Mix', subtitle: 'Coke Studio and desi classics', tracks: rankHomeTracks(catalog, { ...options, mood: 'sufi' }).slice(0, 16) },
-    { title: 'Late Night Vibes', subtitle: 'Slow songs for late nights', tracks: rankHomeTracks(catalog, { ...options, mood: 'night' }).slice(0, 16) },
-    { title: 'Discovery Mix', subtitle: 'Outside your usual rotation', tracks: fresh.length ? fresh.slice(0, 16) : radio },
+    { title: 'Desi & Coke Studio Mix', subtitle: 'Coke Studio and desi classics', tracks: rankListenerTracks(catalog, { ...options, mood: 'sufi' }).slice(0, 16) },
+    { title: 'Late Night Vibes', subtitle: 'Slow songs for late nights', tracks: rankListenerTracks(catalog, { ...options, mood: 'night' }).slice(0, 16) },
+    { title: 'Discovery Mix', subtitle: 'Outside your usual rotation', tracks: home.fresh.length ? home.fresh.slice(0, 16) : radio },
   ]
-  const playQuick = track => onPlayTrack(track, buildQuickPicksAndRadio(catalog, options, track).radio)
+  const playQuick = track => onPlayTrack(track, [...home.mixed, ...quickPicks])
   return <div className="home-view home-v2 home-v81" data-testid="home-v2" style={{ '--mood-tint': tint }}>
     <div className="home-chips" role="group" aria-label="Mood filters">{HOME_MOODS.map(item => <button key={item.id} className={`home-chip ${mood === item.id ? 'active' : ''}`} aria-pressed={mood === item.id} onClick={() => setMood(item.id)}>{item.label}{mood === item.id && live.status === 'loading' && <span className="mood-loading" aria-label="Loading fresh tracks" />}</button>)}</div>
     <header className="home-hero">
@@ -109,7 +124,7 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
       </div>
       <HeroShowcase tracks={showcaseTracks} onPlay={playHero} onPrefetch={onPrefetch} />
     </header>
-    {live.status === 'error' && <p className="mood-notice" role="status">Live picks are offline. Showing your saved rotation.</p>}
+    {live.status === 'error' && home.status === 'error' && <p className="mood-notice" role="status">Live picks are offline. Showing your saved rotation.</p>}
     <section className="home-section quick-picks-section"><div className="home-section-head"><div><h2>Quick picks</h2></div><span className="quick-radio-note"><Radio size={16} /> A song starts a radio</span></div>
       <div className="quick-grid" data-testid="quick-grid" ref={quickGrid} onScroll={e=>setQuickPage(Math.round(e.currentTarget.scrollLeft/(e.currentTarget.clientWidth+16)))}>{quickPicks.map(track => <article className="quick-card" key={track.id}>
         <button className="quick-main" onClick={() => playQuick(track)} onMouseEnter={() => onPrefetch?.(track)} onFocus={() => onPrefetch?.(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span><span className="quick-copy"><strong>{track.title}</strong><span>{track.artist}</span></span></button>
@@ -118,7 +133,8 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
       <div className="quick-pagination"><button className="icon-btn" aria-label="Previous Quick picks page" disabled={quickPage===0} onClick={()=>movePage(-1)}><ChevronLeft/></button><span>Page {quickPage+1} of {pages}</span><button className="icon-btn" aria-label="Next Quick picks page" disabled={quickPage>=pages-1} onClick={()=>movePage(1)}><ChevronRight/></button></div>
       {!quickPicks.length && <p className="home-empty">Nothing here yet. Search for a song to start.</p>}
     </section>
-    <Shelf title={guest ? "Popular right now" : "Listen again"} subtitle={guest ? "Trending this week" : "Recently played"} tracks={sections.familiar} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
+    <Shelf title={guest ? 'Popular right now' : 'Listen again'} subtitle={guest ? 'Trending this week' : 'Recently played'} tracks={sections.familiar} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
+    <Shelf title="Mixed for you" subtitle="From your YouTube Music radio" tracks={home.mixed} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
     <section className="home-section home-mixes"><div className="home-section-head"><div><h2>Mixes</h2></div></div><div className="mix-scroll">{mixes.map(mix => <button key={mix.title} className="home-mix-card" disabled={!mix.tracks.length} onClick={() => onPlayTrack(mix.tracks[0], mix.tracks)}><Collage tracks={mix.tracks} /><strong>{mix.title}</strong><span>{mix.subtitle}</span></button>)}</div></section>
     <Shelf title="Fresh discoveries" subtitle="New to you" tracks={sections.fresh} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
     {liked.length > 0 && <Shelf title="Forgotten favorites" subtitle="Not played lately" tracks={ranked.filter(track => liked.includes(track.id) && !recentIds.includes(track.id)).slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} />}

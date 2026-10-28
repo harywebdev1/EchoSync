@@ -1,5 +1,6 @@
-export { getCanonicalSongStem as songStem } from './songStem.js'
-import { getCanonicalSongStem } from './songStem.js'
+export { getCanonicalSongStem as songStem } from './trackIdentity.js'
+export { HOME_MOODS } from './listenerProfile.js'
+import { getCanonicalSongStem } from './trackIdentity.js'
 
 export function collectMoodResults(results) {
   const seen = new Set()
@@ -43,6 +44,6 @@ export function mergeMoodCatalog(live, local) {
 export function allocateHomeShelves(quick, familiar, fresh) {
   const seenHomeStems = new Set()
   // Only reserve the tracks actually displayed, not the entire candidate pool.
-  const allocate=(tracks,limit)=>{const result=[];for(const track of tracks){const stem=getCanonicalSongStem(track);if(!track?.id||seenHomeStems.has(stem))continue;seenHomeStems.add(stem);result.push(track);if(result.length===limit)break}return result}
-  return {quickPicks:allocate(quick,12),familiar:allocate(familiar,10),fresh:allocate(fresh,12)}
+  const allocate = (tracks, limit) => { const result = []; for (const track of tracks) { const stem = getCanonicalSongStem(track); if (!track?.id || seenHomeStems.has(stem)) continue; seenHomeStems.add(stem); result.push(track); if (result.length === limit) break } return result }
+  return { quickPicks: allocate(quick, 12), familiar: allocate(familiar, 10), fresh: allocate(fresh, 12) }
 }

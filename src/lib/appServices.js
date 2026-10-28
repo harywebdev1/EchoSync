@@ -1,18 +1,15 @@
 import { isCloudVoiceUrl, isSupabaseConfigured } from './supabaseClient.js'
 import { createStorageAdapter } from '../core/storageAdapter.js'
 import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
-import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/tasteEngine.js'
+import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/listenerProfile.js'
 import { getActiveStreamQuality } from '../services/networkMonitor'
-import { mergeOmniTracks, rankOmniTracks } from '../core/omniMusicEngine.js'
 import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc } from '../core/lrcParser.js'
 
-const DEV_API = import.meta.env.DEV
+// One upstream catalog: YouTube Music's own WEB_REMIX InnerTube API.
+const YTMUSIC_BASE = '/api/ytmusic'
+const DIRECT_STREAM_BUDGET = 600
 
-const SAAVN_BASES = ['/api/saavn']
-
-let saavnBackoffUntil = 0
-
-const ITUNES_BASE = 'https://itunes.apple.com/search'
+let ytmusicBackoffUntil = 0
 
 const LRCLIB_BASE = 'https://lrclib.net/api'
 
@@ -147,14 +144,6 @@ function seededShuffle(items, seed = 0) {
   }
   return result
 }
-
-const PIPED_INSTANCES = DEV_API
-  ? ['/api/piped/coffee', '/api/piped/ducks']
-  : ['https://api.piped.private.coffee', 'https://pipedapi.ducks.party']
-
-const INVIDIOUS_INSTANCES = DEV_API
-  ? ['/api/invidious/f5']
-  : ['https://invidious.f5.si']
 
 function mediaProxyUrl(url) {
   if (!url || url.startsWith('/api/')) return url
@@ -489,7 +478,7 @@ function clearResolvedStream(seedId) {
 function clearPlaybackCaches() {
   streamCache.searches = {}
   streamCache.streams = {}
-  saavnBackoffUntil = 0
+  ytmusicBackoffUntil = 0
   resolutionPromises.clear()
   try {
     localStorage.removeItem(STREAM_CACHE_KEY)
@@ -1229,13 +1218,8 @@ function rotateDaily(items, dayKey, offset = 0) {
 async function fetchPlayableDaily(query, limit = 10) {
   const found = (await fetchJioSearch(query, Math.max(14, limit + 4)))
     .filter((track) => track && !isPreviewTrack(track) && isFullLengthTrack(track))
-  const ready = []
-  for (const candidate of found) {
-    const track = candidate.streamUrl ? candidate : await hydrateJioTrack(candidate)
-    if (track?.streamUrl && !isPreviewTrack(track) && isFullLengthTrack(track)) ready.push(sanitizeTrack(track))
-    if (ready.length >= limit) break
-  }
-  return ready
+  // Rows already carry their video id, so the player resolves audio on demand.
+  return found.slice(0, limit).map(sanitizeTrack)
 }
 
 async function loadDailySection(queries, limit) {
@@ -1266,7 +1250,7 @@ async function buildDailyFeed({ dayKey, userKey, taste, rotation = 0, existing =
     const language = allLanguages[0] || 'Hindi'
     const madeQueries = [
       ...allArtists.slice(0, 3).map((artist) => `${artist} songs`),
-      ...profileVibes.slice(0, 2).map((vibe) => vibe.query),
+      ...profileVibes.slice(0, 2).map((vibe) => `${typeof vibe === 'string' ? vibe : vibe?.name || ''} songs`),
       `${language} songs`,
     ]
     const recentQueries = [
@@ -1310,21 +1294,8 @@ function saveLyricCache(key, data) {
 
 const deadMirrors = new Set()
 
-const LOCAL_MIRROR_PREFIXES = [
-  '/api/saavn',
-  '/api/piped/kavin',
-  '/api/piped/coffee',
-  '/api/piped/adminforge',
-  '/api/piped/ducks',
-  '/api/invidious/tux',
-  '/api/invidious/nerd',
-  '/api/invidious/f5',
-]
-
 function mirrorKeyFromUrl(url) {
   const value = String(url || '')
-  const localPrefix = LOCAL_MIRROR_PREFIXES.find((prefix) => value.startsWith(prefix))
-  if (localPrefix) return localPrefix
   try {
     return new URL(value, globalThis.location?.href).origin
   } catch {
@@ -1361,89 +1332,211 @@ async function fetchJson(url, options = {}) {
   }
 }
 
-function pickSaavnDownload(downloads = []) {
-  const activeQuality = getActiveStreamQuality()
-  const order = activeQuality === 'saver'
-    ? ['96kbps', '160kbps', '320kbps']
-    : activeQuality === 'high'
-      ? ['320kbps', '160kbps', '96kbps']
-      // Auto and normal both start with the fastest direct stream (160kbps) and
-      // let adaptive recovery step down or up afterwards.
-      : ['160kbps', '320kbps', '96kbps']
-  for (const quality of order) {
-    const found = downloads.find((item) => item.quality === quality)
-    if (found?.url) return found
-  }
-  return downloads[downloads.length - 1]
+function ytTrackId(videoId) {
+  return videoId ? `yt-${videoId}` : ''
 }
 
-function normalizeSaavn(raw) {
+function normalizeYtArtistEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null
+  const name = safeText(entry.name).trim()
+  if (!name) return null
+  return { name, browseId: safeText(entry.browseId) }
+}
+
+// YouTube Music is the only catalog. Every row carries its InnerTube video id,
+// so the player can start the hidden IFrame immediately while a direct audio
+// stream is extracted in the background.
+function normalizeYtTrack(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
-  const provider = safeText(source.provider, 'jiosaavn').toLowerCase()
-  const providerId = safeText(source.providerId || source.id)
-  if (!providerId) return null
-  const youtubeVideoId = safeText(source.youtubeVideoId || (provider === 'youtube' ? providerId : ''))
-  const prefixes = { jiosaavn: 'jio', jio: 'jio', deezer: 'dz', itunes: 'it', youtube: 'yt', audius: 'au' }
-  const labels = { jiosaavn: 'JioSaavn', jio: 'JioSaavn', deezer: 'Deezer', itunes: 'iTunes', youtube: 'YouTube', audius: 'Audius' }
-  const prefix = prefixes[provider] || 'ext'
-  const id = provider === 'youtube' && youtubeVideoId ? `yt-${youtubeVideoId}` : `${prefix}-${providerId}`
-  const downloads = Array.isArray(source.downloadUrl) ? source.downloadUrl.filter((item) => item?.url) : []
-  const images = Array.isArray(source.image) ? source.image.filter((item) => item?.url) : []
-  const stream = pickSaavnDownload(downloads)
-  const cover =
-    images.find((item) => item.quality === '500x500') ||
-    images[images.length - 1]
-  const artists = Array.isArray(source.artists?.primary)
-    ? source.artists.primary.map((artist) => artist?.name).filter(Boolean)
-    : []
-  const artist =
-    (artists.length ? artists.join(', ') : null) ||
-    decodeEntities(source.primaryArtists || source.artist || 'Unknown artist')
-  const resolvedStream = stream?.url || safeMediaUrl(source.streamUrl) || null
+  const providerId = safeText(source.providerId)
+  const videoId = safeText(
+    source.videoId ||
+    source.youtubeVideoId ||
+    (providerId && /^[A-Za-z0-9_-]{11}$/.test(providerId) ? providerId : '') ||
+    (String(source.id || '').startsWith('yt-') ? String(source.id).slice(3) : ''),
+  )
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null
+  const artists = (Array.isArray(source.artists) ? source.artists : [])
+    .map(normalizeYtArtistEntry)
+    .filter(Boolean)
+    .slice(0, 6)
   return sanitizeTrack({
-    id,
-    providerId,
-    provider,
-    providerLabel: labels[provider] || 'EchoSync',
-    playCount: Math.max(0, Number(source.playCount) || 0),
-    title: decodeEntities(source.name || source.title || 'Unknown track'),
-    artist: decodeEntities(artist),
-    album: decodeEntities(source.album?.name || 'Single'),
+    ...source,
+    id: ytTrackId(videoId),
+    providerId: videoId,
+    provider: 'youtube',
+    providerLabel: 'YouTube Music',
+    videoId,
+    youtubeVideoId: videoId,
+    title: decodeEntities(source.title || source.name || 'Unknown track'),
+    artist: decodeEntities(source.artist || artists.map((item) => item.name).join(', ') || 'Unknown artist'),
+    artists,
+    album: safeText(source.album?.name ?? source.album, 'Single'),
+    albumBrowseId: safeText(source.album?.browseId || source.albumBrowseId) || undefined,
+    cover: normalizeArtworkUrl(source.cover) || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     duration: Number(source.duration) || 0,
-    language: safeText(source.language),
-    year: safeText(source.year || source.releaseDate).slice(0, 4),
-    streamUrl: resolvedStream,
-    previewUrl: safeMediaUrl(source.previewUrl || source.preview) || (provider === 'deezer' ? null : undefined),
-    youtubeVideoId: youtubeVideoId || undefined,
-    cover: cover?.url || null,
-    quality: stream?.quality || '',
-    needsHydration: !resolvedStream,
-  })
-}
-
-function normalizeItunes(raw) {
-  const source = raw && typeof raw === 'object' ? raw : {}
-  const providerId = safeText(source.trackId)
-  if (!providerId) return null
-  const art = safeText(source.artworkUrl100 || source.artworkUrl60)
-  const fullDuration = source.trackTimeMillis ? Math.round(Number(source.trackTimeMillis) / 1000) : 0
-  return sanitizeTrack({
-    id: `itunes-${providerId}`,
-    providerId,
-    provider: 'itunes',
-    providerLabel: 'iTunes',
-    title: decodeEntities(source.trackName || 'Unknown track'),
-    artist: decodeEntities(source.artistName || 'Unknown artist'),
-    album: decodeEntities(source.collectionName || 'Single'),
-    duration: fullDuration,
-    fullDuration,
+    year: safeText(source.year) || undefined,
+    plays: safeText(source.plays) || undefined,
+    streamUrl: null,
+    previewUrl: null,
     preview: false,
     needsHydration: true,
-    streamUrl: null,
-    previewUrl: safeMediaUrl(source.previewUrl) || null,
-    cover: art ? art.replace(/\/\d+x\d+bb[^/]*\.(jpg|png)/i, '/600x600bb.jpg').replace('100x100bb', '600x600bb') : null,
-    quality: 'metadata',
+    quality: safeText(source.quality, 'YouTube Music'),
+    status: 'pending',
   })
+}
+
+function normalizeYtTracks(list) {
+  const seen = new Set()
+  return (Array.isArray(list) ? list : [])
+    .map(normalizeYtTrack)
+    .filter((track) => {
+      if (!track?.videoId || seen.has(track.videoId)) return false
+      seen.add(track.videoId)
+      return true
+    })
+}
+
+async function fetchYtmusic(params = {}, options = {}) {
+  if (Date.now() < ytmusicBackoffUntil) {
+    const error = new Error('YouTube Music cooling down')
+    error.status = 503
+    throw error
+  }
+  const search = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, String(value))
+  })
+  const payload = await fetchJson(`${YTMUSIC_BASE}?${search.toString()}`, {
+    timeout: options.timeout || 7000,
+    signal: options.signal,
+  })
+  ytmusicBackoffUntil = 0
+  return payload
+}
+
+async function fetchYtSearch(query, limit = 40, options = {}) {
+  const trimmed = safeText(query).slice(0, 200)
+  if (!trimmed) return []
+  const cached = !options.fresh && cachedSearchEntry('ytmusic', trimmed, limit)
+  if (cached) return cached
+  try {
+    const payload = await fetchYtmusic({ action: 'search', q: trimmed, limit }, {
+      timeout: options.timeout || 7000,
+      signal: options.signal,
+    })
+    const tracks = normalizeYtTracks(payload?.songs)
+      .filter((track) => isFullLengthTrack(track) || !track.duration)
+      .slice(0, limit)
+    if (tracks.length) cacheSearchEntry('ytmusic', trimmed, limit, tracks)
+    return tracks
+  } catch (error) {
+    if (error?.status === 429) ytmusicBackoffUntil = Date.now() + 8000
+    if (options.throwOnFailure) throw error
+    return []
+  }
+}
+
+// Legacy name kept for every caller that only wants "search this catalog".
+async function fetchJioSearch(query, limit = 12, options = {}) {
+  return fetchYtSearch(query, limit, options)
+}
+
+async function fetchYtRadio(videoId, options = {}) {
+  const id = safeText(videoId)
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return []
+  const limit = Math.min(50, Math.max(5, Number(options.limit) || 25))
+  const cached = !options.fresh && cachedSearchEntry('ytmusic-radio', id, limit)
+  if (cached) return cached
+  try {
+    const payload = await fetchYtmusic({
+      action: 'radio',
+      videoId: id,
+      artist: safeText(options.artist),
+      limit,
+    }, { timeout: options.timeout || 9000, signal: options.signal })
+    const tracks = normalizeYtTracks(payload?.songs)
+      .filter((track) => isFullLengthTrack(track))
+      .slice(0, limit)
+    if (tracks.length) cacheSearchEntry('ytmusic-radio', id, limit, tracks)
+    return tracks
+  } catch {
+    return []
+  }
+}
+
+async function fetchYtArtist({ browseId = '', name = '' } = {}) {
+  const id = safeText(browseId)
+  const label = safeText(name)
+  if (!id && !label) return null
+  try {
+    const payload = await fetchYtmusic({ action: 'artist', browseId: id, name: label }, { timeout: 9000 })
+    if (!payload?.name) return null
+    return {
+      ...payload,
+      browseId: safeText(payload.browseId) || id,
+      songs: normalizeYtTracks(payload.songs),
+      albums: Array.isArray(payload.albums) ? payload.albums : [],
+      relatedArtists: Array.isArray(payload.relatedArtists) ? payload.relatedArtists : [],
+    }
+  } catch {
+    return null
+  }
+}
+
+function isFullLengthTrack(track) {
+  if (!track) return false
+  if (isPreviewTrack(track)) return false
+  const seconds = Number(track.duration) || 0
+  // Unknown duration stays in the catalog; playback verifies the media itself.
+  return !seconds || (Number.isFinite(seconds) && seconds >= 60)
+}
+
+const youtubeAudioInflight = new Map()
+
+async function getYouTubeAudio(videoId) {
+  const id = safeText(videoId)
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null
+  const cached = cachedResolvedStream(`yt:${id}`)
+  if (cached?.streamUrl) return cached
+  if (youtubeAudioInflight.has(id)) return youtubeAudioInflight.get(id)
+  const task = (async () => {
+    try {
+      const data = await fetchJson(`/api/youtube-audio?videoId=${encodeURIComponent(id)}`, { timeout: 14000 })
+      if (!data?.url) return null
+      const result = {
+        streamUrl: mediaProxyUrl(data.url),
+        quality: data.bitrate ? `${Math.round(Number(data.bitrate) / 1000)} kbps` : 'Audio',
+        duration: Number(data.duration) || 0,
+        cover: safeMediaUrl(data.thumbnail),
+        provider: 'youtube',
+        providerLabel: 'YouTube Music',
+      }
+      cacheResolvedStream(`yt:${id}`, result)
+      return result
+    } catch {
+      return null
+    } finally {
+      youtubeAudioInflight.delete(id)
+    }
+  })()
+  youtubeAudioInflight.set(id, task)
+  return task
+}
+
+// Synchronous read used by the optimistic player: a hovered card resolves its
+// direct stream ahead of the click, so the click can attach it in one frame.
+function preResolvedStream(track) {
+  if (!track) return null
+  const keys = []
+  if (track.id) keys.push(track.id)
+  const videoId = safeText(track.youtubeVideoId || track.videoId)
+  if (videoId) keys.push(`yt:${videoId}`)
+  for (const key of keys) {
+    const entry = cachedResolvedStream(key)
+    if (entry?.streamUrl || entry?.youtubeVideoId) return entry
+  }
+  return null
 }
 
 function titleOverlap(a, b) {
@@ -1457,12 +1550,11 @@ function titleOverlap(a, b) {
   return shared / Math.max(first.size, second.size)
 }
 
-function scoreMatch(track, seed) {
-  if (!track?.title || !track?.artist) return -1
+function scoreYtMatch(track, seed) {
+  if (!track?.title) return -1
   const haystack = `${track.title} ${track.album || ''}`
   if (HARD_BAD_MATCH.test(haystack)) return -1
-  const softBad = SOFT_BAD_MATCH.test(haystack)
-  const targetTitle = normalize(seed.title)
+  const targetTitle = normalize(seed?.title)
   const candidateTitle = normalize(track.title)
   if (!targetTitle || !candidateTitle) return -1
   let score = 0
@@ -1471,189 +1563,175 @@ function scoreMatch(track, seed) {
   else if (titleOverlap(seed.title, track.title) >= 0.8) score += 20
   else return -1
 
-  const seedArtists = seed.artist
+  const seedArtists = String(seed?.artist || '')
     .split(/\s*(?:&|,| and )\s*/i)
     .map(normalize)
     .filter(Boolean)
   const candidateArtist = normalize(track.artist)
-  const artistHit = seedArtists.some((artist) => {
-    if (!artist) return false
-    return candidateArtist.includes(artist) || artist.includes(candidateArtist) ||
-      normalize(seed.artist).includes(candidateArtist)
-  })
-  if (!artistHit) return -1
-  score += 30
+  const artistHit = seedArtists.some((artist) => (
+    artist && (candidateArtist.includes(artist) || artist.includes(candidateArtist))
+  ))
+  if (artistHit) score += 30
 
-  const duration = track.fullDuration || track.duration
-  if (duration && seed.duration) {
+  const duration = Number(track.duration) || 0
+  if (duration && seed?.duration) {
     if (duration < 40 && seed.duration > 60) return -1
     const difference = Math.abs(duration - seed.duration)
     if (difference <= 5) score += 15
     else if (difference <= 20) score += 8
-    else if (difference > 45 && !(candidateTitle === targetTitle && artistHit)) return -1
-    else if (difference > 45) score -= 5
+    else if (difference > 60 && !(candidateTitle === targetTitle && artistHit)) return -1
   }
-  if (softBad) score -= 22
+  if (SOFT_BAD_MATCH.test(haystack)) score -= 22
   return score
 }
 
-function rankCandidates(results, seed) {
-  return results
-    .map((track) => ({ track, score: scoreMatch(track, seed) }))
-    .filter((entry) => entry.score >= 55)
+function rankYtCandidates(candidates, seed) {
+  return (candidates || [])
+    .map((track) => ({ track, score: scoreYtMatch(track, seed) }))
+    .filter((entry) => entry.score >= 40)
     .sort((a, b) => b.score - a.score)
 }
 
-async function hydrateJioTrack(track, options = {}) {
-  if (!track || (!options.fresh && track.streamUrl) || !track.providerId) return track
-  const cached = !options.fresh && cachedResolvedStream(`jio:${track.providerId}`)
-  if (cached) return { ...track, ...cached, cover: track.cover || cached.cover }
-  if (Date.now() < saavnBackoffUntil) return track
-  for (const base of SAAVN_BASES) {
-    try {
-      const payload = await fetchJson(`${base}/api/songs/${track.providerId}`, { timeout: 5200 })
-      const raw = Array.isArray(payload?.data) ? payload.data[0] : payload?.data?.songs?.[0] || payload?.data
-      if (raw?.downloadUrl) {
-        const normalized = normalizeSaavn(raw)
-        if (normalized?.streamUrl) {
-          cacheResolvedStream(`jio:${track.providerId}`, normalized)
-          return { ...track, ...normalized, cover: track.cover || normalized.cover }
-        }
-      }
-    } catch (error) {
-      if (error?.status === 429) {
-        saavnBackoffUntil = Date.now() + 15000
-        return track
-      }
-    }
-  }
-  return track
+async function resolveVideoId(track) {
+  if (!track) return ''
+  const known = safeText(track.youtubeVideoId || track.videoId)
+  if (/^[A-Za-z0-9_-]{11}$/.test(known)) return known
+  const query = `${safeText(track.searchTitle || track.title)} ${safeText(track.artist)}`.trim()
+  if (!query) return ''
+  const songs = await fetchYtSearch(query, 10, { fresh: true }).catch(() => [])
+  const ranked = rankYtCandidates(songs, track)
+  return (ranked[0]?.track || songs[0])?.videoId || ''
 }
 
-async function fetchJioSearch(query, limit = 12, options = {}) {
-  const cached = !options.fresh && cachedSearchEntry('jio', query, limit)
-  if (cached) return cached
-  if (Date.now() < saavnBackoffUntil) return []
-  for (const base of SAAVN_BASES) {
-    try {
-      const payload = await fetchJson(
-        `${base}/api/search/songs?query=${encodeURIComponent(query)}&limit=${limit}&page=${options.page || 1}`,
-        { timeout: options.timeout || 4500, signal: options.signal },
-      )
-      const results = payload?.data?.results || payload?.data?.songs?.results || []
-      if (Array.isArray(results) && results.length) {
-        const tracks = results.map(normalizeSaavn).filter(Boolean)
-        if (tracks.length) {
-          saavnBackoffUntil = 0
-          cacheSearchEntry('jio', query, limit, tracks)
-          return tracks
-        }
-      }
-    } catch (error) {
-      if(options.throwOnFailure)throw error
-      if (error?.status === 429) {
-        saavnBackoffUntil = Date.now() + 15000
-        return []
-      }
-    }
-  }
-  return []
-}
-
-async function fetchItunesSearch(query, limit = 12, country = '') {
-  const cacheKey = country ? `${query}::${country}` : query
-  const cached = cachedSearchEntry('itunes', cacheKey, limit)
-  if (cached) return cached
+async function directStreamFor(videoId, budget = DIRECT_STREAM_BUDGET) {
+  if (!videoId) return null
+  const cached = cachedResolvedStream(`yt:${videoId}`)
+  if (cached?.streamUrl) return cached
   try {
-    const storefront = country ? `&country=${encodeURIComponent(country)}` : ''
-    const payload = await fetchJson(
-      `${ITUNES_BASE}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=${limit}${storefront}`,
-      { timeout: 5000 },
-    )
-    const results = Array.isArray(payload?.results) ? payload.results : []
-    const tracks = results
-      .map(normalizeItunes)
-      .filter((track) => track && track.duration >= 45)
-    cacheSearchEntry('itunes', cacheKey, limit, tracks)
-    return tracks
-  } catch {
-    return []
-  }
-}
-
-// Client-side fallback: two storefronts, merged into one canonical list. Used
-// only when the same-origin router cannot answer, so the radio never goes dark.
-async function fetchItunesOmni(query, limit = 40) {
-  const settled = await Promise.allSettled([
-    fetchItunesSearch(query, limit, 'PK'),
-    fetchItunesSearch(query, limit, 'US'),
-  ])
-  return mergeOmniTracks(settled.map((result) => (result.status === 'fulfilled' ? result.value : [])))
-}
-
-// On-play full-stream resolver for catalog rows we only know by metadata.
-// One round trip to the same-origin router, ranked exactly like search.
-async function resolveOmniStream(track) {
-  const title = safeText(track?.searchTitle || track?.title).slice(0, 160)
-  if (!title) return null
-  const artist = safeText(track?.artist).slice(0, 160)
-  try {
-    const payload = await fetchJson(
-      `/api/saavn?action=resolve&title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`,
-      { timeout: 6000 },
-    )
-    const rows = (Array.isArray(payload?.data?.results) ? payload.data.results : [])
-      .map(normalizeSaavn)
-      .filter(Boolean)
-    if (!rows.length) return null
-    const ranked = rankCandidates(rows, { ...track, title, duration: track?.duration || 180 })
-    const best = ranked[0]?.track
-    return best?.streamUrl && isFullLengthTrack(best) ? best : null
+    return await withTimeout(getYouTubeAudio(videoId), budget, 'Direct stream budget')
   } catch {
     return null
   }
 }
 
-// Fastest possible audible frame: Apple's public 30 second preview is a small
-// static MP3/M4A that starts while the full JioSaavn/YouTube stream resolves.
-// The resolved URL is remembered per track and the media bytes are preloaded,
-// so a click made after the first paint starts within one buffer instead of
-// waiting for a provider lookup and a cold TLS handshake.
-const instantPreviewCache = new Map()
-const instantPreviewInflight = new Map()
-
-async function findInstantPreview(track) {
-  const key = track?.id || ''
-  if (key && instantPreviewCache.has(key)) return instantPreviewCache.get(key)
-  const title = track?.searchTitle || track?.title || ''
-  const artist = track?.artist || ''
-  if (!title) return null
-  const tracks = await fetchItunesSearch(`${title} ${artist}`.trim(), 5)
-  if (!tracks.length) return null
-  const ranked = rankCandidates(tracks, { ...track, title, duration: track?.duration || 180 })
-  let url = null
-  for (const entry of ranked.slice(0, 5)) {
-    url = entry.track?.previewUrl || entry.previewUrl || null
-    if (url) break
-  }
-  if (!url) url = tracks.find((item) => item.previewUrl)?.previewUrl || null
-  if (url && key) instantPreviewCache.set(key, url)
-  return url
+function readyYtTrack(target, streamInfo, videoId) {
+  return sanitizeTrack({
+    ...target,
+    ...(streamInfo || {}),
+    id: target.id || ytTrackId(videoId),
+    provider: 'youtube',
+    providerLabel: 'YouTube Music',
+    videoId,
+    youtubeVideoId: videoId,
+    streamUrl: streamInfo?.streamUrl || null,
+    duration: target.duration || streamInfo?.duration || 0,
+    cover: target.cover || streamInfo?.cover || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    quality: streamInfo?.quality || 'YouTube Music',
+    preview: false,
+    needsHydration: false,
+    status: 'ready',
+  })
 }
 
-// Resolve a preview URL before the user asks for it, so the click only has to
-// attach a known URL. Media bytes are never preloaded: one shared connection
-// must stay free for the track that is actually playing.
+// Fast Path A runs for 600 ms. If the direct stream is not ready by then the
+// caller gets a video id only, and the hidden persistent IFrame starts at once.
+async function resolveFullTrack(candidate, options = {}) {
+  if (!candidate) return null
+  const cached = !options.forceRefresh && cachedResolvedStream(candidate.id)
+  if (cached && (cached.streamUrl || cached.youtubeVideoId)) {
+    return { ...candidate, ...cached, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
+  }
+  const pre = !options.forceRefresh ? preResolvedStream(candidate) : null
+  if (pre?.streamUrl) {
+    const ready = readyYtTrack(candidate, pre, safeText(candidate.youtubeVideoId || candidate.videoId))
+    cacheResolvedStream(candidate.id, ready)
+    return ready
+  }
+  const videoId = await resolveVideoId(candidate)
+  if (!videoId) return null
+  const streamInfo = await directStreamFor(videoId, options.budget ?? DIRECT_STREAM_BUDGET)
+  const ready = readyYtTrack(candidate, streamInfo, videoId)
+  cacheResolvedStream(candidate.id, ready)
+  return ready
+}
+
+async function resolveByMetadata(candidate, options = {}) {
+  if (!candidate) return null
+  return resolveFullTrack({
+    ...candidate,
+    searchTitle: candidate.searchTitle || candidate.title,
+  }, options)
+}
+
+const resolutionPromises = new Map()
+
+async function resolveSeed(seed, options = {}) {
+  if (!seed?.id) return null
+  const cached = !options.forceRefresh && cachedResolvedStream(seed.id)
+  if (cached && (cached.streamUrl || cached.youtubeVideoId)) return { ...cached, id: seed.id }
+  if (!options.forceRefresh && resolutionPromises.has(seed.id)) return resolutionPromises.get(seed.id)
+  const task = (async () => {
+    const resolved = await resolveFullTrack(seed, options)
+    if (!resolved) {
+      const error = new Error('No official stream found')
+      error.code = 'UNRESOLVED'
+      throw error
+    }
+    return {
+      ...seed,
+      ...resolved,
+      id: seed.id,
+      c1: seed.c1 || resolved.c1,
+      c2: seed.c2 || resolved.c2,
+      cover: seed.cover || resolved.cover || null,
+    }
+  })()
+  resolutionPromises.set(seed.id, task)
+  try {
+    return await task
+  } finally {
+    if (resolutionPromises.get(seed.id) === task) resolutionPromises.delete(seed.id)
+  }
+}
+
+// Every search hits YouTube Music exactly like music.youtube.com does. The
+// relaxed second pass only handles punctuation-heavy queries; typos are left to
+// InnerTube's own spelling correction instead of a keyword blocklist.
+async function searchEverything(query, options = {}) {
+  const trimmed = safeText(query).slice(0, 120)
+  if (!trimmed) return []
+  const cached = !options.retry && cachedSearchEntry('everything', trimmed, 50)
+  if (cached) return cached
+  let tracks = await fetchYtSearch(trimmed, 50, {
+    fresh: true,
+    signal: options.signal,
+    timeout: 10000,
+  }).catch(() => [])
+  if (!tracks.length) {
+    const relaxed = trimmed.replace(/[^\p{L}\p{N}\s]+/gu, ' ').replace(/\s+/g, ' ').trim()
+    if (relaxed && relaxed !== trimmed) {
+      tracks = await fetchYtSearch(relaxed, 40, { fresh: true }).catch(() => [])
+    }
+  }
+  if (!tracks.length) tracks = await fetchYtSearch(trimmed, 40).catch(() => [])
+  const result = tracks
+    .filter((track) => isFullLengthTrack(track) || !track.duration)
+    .slice(0, 50)
+  if (result.length) cacheSearchEntry('everything', trimmed, 50, result)
+  return result
+}
+
+// Guests still get an audible frame in the same tick: the track's video id is
+// already known, so the preview is the hidden YouTube player, capped at 30 s by
+// the playback engine. No second provider lookup is needed.
+async function findInstantPreview(track) {
+  const pre = preResolvedStream(track)
+  return pre?.streamUrl || null
+}
+
 function primeInstantPreview(track) {
-  const key = track?.id
-  if (!key || track.previewUrl) return Promise.resolve(track?.previewUrl || null)
-  if (instantPreviewCache.has(key)) return Promise.resolve(instantPreviewCache.get(key))
-  if (instantPreviewInflight.has(key)) return instantPreviewInflight.get(key)
-  const task = findInstantPreview(track)
-    .catch(() => null)
-    .finally(() => instantPreviewInflight.delete(key))
-  instantPreviewInflight.set(key, task)
-  return task
+  const pre = preResolvedStream(track)
+  return Promise.resolve(pre?.streamUrl || null)
 }
 
 const artworkFallbackCache = new Map()
@@ -1680,15 +1758,9 @@ async function fetchArtworkFallback(titleOrTrack, artist = '', videoId = '') {
       return thumbnail
     }
     const query = `${title} ${by}`.trim()
-    const results = await Promise.allSettled([
-      withTimeout(fetchJioSearch(query, 8), 4500),
-      withTimeout(fetchItunesSearch(query, 8), 4500),
-    ])
-    const candidates = results.flatMap((result) => (
-      result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
-    )).filter((candidate) => normalizeArtworkUrl(candidate?.cover))
-    const ranked = rankCandidates(candidates, { ...track, title, artist: by })
-    const cover = normalizeArtworkUrl(ranked[0]?.track?.cover || candidates[0]?.cover)
+    const found = await withTimeout(fetchYtSearch(query, 8), 4500).catch(() => [])
+    const ranked = rankYtCandidates(found, { ...track, title, artist: by })
+    const cover = normalizeArtworkUrl(ranked[0]?.track?.cover || found[0]?.cover)
     if (cover) artworkFallbackCache.set(key, cover)
     else artworkFallbackMisses.add(key)
     return cover
@@ -1696,561 +1768,6 @@ async function fetchArtworkFallback(titleOrTrack, artist = '', videoId = '') {
 
   artworkFallbackInflight.set(key, task)
   return task
-}
-
-function normalizePipedCandidate(item) {
-  const source = item && typeof item === 'object' ? item : {}
-  const videoId = String(source.url || '').split('v=')[1]?.split('&')[0] || safeText(source.id)
-  if (!videoId) return null
-  return sanitizeTrack({
-    id: `yt-${videoId}`,
-    videoId,
-    provider: 'youtube',
-    providerLabel: '',
-    title: decodeEntities(source.title || 'Unknown video'),
-    artist: decodeEntities(source.uploaderName || source.uploader || 'Unknown artist'),
-    album: '',
-    duration: Number(source.duration) || 0,
-    streamUrl: null,
-    cover: safeMediaUrl(source.thumbnail),
-    quality: '',
-  })
-}
-
-function normalizeInvidiousCandidate(item) {
-  const source = item && typeof item === 'object' ? item : {}
-  const videoId = safeText(source.videoId)
-  if (!videoId) return null
-  const thumb = Array.isArray(source.videoThumbnails)
-    ? source.videoThumbnails.find((entry) => entry?.quality === 'maxresdefault') || source.videoThumbnails[source.videoThumbnails.length - 1]
-    : null
-  return sanitizeTrack({
-    id: `yt-${videoId}`,
-    videoId,
-    provider: 'youtube',
-    providerLabel: '',
-    title: decodeEntities(source.title || 'Unknown video'),
-    artist: decodeEntities(source.author || 'Unknown artist'),
-    album: '',
-    duration: Number(source.lengthSeconds) || 0,
-    streamUrl: null,
-    cover: safeMediaUrl(thumb?.url),
-    quality: '',
-  })
-}
-
-async function searchPiped(query, filter = 'music_songs') {
-  for (const base of PIPED_INSTANCES) {
-    try {
-      const payload = await fetchJson(
-        `${base}/search?q=${encodeURIComponent(query)}&filter=${filter}`,
-        { timeout: 4600 },
-      )
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      const tracks = items.map(normalizePipedCandidate).filter((track) => track && (!track.duration || track.duration >= 45))
-      if (tracks.length) return tracks
-    } catch {
-      /* try the next instance */
-    }
-  }
-  return []
-}
-
-async function searchInvidious(query) {
-  for (const base of INVIDIOUS_INSTANCES) {
-    try {
-      const payload = await fetchJson(
-        `${base}/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
-        { timeout: 4600 },
-      )
-      const items = Array.isArray(payload) ? payload : []
-      const tracks = items.map(normalizeInvidiousCandidate).filter((track) => track && (!track.duration || track.duration >= 45))
-      if (tracks.length) return tracks
-    } catch {
-      /* try the next instance */
-    }
-  }
-  return []
-}
-
-async function searchYouTubeCandidates(query) {
-  const [pipedResult, invidiousResult] = await Promise.allSettled([
-    searchPiped(query),
-    searchInvidious(query),
-  ])
-  let all = [
-    ...(pipedResult.status === 'fulfilled' ? pipedResult.value : []),
-    ...(invidiousResult.status === 'fulfilled' ? invidiousResult.value : []),
-  ]
-  if (!all.length) all = await searchPiped(query, 'videos')
-  const seen = new Set()
-  return all.filter((track) => {
-    if (!track.videoId || seen.has(track.videoId)) return false
-    seen.add(track.videoId)
-    return true
-  })
-}
-
-function chooseAudioFormat(formats = []) {
-  const audio = formats
-    .filter((format) => format?.url && (String(format.mimeType || format.type || '').startsWith('audio/') || format.audioQuality))
-    .sort((a, b) => Number(b.bitrate || 0) - Number(a.bitrate || 0))
-  const mp4 = audio.find((format) => String(format.mimeType || format.type || '').includes('mp4'))
-  return mp4 || audio[0] || null
-}
-
-function pickPipedAudio(payload) {
-  const audio = chooseAudioFormat(payload?.audioStreams || [])
-  if (audio) return audio
-  const muxed = (payload?.videoStreams || [])
-    .filter((format) => format?.url && !format.videoOnly && String(format.mimeType || '').includes('mp4'))
-  return chooseAudioFormat(muxed)
-}
-
-async function firstSuccessful(tasks) {
-  return new Promise((resolve, reject) => {
-    let pending = tasks.length
-    if (!pending) {
-      reject(new Error('No stream sources available'))
-      return
-    }
-    tasks.forEach((task) => {
-      Promise.resolve(task)
-        .then(resolve)
-        .catch(() => {
-          pending -= 1
-          if (!pending) reject(new Error('No stream source answered'))
-        })
-    })
-  })
-}
-
-async function getLocalYouTubeAudio(videoId) {
-  const data = await fetchJson(`/api/youtube/audio/${encodeURIComponent(videoId)}`, { timeout: 14000 })
-  if (!data?.url) throw new Error('No audio format')
-  return {
-    streamUrl: mediaProxyUrl(data.url),
-    quality: data.bitrate ? `${Math.round(Number(data.bitrate) / 1000)} kbps` : 'Audio',
-    duration: Number(data.duration) || 0,
-    cover: safeMediaUrl(data.thumbnail),
-    provider: 'youtube',
-    providerLabel: '',
-  }
-}
-
-async function getPipedAudio(base, videoId) {
-  const payload = await fetchJson(`${base}/streams/${videoId}`, { timeout: 4600 })
-  const format = pickPipedAudio(payload)
-  if (!format?.url) throw new Error('No audio format')
-  return {
-    streamUrl: mediaProxyUrl(format.url),
-    quality: format.bitrate ? `${Math.round(Number(format.bitrate) / 1000)} kbps` : 'Audio',
-    duration: Number(payload?.duration) || 0,
-    cover: safeMediaUrl(payload?.thumbnailUrl),
-    provider: 'youtube',
-    providerLabel: '',
-  }
-}
-
-async function getInvidiousAudio(base, videoId) {
-  const payload = await fetchJson(`${base}/api/v1/videos/${videoId}`, { timeout: 4600 })
-  const format = chooseAudioFormat(payload?.adaptiveFormats || [])
-  if (!format?.url) throw new Error('No audio format')
-  return {
-    streamUrl: mediaProxyUrl(format.url),
-    quality: format.bitrate ? `${Math.round(Number(format.bitrate) / 1000)} kbps` : 'Audio',
-    duration: Number(payload?.lengthSeconds) || 0,
-    cover: safeMediaUrl(payload?.videoThumbnails?.find((entry) => entry.quality === 'maxresdefault')?.url),
-    provider: 'youtube',
-    providerLabel: '',
-  }
-}
-
-async function getYouTubeAudio(videoId) {
-  if (!videoId) return null
-  const cached = cachedResolvedStream(`yt:${videoId}`)
-  if (cached?.streamUrl) return cached
-  const tasks = [
-    getLocalYouTubeAudio(videoId),
-    ...INVIDIOUS_INSTANCES.map((base) => getInvidiousAudio(base, videoId)),
-    ...PIPED_INSTANCES.map((base) => getPipedAudio(base, videoId)),
-  ]
-  try {
-    const result = await firstSuccessful(tasks)
-    cacheResolvedStream(`yt:${videoId}`, result)
-    return result
-  } catch {
-    return null
-  }
-}
-
-function scoreYouTubeCandidate(track, seed) {
-  const targetTitle = normalize(seed.title)
-  const candidateTitle = normalize(track.title)
-  if (!targetTitle || !candidateTitle) return -1
-  if (HARD_BAD_MATCH.test(candidateTitle)) return -1
-  let score = 0
-  if (candidateTitle === targetTitle) score += 60
-  else if (candidateTitle.includes(targetTitle) || targetTitle.includes(candidateTitle)) score += 38
-  else if (titleOverlap(seed.title, track.title) >= 0.7) score += 22
-  else return -1
-  const artistTokens = seed.artist.split(/\s*(?:&|,| and )\s*/i).map(normalize).filter(Boolean)
-  if (artistTokens.some((artist) => artist && normalize(track.artist).includes(artist))) score += 24
-  if (SOFT_BAD_MATCH.test(candidateTitle)) score -= 18
-  const duration = track.duration || 0
-  if (duration && seed.duration) {
-    const difference = Math.abs(duration - seed.duration)
-    if (difference <= 8) score += 12
-    else if (difference > 70) score -= 8
-  }
-  return score
-}
-
-function rankYouTubeCandidates(candidates, seed) {
-  return candidates
-    .map((track) => ({ track, score: scoreYouTubeCandidate(track, seed) }))
-    .filter((entry) => entry.score >= 30)
-    .sort((a, b) => b.score - a.score)
-}
-
-async function resolveYouTubeTrack(seed) {
-  const queries = [`${seed.searchTitle || seed.title} ${seed.artist}`, seed.searchTitle || seed.title]
-  let fallback = null
-  for (const query of queries) {
-    const candidates = await searchYouTubeCandidates(query)
-    if (!candidates.length) continue
-    const ranked = rankYouTubeCandidates(candidates, seed).slice(0, 3)
-    for (const entry of ranked) {
-      const audio = await getYouTubeAudio(entry.track.videoId)
-      const candidate = entry.track
-      if (!fallback) fallback = candidate
-      if (audio?.streamUrl) {
-        return {
-          ...seed,
-          id: seed.id,
-          provider: 'youtube',
-          providerLabel: '',
-          youtubeVideoId: candidate.videoId,
-          streamUrl: audio.streamUrl,
-          duration: candidate.duration || audio.duration || seed.duration,
-          cover: seed.cover || candidate.cover || audio.cover || null,
-          quality: audio.quality || 'Audio',
-          preview: false,
-          c1: seed.c1,
-          c2: seed.c2,
-        }
-      }
-    }
-  }
-  if (fallback) {
-    return {
-      ...seed,
-      id: seed.id,
-      provider: 'youtube',
-      providerLabel: '',
-      youtubeVideoId: fallback.videoId,
-      streamUrl: null,
-      duration: fallback.duration || seed.duration,
-      cover: seed.cover || fallback.cover || null,
-      quality: 'Stream',
-      preview: false,
-      c1: seed.c1,
-      c2: seed.c2,
-    }
-  }
-  return null
-}
-
-async function searchEverything(query, options = {}) {
-  const trimmed = safeText(query).slice(0, 120)
-  if (!trimmed) return []
-  const cached = !options.retry && cachedSearchEntry('everything', trimmed, 50)
-  if (cached) return cached
-  // The same-origin router fans out to Apple, JioSaavn, Deezer and YouTube.
-  // Apple's storefronts act as the last-resort catalog so a dead router never
-  // leaves the user with an empty search.
-  let tracks = []
-  try {
-    tracks = await fetchJioSearch(trimmed, 50, { signal: options.signal, timeout: 10000, fresh: options.retry, throwOnFailure: true })
-  } catch (error) {
-    if (options.signal?.aborted) throw error
-    tracks = []
-  }
-  if (!tracks.length) tracks = await fetchItunesOmni(trimmed, 40)
-  const clean = mergeOmniTracks([tracks.map(sanitizeTrack)])
-    .filter((track) => track && (isFullLengthTrack(track) || track.previewUrl || track.youtubeVideoId))
-  const result = rankOmniTracks(clean, trimmed).slice(0, 50)
-  cacheSearchEntry('everything', trimmed, 50, result)
-  return result
-}
-
-function isFullLengthTrack(track) {
-  if (!track) return false
-  if (isPreviewTrack(track)) return false
-  const seconds = Number(track.duration) || 0
-  // Unknown duration stays in the catalog; playback must verify media metadata.
-  return !seconds || (Number.isFinite(seconds) && seconds >= 60)
-}
-
-async function resolveFullTrack(candidate, options = {}) {
-  if (!candidate) return null
-  const cached = !options.forceRefresh && cachedResolvedStream(candidate.id)
-  if (cached && (cached.streamUrl || cached.youtubeVideoId)) {
-    return { ...candidate, ...cached, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
-  }
-  const seed = SEED_BY_ID[candidate.id]
-  if (seed) {
-    const resolved = await resolveSeed(seed, options)
-    return { ...candidate, ...resolved, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
-  }
-  const target = { ...candidate, preview: false, needsHydration: true }
-  if (target.provider === 'jiosaavn') {
-    const hydrated = target.streamUrl && !isPreviewTrack(target) ? target : await hydrateJioTrack(target, { fresh: options.forceRefresh })
-    if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) {
-      const ready = { ...target, ...hydrated, id: target.id, preview: false, needsHydration: false }
-      cacheResolvedStream(target.id, ready)
-      return ready
-    }
-  }
-  if (target.streamUrl && isFullLengthTrack(target)) {
-    cacheResolvedStream(target.id, target)
-    return { ...target, needsHydration: false, status: 'ready' }
-  }
-
-  if (target.youtubeVideoId) {
-    const audio = await getYouTubeAudio(target.youtubeVideoId)
-    if (audio?.streamUrl) {
-      const ready = {
-        ...target,
-        ...audio,
-        id: target.id,
-        provider: 'youtube',
-        providerLabel: '',
-        preview: false,
-        needsHydration: false,
-        status: 'ready',
-      }
-      cacheResolvedStream(target.id, ready)
-      return ready
-    }
-  }
-
-  const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
-  // OmniRoute runs in parallel with the local catalog search: the server
-  // resolver usually wins, and the local rows are already in hand if it misses.
-  const [omni, candidates] = query
-    ? await Promise.all([
-        resolveOmniStream(target),
-        fetchJioSearch(query, 16, { fresh: options.forceRefresh }).catch(() => []),
-      ])
-    : [null, []]
-  if (omni?.streamUrl && isFullLengthTrack(omni)) {
-    const ready = {
-      ...target,
-      ...omni,
-      id: target.id,
-      preview: false,
-      needsHydration: false,
-      status: 'ready',
-      cover: target.cover || omni.cover || null,
-    }
-    cacheResolvedStream(target.id, ready)
-    return ready
-  }
-  if (query) {
-    const ranked = rankCandidates(candidates, {
-      ...target,
-      title: target.searchTitle || target.title,
-      duration: target.duration || 180,
-    })
-    for (const entry of ranked.slice(0, 4)) {
-      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track, { fresh: options.forceRefresh })
-      if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) {
-        const ready = {
-          ...target,
-          ...hydrated,
-          id: target.id,
-          preview: false,
-          needsHydration: false,
-          status: 'ready',
-          cover: target.cover || hydrated.cover || null,
-        }
-        cacheResolvedStream(target.id, ready)
-        return ready
-      }
-    }
-  }
-
-  if (target.title && target.artist) {
-    const youtube = await resolveYouTubeTrack(target)
-    if (youtube?.streamUrl || youtube?.youtubeVideoId) {
-      const ready = {
-        ...target,
-        ...youtube,
-        id: target.id,
-        preview: false,
-        needsHydration: false,
-        status: 'ready',
-        cover: target.cover || youtube.cover || null,
-      }
-      cacheResolvedStream(target.id, ready)
-      return ready
-    }
-  }
-  return null
-}
-
-async function resolveByMetadata(candidate, options = {}) {
-  if (!candidate) return null
-  const target = {
-    ...candidate,
-    searchTitle: candidate.searchTitle || candidate.title,
-    preview: false,
-    needsHydration: true,
-  }
-  const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
-  if (!query) return null
-
-  const [omniResult, jioResult, youtubeResult] = await Promise.allSettled([
-    withTimeout(resolveOmniStream(target), 6000),
-    withTimeout(fetchJioSearch(query, 16, { fresh: options.forceRefresh }), 4500),
-    withTimeout(searchYouTubeCandidates(query), 4500),
-  ])
-  const jioTracks = jioResult.status === 'fulfilled' ? jioResult.value : []
-  const youtubeTracks = youtubeResult.status === 'fulfilled' ? youtubeResult.value : []
-  const omni = omniResult.status === 'fulfilled' ? omniResult.value : null
-  if (omni?.streamUrl && !isPreviewTrack(omni) && isFullLengthTrack(omni)) {
-    const ready = sanitizeTrack({
-      ...target,
-      ...omni,
-      id: target.id,
-      cover: target.cover || omni.cover || null,
-      preview: false,
-      needsHydration: false,
-      status: 'ready',
-    })
-    cacheResolvedStream(target.id, ready)
-    return ready
-  }
-
-  const ranked = rankCandidates(jioTracks, target)
-  for (const entry of ranked.slice(0, 2)) {
-    if (entry.track?.streamUrl && !isPreviewTrack(entry.track) && isFullLengthTrack(entry.track)) {
-      const ready = sanitizeTrack({
-        ...target,
-        ...entry.track,
-        id: target.id,
-        cover: target.cover || entry.track.cover || null,
-        preview: false,
-        needsHydration: false,
-        status: 'ready',
-      })
-      cacheResolvedStream(target.id, ready)
-      return ready
-    }
-  }
-
-  const youtubeRanked = rankYouTubeCandidates(youtubeTracks, target)
-  const youtubeCandidate = youtubeRanked[0]?.track || youtubeTracks[0] || null
-  if (youtubeCandidate?.videoId) {
-    let audio = null
-    try {
-      audio = await withTimeout(getYouTubeAudio(youtubeCandidate.videoId), 4500)
-    } catch {
-      audio = null
-    }
-    const ready = sanitizeTrack({
-      ...target,
-      ...(audio || {}),
-      id: target.id,
-      provider: 'youtube',
-      providerLabel: '',
-      youtubeVideoId: youtubeCandidate.videoId,
-      streamUrl: audio?.streamUrl || null,
-      duration: youtubeCandidate.duration || audio?.duration || target.duration,
-      cover: target.cover || audio?.cover || youtubeCandidate.cover || null,
-      quality: audio?.quality || 'Stream',
-      preview: false,
-      needsHydration: false,
-      status: 'ready',
-    })
-    cacheResolvedStream(target.id, ready)
-    return ready
-  }
-
-  for (const entry of ranked.slice(0, 2)) {
-    try {
-      const hydrated = await withTimeout(hydrateJioTrack(entry.track), 4500)
-      if (hydrated?.streamUrl && !isPreviewTrack(hydrated) && isFullLengthTrack(hydrated)) {
-        const ready = sanitizeTrack({
-          ...target,
-          ...hydrated,
-          id: target.id,
-          cover: target.cover || hydrated.cover || null,
-          preview: false,
-          needsHydration: false,
-          status: 'ready',
-        })
-        cacheResolvedStream(target.id, ready)
-        return ready
-      }
-    } catch {
-      /* try the next matching source */
-    }
-  }
-  return null
-}
-
-const resolutionPromises = new Map()
-
-async function resolveSeed(seed, options = {}) {
-  const cached = !options.forceRefresh && cachedResolvedStream(seed.id)
-  if (cached && (cached.streamUrl || cached.youtubeVideoId)) return { ...cached, id: seed.id }
-  if (!options.forceRefresh && resolutionPromises.has(seed.id)) return resolutionPromises.get(seed.id)
-  const task = (async () => {
-    const searchTitle = seed.searchTitle || seed.title
-    const primaryQuery = `${searchTitle} ${seed.artist}`
-    const finalize = (best) => {
-      const resolved = {
-        ...seed,
-        ...best,
-        id: seed.id,
-        c1: seed.c1,
-        c2: seed.c2,
-        cover: seed.cover || best.cover || null,
-        preview: false,
-      }
-      if (resolutionPromises.get(seed.id) === task) cacheResolvedStream(seed.id, resolved)
-      return resolved
-    }
-
-    let candidates = await fetchJioSearch(primaryQuery, 16, { fresh: options.forceRefresh })
-    let ranked = rankCandidates(candidates, seed)
-    for (const entry of ranked.slice(0, 3)) {
-      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track, { fresh: options.forceRefresh })
-      if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) return finalize(hydrated)
-    }
-
-    const youtube = await resolveYouTubeTrack(seed)
-    if (youtube?.streamUrl || youtube?.youtubeVideoId) return finalize(youtube)
-
-    candidates = await fetchJioSearch(searchTitle, 16, { fresh: options.forceRefresh })
-    ranked = rankCandidates(candidates, seed)
-    for (const entry of ranked.slice(0, 3)) {
-      const hydrated = entry.track.streamUrl ? entry.track : await hydrateJioTrack(entry.track)
-      if (hydrated?.streamUrl && isFullLengthTrack(hydrated)) return finalize(hydrated)
-    }
-
-    const error = new Error('No official stream found')
-    error.code = 'UNRESOLVED'
-    throw error
-  })()
-  resolutionPromises.set(seed.id, task)
-  try {
-    return await task
-  } finally {
-    if (resolutionPromises.get(seed.id) === task) resolutionPromises.delete(seed.id)
-  }
 }
 
 function prepareLyricsData(data) {
@@ -2348,7 +1865,7 @@ async function fetchLyrics(track) {
           artist: entry.artistName,
           streamUrl: 'present',
         }
-        return { entry, score: scoreMatch(candidate, track) }
+        return { entry, score: scoreYtMatch(candidate, track) }
       })
       .filter(({ score, entry }) => score >= 0 || entry?.syncedLyrics)
       .sort((a, b) => b.score - a.score)[0]?.entry
@@ -2557,10 +2074,9 @@ export function consumeStorageFailure() {
 }
 
 export {
-  DEV_API,
-  SAAVN_BASES,
-  saavnBackoffUntil,
-  ITUNES_BASE,
+  YTMUSIC_BASE,
+  ytmusicBackoffUntil,
+  DIRECT_STREAM_BUDGET,
   LRCLIB_BASE,
   LIBRARY_CACHE_KEY,
   LYRIC_CACHE_KEY,
@@ -2603,8 +2119,6 @@ export {
   rememberBoundedId,
   trimBoundedSet,
   seededShuffle,
-  PIPED_INSTANCES,
-  INVIDIOUS_INSTANCES,
   mediaProxyUrl,
   AVATAR_PRESETS,
   ROOM_GRADIENTS,
@@ -2693,39 +2207,26 @@ export {
   loadLyricCache,
   saveLyricCache,
   deadMirrors,
-  LOCAL_MIRROR_PREFIXES,
   mirrorKeyFromUrl,
   fetchJson,
-  pickSaavnDownload,
-  normalizeSaavn,
-  normalizeItunes,
   titleOverlap,
-  scoreMatch,
-  rankCandidates,
-  hydrateJioTrack,
+  scoreYtMatch,
+  rankYtCandidates,
+  resolveVideoId,
+  normalizeYtTrack,
+  normalizeYtTracks,
+  preResolvedStream,
+  fetchYtSearch,
+  fetchYtRadio,
+  fetchYtArtist,
   fetchJioSearch,
-  fetchItunesSearch,
   findInstantPreview,
   primeInstantPreview,
   artworkFallbackCache,
   artworkFallbackMisses,
   artworkFallbackInflight,
   fetchArtworkFallback,
-  normalizePipedCandidate,
-  normalizeInvidiousCandidate,
-  searchPiped,
-  searchInvidious,
-  searchYouTubeCandidates,
-  chooseAudioFormat,
-  pickPipedAudio,
-  firstSuccessful,
-  getLocalYouTubeAudio,
-  getPipedAudio,
-  getInvidiousAudio,
   getYouTubeAudio,
-  scoreYouTubeCandidate,
-  rankYouTubeCandidates,
-  resolveYouTubeTrack,
   resolveTrackArtwork,
   searchEverything,
   isFullLengthTrack,

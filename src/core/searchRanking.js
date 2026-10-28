@@ -1,4 +1,4 @@
-import { cleanTitleCore } from './songStem.js'
+import { cleanTitleCore } from './trackIdentity.js'
 // Shared by the server and UI. Similarity changes ordering, never eligibility.
 export function phoneticNormalize(value = '') {
   return String(value)
