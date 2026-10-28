@@ -42,7 +42,7 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="🔍 Search rooms by room name, host name, or @username..."
+          placeholder="Search rooms or hosts"
           aria-label="Search rooms by room name, host name, or username"
           data-testid="rooms-search"
         />
@@ -53,9 +53,9 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
         )}
       </div>
 
-      {!rooms.length && <div className="rooms-empty-banner" role="status">No rooms saved yet — Start a room below to host a session, or click 'Join with code' if a friend shared a private invite code.</div>}
+      {!rooms.length && <div className="rooms-empty-banner" role="status">No rooms yet. Start one below, or join with a code.</div>}
       {Boolean(rooms.length) && !visibleRooms.length && (
-        <div className="rooms-empty-banner" role="status">No rooms match “{query.trim()}”. Try another host, room name, or @username.</div>
+        <div className="rooms-empty-banner" role="status">No rooms match “{query.trim()}”.</div>
       )}
       <div className="rooms-grid">
         <button className="room-card create-room-card" onClick={onCreate}>

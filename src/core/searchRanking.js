@@ -32,16 +32,17 @@ function wordsOf(value) {
   return phoneticNormalize(value).split(' ').filter(word => word.length > 1 && !ARTIST_STOPWORDS.has(word))
 }
 // Cover impersonators put the famous singer inside the title ("Aadat - Atif Aslam")
-// while the credited artist is somebody else. Reward genuine artist credits and
-// demote title-only attribution so the original recording always wins.
+// while the credited artist is somebody else. Reward a genuine primary-artist
+// credit and demote title-only attribution so the original recording always wins.
 function artistIntegrityAdjustment(track, words) {
   const rawTitle = String(track?.title || track?.name || '')
-  const artistWords = wordsOf(
+  const rawArtist = String(
     track?.artist ||
       track?.primaryArtists ||
-      track?.artists?.primary?.map((item) => item.name).join(' ') ||
+      track?.artists?.primary?.map((item) => item.name).join(', ') ||
       '',
   )
+  const artistWords = wordsOf(rawArtist)
   if (!artistWords.length) return 0
   const queryWords = words.filter(word => word.length > 1 && !ARTIST_STOPWORDS.has(word))
   if (!queryWords.length) return 0
@@ -49,15 +50,23 @@ function artistIntegrityAdjustment(track, words) {
     rawTitle.match(/\s[-–—]\s*([^,()[\]{}]{2,48})\s*$/) ||
     rawTitle.match(/[([]\s*([^,()[\]{}]{2,48})\s*[)\]]\s*$/)
   const hintWords = hintMatch ? wordsOf(hintMatch[1]) : []
-  const artistMatches =
-    artistWords.length >= 2 &&
-    queryWords.filter(word => artistWords.includes(word)).length >= Math.min(2, queryWords.length)
+  // Only the credited lead artist can claim the query; a collaborator list must
+  // not make an unrelated recording look like the requested artist.
+  const leadWords = wordsOf(rawArtist.split(/\s*(?:,|&|;|\bfeat\.?|\bft\.?)\s*/i)[0] || '')
+  const queryPhrase = queryWords.join(' ')
+  const leadPhrase = leadWords.join(' ')
+  const leadIsQuery =
+    Boolean(leadPhrase) &&
+    (leadPhrase === queryPhrase || ` ${queryPhrase} `.includes(` ${leadPhrase} `))
   const hintLooksLikeQueryArtist =
     hintWords.length > 0 &&
     hintWords.filter(word => queryWords.includes(word)).length >= Math.max(1, Math.min(2, hintWords.length))
   const hintIsCredited = hintWords.length > 0 && hintWords.every(word => artistWords.includes(word))
   if (hintLooksLikeQueryArtist && !hintIsCredited) return -1.5
-  if (artistMatches) {
+  // A one-word artist name cannot claim the integrity bonus on its own: a row
+  // literally credited "Kesria" must not outrank the song "Kesariya". A full
+  // lead-artist name ("Atif Aslam", "The Weeknd") can, even inside a collab.
+  if (leadIsQuery && leadWords.length >= 2) {
     const popularity = Math.min(0.35, Math.log10(Math.max(0, Number(track?.playCount) || 0) + 1) * 0.05)
     return 1.5 + popularity
   }

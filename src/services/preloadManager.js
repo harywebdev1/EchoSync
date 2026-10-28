@@ -8,7 +8,6 @@ function getMetadataAudio() {
   if (metadataAudio || typeof document === 'undefined') return metadataAudio
   metadataAudio = document.createElement('audio')
   metadataAudio.preload = 'metadata'
-  metadataAudio.crossOrigin = 'anonymous'
   metadataAudio.setAttribute('aria-hidden', 'true')
   metadataAudio.style.display = 'none'
   document.body.appendChild(metadataAudio)

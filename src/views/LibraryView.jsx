@@ -177,7 +177,7 @@ export function LibraryView({
               <div className="library-empty">
                 <span className="empty-icon"><ListMusic /></span>
                 <h4>This playlist is waiting</h4>
-                <p>Search above for a song, then tap + to add it here.</p>
+                <p>Add a song with +.</p>
                 <button className="text-btn" onClick={onSearch}><Search size={12} /> Find songs</button>
               </div>
             ) : playlistTracks.map((track, index) => (
@@ -235,7 +235,7 @@ export function LibraryView({
               <div className="library-empty">
                 <span className="empty-icon"><ListMusic /></span>
                 <h4>No playlists yet</h4>
-                <p>Create one and start collecting the songs that matter.</p>
+                <p>Create a playlist to get started.</p>
                 <button className="primary-btn" onClick={onCreatePlaylist}><Plus /> Create playlist</button>
               </div>
             ) : (

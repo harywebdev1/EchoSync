@@ -24,9 +24,10 @@ import { preloadQueueWindow, preloadCandidateAt } from '../services/preloadManag
 import { useEffect, useRef } from 'react'
 import { useMediaSession, publishMediaSessionPosition } from './useMediaSession.js'
 import { buildArtistRadio } from '../core/tasteEngine.js'
+import { omniStreamChain } from '../core/omniMusicEngine.js'
 
 const GUEST_PREVIEW_SECONDS = 30
-export const GUEST_PREVIEW_BANNER = 'Unlock full-length 320kbps streaming — Sign in or create a free account to hear the complete track.'
+export const GUEST_PREVIEW_BANNER = 'Sign in to hear full tracks.'
 
 export function usePlaybackEngine({
   state: {
@@ -664,7 +665,7 @@ export function usePlaybackEngine({
   }
 
   // Warm the stream for a hovered or visible card so the click can attach
-  // immediately. Guests get the preview buffered; members hydrate the full
+  // immediately. Guests get the preview resolved; members hydrate the full
   // stream in the background.
   function prefetchTrack(candidate) {
     if (!candidate?.id) return
@@ -1369,16 +1370,7 @@ export function usePlaybackEngine({
   // media proxy (only for hosts the proxy may fetch), then the provider
   // preview. No lookup, no toast, no dead air.
   function streamAlternatives(current) {
-    const url = String(current?.streamUrl || '')
-    const out = []
-    if (/saavncdn\.com/i.test(url) && /_(?:96|160|320)\.mp4/i.test(url)) {
-      out.push(url.replace(/_(?:96|160|320)\.mp4/i, '_320.mp4'))
-      out.push(url.replace(/_(?:96|160|320)\.mp4/i, '_160.mp4'))
-      out.push(url.replace(/_(?:96|160|320)\.mp4/i, '_96.mp4'))
-    }
-    if (/saavncdn\.com|dzcdn\.net|googlevideo\.com/i.test(url)) out.push(`/api/media?url=${encodeURIComponent(url)}`)
-    if (current?.previewUrl && current.previewUrl !== url) out.push(current.previewUrl)
-    return [...new Set(out.filter(Boolean))]
+    return omniStreamChain(current)
   }
 
   async function trySwapStream(audio, url, resumeTime, attemptId) {

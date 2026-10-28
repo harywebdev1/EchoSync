@@ -176,7 +176,7 @@ export function SettingsModal({
 
               <div className="settings-subhead">
                 <strong>Public profile</strong>
-                <span>This is how friends see you in rooms and the Lounge.</span>
+                <span>Shown in rooms and the Lounge.</span>
               </div>
 
               <div className="field-row">
@@ -232,7 +232,7 @@ export function SettingsModal({
 
               <div className="settings-subhead">
                 <strong>Account</strong>
-                <span>Email changes may require confirmation. Leave password fields empty to keep your current one.</span>
+                <span>Leave password empty to keep it unchanged.</span>
               </div>
               <div className="field-row">
                 <label className="field">
@@ -273,7 +273,7 @@ export function SettingsModal({
             <div className="settings-section">
               <div className="settings-section-head">
                 <h3>Audio & playback</h3>
-                <p>Stream quality and defaults for every new listening session.</p>
+                <p>Playback defaults.</p>
               </div>
               <label className="field">
                 <span>Streaming quality</span>
@@ -287,7 +287,7 @@ export function SettingsModal({
               <div className="setting-toggle-row">
                 <div>
                   <strong>Autoplay</strong>
-                  <span>Keep the music going with taste-matched radio when the queue ends.</span>
+                  <span>Play similar songs when the queue ends.</span>
                 </div>
                 <Toggle on={audio.autoplay !== false} onClick={() => setAudio((value) => ({ ...value, autoplay: value.autoplay === false }))} label="Toggle autoplay" />
               </div>
@@ -318,26 +318,26 @@ export function SettingsModal({
             <div className="settings-section">
               <div className="settings-section-head">
                 <h3>Social & privacy</h3>
-                <p>You decide who gets to share your listening.</p>
+                <p>Visibility and invites.</p>
               </div>
               <div className="setting-toggle-row">
                 <div>
                   <strong>Show my listening activity</strong>
-                  <span>Let friends see when you’re in a room.</span>
+                  <span>Show when you’re in a room.</span>
                 </div>
                 <Toggle on={form.showActivity} onClick={() => setForm((value) => ({ ...value, showActivity: !value.showActivity }))} label="Toggle listening activity" />
               </div>
               <div className="setting-toggle-row">
                 <div>
                   <strong>Allow direct room invites from anyone</strong>
-                  <span>Turn off to only receive invites from people you know.</span>
+                  <span>Only accept invites from people you know.</span>
                 </div>
                 <Toggle on={form.allowInvites} onClick={() => setForm((value) => ({ ...value, allowInvites: !value.allowInvites }))} label="Toggle direct room invites" />
               </div>
               <div className="setting-toggle-row">
                 <div>
                   <strong>Public playlists by default</strong>
-                  <span>New playlists are visible to your listening community.</span>
+                  <span>Playlists are visible to others.</span>
                 </div>
                 <Toggle
                   on={audio.defaultPlaylistPublic !== false}

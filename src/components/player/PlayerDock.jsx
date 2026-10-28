@@ -42,7 +42,6 @@ export const PlayerDock = memo(function PlayerDock({
   onToggleMute,
   onSeek,
   onOpenFull,
-  onOpenLyrics,
   onToggleQueue,
   onCycleRepeat,
   onToggleShuffle,

@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import {
   Heart,
   Play,
@@ -76,7 +75,6 @@ function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
 }
 
 export function FullScreenPlayer({
-  initialPanel = 'player',
   room,
   track,
   queue,
@@ -109,11 +107,7 @@ export function FullScreenPlayer({
   translateOn,
   translating,
   onToggleTranslate,
-  previewMode = false,
-  onPreviewUpgrade,
 }) {
-  const lyricsRef = useRef(null)
-  useEffect(() => { if(initialPanel === 'lyrics') lyricsRef.current?.scrollIntoView({block:'start'}) }, [initialPanel])
   const total = duration || track?.duration || 0
   return (
     <div className="full-player">
@@ -123,8 +117,8 @@ export function FullScreenPlayer({
         <header className="fp-head">
           <button className="icon-btn" onClick={onClose} aria-label="Close full player"><ChevronDown /></button>
           <div className="fp-head-copy">
-            <span>{inRoom ? `Playing in ${room.name}` : 'Your listening session'}</span>
-            <strong>{inRoom ? `${queue.length} tracks in the room queue · ${room.members.length} listeners` : `${queue.length} tracks in your queue`}</strong>
+            <span>{inRoom ? 'Room' : 'Now playing'}</span>
+            <strong>{inRoom ? `${room.name} · ${room.members.length} listeners` : `${queue.length} in queue`}</strong>
           </div>
           <div className="head-spacer" />
         </header>
@@ -210,18 +204,18 @@ export function FullScreenPlayer({
             </div>
           </div>
 
-          <div ref={lyricsRef} className="fp-right">
+          <div className="fp-right">
             <div className="social-head">
               <div className="social-head-copy">
-                <h3>Live lyrics</h3>
+                <h3>Lyrics</h3>
                 <p>
                   <Sparkles size={10} />
                   {' '}
                   {lyrics?.status === 'ready' && lyrics.type === 'synced'
-                    ? (inRoom ? 'Following the room, line by line' : 'Following along, line by line')
+                    ? (inRoom ? 'Synced to the room' : 'Synced to playback')
                     : lyrics?.status === 'ready' && lyrics.type === 'plain'
-                      ? (inRoom ? 'Read along with the room' : 'Read along with playback')
-                      : 'Time-synced with playback'}
+                      ? 'Full lyrics'
+                      : 'Synced lyrics'}
                 </p>
               </div>
             </div>

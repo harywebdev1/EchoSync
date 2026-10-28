@@ -1,9 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, Fragment } from 'react'
 import {
-  AudioLines,
   Clock3,
-  Headphones, Heart,
-  ListPlus,
+  Heart,
   Play,
   Plus,
   Radio,
@@ -200,12 +198,12 @@ export function SearchOverlay({
 
           {status === 'ready' && visibleResults.length === 0 && (
             <div className="no-results">
-              <span>No streams found for "{query}". Try another spelling or artist.</span>
+              <span>No results for "{query}".</span>
             </div>
           )}
 
           {status === 'error' && (
-            <div className="search-recovery" role="status">Live search is taking too long or unavailable. Instant matches are still playable. <button className="text-btn" onClick={()=>setRetry(n=>n+1)}>↻ Retry search</button></div>
+            <div className="search-recovery" role="status">Search is slow. Instant matches are still playable. <button className="text-btn" onClick={()=>setRetry(n=>n+1)}>↻ Retry search</button></div>
           )}
 
           {instant.length>0 && status!=='ready' && <h3 className="instant-label">Instant matches</h3>}
@@ -230,7 +228,7 @@ export function SearchOverlay({
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
                     <strong>{track.title}</strong>
-                    <span>{track.artist}{track.preview ? ' / preview' : ''}</span>
+                    <span>{track.artist}</span>
                     {pendingTrackId === track.id && <span className="search-pending-copy">Loading stream...</span>}
                   </div>
                   <button

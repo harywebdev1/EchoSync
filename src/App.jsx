@@ -74,7 +74,7 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    dynamicCatalogTracks, social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio, sleepTimer, setSleepTimer,
+    dynamicCatalogTracks, social, googleSignIn, cloudMode, resetPassword, completePasswordRecovery, startRoomTrack, queueSoloTrack, startTasteRadio,
     artworkContextValue,
     memberIndex,
     rootStyle,
@@ -97,7 +97,6 @@ export default function App() {
     library,
     currentUser,
     playlists,
-    guestPreview,
     previewCard,
     setPreviewCard,
     replayGuestPreview,
@@ -499,7 +498,6 @@ export default function App() {
                 onDismiss={() => setPreviewCard(false)}
               />
               <PlayerDock
-                sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
                 track={track}
                 inRoom={roomPlaybackActive}
                 isPlaying={isPlaying}
@@ -517,7 +515,6 @@ export default function App() {
                 onToggleMute={toggleMute}
                 onSeek={seekTo}
                 canSeek={canControl}
-                onOpenLyrics={() => setFullPlayer('lyrics')}
                 onOpenFull={openFullPlayer}
                 onToggleQueue={toggleQueuePanel}
                 onCycleRepeat={cycleRepeatMode}
@@ -697,8 +694,7 @@ export default function App() {
         )}
 
         {fullPlayer && (
-          <FullPlayer initialPanel={fullPlayer === 'lyrics' ? 'lyrics' : 'player'}
-            sleepTimer={sleepTimer} onSleepTimer={setSleepTimer}
+          <FullPlayer
             room={displayRoom}
             inRoom={roomPlaybackActive}
             track={track}
@@ -731,8 +727,6 @@ export default function App() {
             translateOn={translateOn}
             translating={translating}
             onToggleTranslate={toggleTranslation}
-            previewMode={!currentUser && guestPreview}
-            onPreviewUpgrade={() => openAuth('signin', GUEST_PREVIEW_BANNER)}
           />
         )}
 

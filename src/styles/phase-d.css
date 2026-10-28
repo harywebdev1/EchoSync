@@ -648,8 +648,8 @@
     radial-gradient(90% 80% at 92% 10%, rgba(var(--song-accent-rgb, 145, 100, 210), 0.18), transparent 62%),
     radial-gradient(85% 85% at 50% 105%, color-mix(in srgb, var(--song-accent-2, var(--accent-2)) 16%, transparent), transparent 66%),
     #05060A;
-  backdrop-filter: blur(60px) saturate(140%);
-  -webkit-backdrop-filter: blur(60px) saturate(140%);
+  backdrop-filter: blur(64px) saturate(140%);
+  -webkit-backdrop-filter: blur(64px) saturate(140%);
 }
 
 .full-player .fp-bg {
@@ -710,4 +710,85 @@
 @media (max-width: 768px) {
   .full-player .fp-right .lyric-line { font-size: 18px; }
   .full-player .fp-right .lyric-line.active { font-size: 20px; }
+}
+
+/* ---------- 220ms GPU motion ---------- */
+:root { --motion: 220ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
+}
+
+.home-view,
+.rooms-view,
+.library-view,
+.room-view {
+  animation: view-in var(--motion) var(--ease) both;
+}
+
+.home-card,
+.quick-card,
+.home-mix-card,
+.playlist-card,
+.room-card,
+.search-result,
+.library-row,
+.queue-drawer-row {
+  transition: transform var(--motion), opacity var(--motion), background-color var(--motion);
+}
+
+.home-card:hover,
+.quick-card:hover,
+.home-mix-card:hover,
+.playlist-card:hover,
+.room-card:hover,
+.search-result:hover {
+  transform: translateY(-2px);
+}
+
+.lounge-drawer,
+.queue-drawer,
+.social.mobile-open,
+.modal,
+.search-modal,
+.auth-modal,
+.settings-modal {
+  transition: transform var(--motion), opacity var(--motion);
+}
+
+.timeline-track,
+.timeline-fill,
+input[type="range"] {
+  transition: transform var(--motion), opacity var(--motion);
+}
+
+.timeline-track:active,
+.timeline-track:focus-visible {
+  transform: scaleY(1.45);
+}
+
+@media (max-width: 768px) {
+  .lounge-drawer,
+  .queue-drawer,
+  .social.mobile-open {
+    animation: sheet-up var(--motion) var(--ease) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-view,
+  .rooms-view,
+  .library-view,
+  .room-view,
+  .lounge-drawer,
+  .queue-drawer,
+  .social.mobile-open {
+    animation: none;
+  }
 }

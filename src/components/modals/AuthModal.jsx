@@ -60,7 +60,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
       <div className="auth-modal-copy">
         <span className="eyebrow"><span className="seg" /> {mode === 'signin' ? 'WELCOME BACK' : 'CREATE ACCOUNT'}</span>
         <h2>{mode==='recovery'?'Choose a new password':resetView?'Reset your password':mode === 'signin' ? 'Sign in to EchoSync' : 'Join EchoSync'}</h2>
-        <p>{previewUnlock ? 'Your 30-second preview is up. Sign in and the full-length track resumes exactly where it stopped.' : reason || (mode === 'signin' ? 'Your library, rooms, and queue pick up where you left off.' : 'Stream full tracks, join live listening rooms, and chat in the Lounge.')}</p>
+        <p>{previewUnlock ? 'Preview ended. Sign in to keep listening.' : reason || (mode === 'signin' ? 'Your library and queue are waiting.' : 'Stream full tracks and join live rooms.')}</p>
       </div>
 
       {previewUnlock && (
@@ -73,7 +73,7 @@ export function AuthModal({ mode, reason, notice, pendingRoom, onClose, onSwitch
       {(pendingRoom || notice) && (
         <div className="auth-invite-note">
           <Radio size={13} />
-          <span>{pendingRoom ? <>Room <b>{pendingRoom}</b> is waiting. Sign in and we’ll take you straight in.</> : notice}</span>
+          <span>{pendingRoom ? <>Room <b>{pendingRoom}</b> is waiting.</> : notice}</span>
         </div>
       )}
 

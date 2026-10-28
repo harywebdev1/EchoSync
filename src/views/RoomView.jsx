@@ -138,7 +138,7 @@ export function RoomView({
         </div>
       </section>
 
-      {!hasTrack ? <section className="room-stage-empty"><h2>Room stage is ready</h2><p>Pick a starter song below or search above to kick off the session</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span>{item.artist}</span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
+      {!hasTrack ? <section className="room-stage-empty"><h2>Pick a song</h2><p>Start the room with one of these.</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span>{item.artist}</span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
         <Cover track={track} size="cover-size-hero" playing={isPlaying} />
         <div className="now-main">
           <div className="now-kicker">
@@ -160,13 +160,13 @@ export function RoomView({
           </div>
           <div className="room-sync-actions"><TelemetryPill className="room-transport-sync" /><button className="text-btn" onClick={onResync}><RefreshCw size={14} /> Resync</button><button className="text-btn" onClick={onOpenFull}><Maximize2 size={14} /> Open full player</button></div>
           <div className="now-foot">
-            <span>{failed ? 'Source unavailable' : pending ? 'Finding the official source…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full-length stream' : ready ? `Ad-free stream · ${track?.quality || '320 kbps'}` : 'Ready in the room'}</span>
+            <span>{failed ? 'Paused' : pending ? 'Starting…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full track' : ready ? (track?.quality || '320 kbps') : 'Ready'}</span>
             <span className="dot" />
             <span>{canControl ? 'You have control' : 'Listen-only mode'}</span>
             <span className="grow" />
             {(failed || track?.needsHydration) && (
               <button className="text-btn find-full" onClick={() => onRetryFull(track)}>
-                <RefreshCw size={11} /> Retry Full Stream
+                <RefreshCw size={11} /> Retry
               </button>
             )}
             <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track">
@@ -202,8 +202,8 @@ export function RoomView({
         <div>
           <h3>The room queue</h3>
           <p>{queue.length
-            ? <>Everyone hears the same <b>{queue.length}</b> {queue.length === 1 ? 'track' : 'tracks'} at the same time.</>
-            : 'The queue is empty until someone adds a song.'}</p>
+            ? <><b>{queue.length}</b> {queue.length === 1 ? 'track' : 'tracks'}, in sync for everyone.</>
+            : 'No songs queued.'}</p>
         </div>
         <div className="head-actions">
           <button className="text-btn" onClick={onSearch}><Plus /> Add a song</button>
@@ -256,8 +256,8 @@ export function RoomView({
         {queue.length === 0 && (
           <div className="queue-empty room-queue-empty">
             <span className="empty-icon"><ListMusic /></span>
-            <strong>The queue is waiting</strong>
-            <p>Add the first song and everyone will hear it in sync.</p>
+            <strong>No songs yet</strong>
+            <p>Add the first one.</p>
             <button className="text-btn" onClick={onSearch}><Plus size={12} /> Add a song</button>
           </div>
         )}
@@ -337,7 +337,7 @@ export function RoomView({
 
       <p className="room-foot-note">
         <Headphones size={12} />
-        <span>Guests stay in sync automatically. Only <b>Admin</b> and <b>DJ</b> can change playback.</span>
+        <span>Only <b>Admin</b> and <b>DJ</b> can change playback. Everyone stays in sync.</span>
       </p>
     </>
   )

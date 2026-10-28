@@ -3,8 +3,7 @@ import { createStorageAdapter } from '../core/storageAdapter.js'
 import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
 import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/tasteEngine.js'
 import { getActiveStreamQuality } from '../services/networkMonitor'
-import { getCanonicalSongStem } from '../core/songStem.js'
-import { rankBySearchSimilarity } from '../core/searchRanking.js'
+import { mergeOmniTracks, rankOmniTracks } from '../core/omniMusicEngine.js'
 import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc } from '../core/lrcParser.js'
 
 const DEV_API = import.meta.env.DEV
@@ -1384,8 +1383,8 @@ function normalizeSaavn(raw) {
   const providerId = safeText(source.providerId || source.id)
   if (!providerId) return null
   const youtubeVideoId = safeText(source.youtubeVideoId || (provider === 'youtube' ? providerId : ''))
-  const prefixes = { jiosaavn: 'jio', jio: 'jio', deezer: 'dz', youtube: 'yt', audius: 'au' }
-  const labels = { jiosaavn: 'JioSaavn', jio: 'JioSaavn', deezer: 'Deezer', youtube: 'YouTube', audius: 'Audius' }
+  const prefixes = { jiosaavn: 'jio', jio: 'jio', deezer: 'dz', itunes: 'it', youtube: 'yt', audius: 'au' }
+  const labels = { jiosaavn: 'JioSaavn', jio: 'JioSaavn', deezer: 'Deezer', itunes: 'iTunes', youtube: 'YouTube', audius: 'Audius' }
   const prefix = prefixes[provider] || 'ext'
   const id = provider === 'youtube' && youtubeVideoId ? `yt-${youtubeVideoId}` : `${prefix}-${providerId}`
   const downloads = Array.isArray(source.downloadUrl) ? source.downloadUrl.filter((item) => item?.url) : []
@@ -1561,22 +1560,57 @@ async function fetchJioSearch(query, limit = 12, options = {}) {
   return []
 }
 
-async function fetchItunesSearch(query, limit = 12) {
-  const cached = cachedSearchEntry('itunes', query, limit)
+async function fetchItunesSearch(query, limit = 12, country = '') {
+  const cacheKey = country ? `${query}::${country}` : query
+  const cached = cachedSearchEntry('itunes', cacheKey, limit)
   if (cached) return cached
   try {
+    const storefront = country ? `&country=${encodeURIComponent(country)}` : ''
     const payload = await fetchJson(
-      `${ITUNES_BASE}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=${limit}`,
+      `${ITUNES_BASE}?term=${encodeURIComponent(query)}&media=music&entity=song&limit=${limit}${storefront}`,
       { timeout: 5000 },
     )
     const results = Array.isArray(payload?.results) ? payload.results : []
     const tracks = results
       .map(normalizeItunes)
       .filter((track) => track && track.duration >= 45)
-    cacheSearchEntry('itunes', query, limit, tracks)
+    cacheSearchEntry('itunes', cacheKey, limit, tracks)
     return tracks
   } catch {
     return []
+  }
+}
+
+// Client-side fallback: two storefronts, merged into one canonical list. Used
+// only when the same-origin router cannot answer, so the radio never goes dark.
+async function fetchItunesOmni(query, limit = 40) {
+  const settled = await Promise.allSettled([
+    fetchItunesSearch(query, limit, 'PK'),
+    fetchItunesSearch(query, limit, 'US'),
+  ])
+  return mergeOmniTracks(settled.map((result) => (result.status === 'fulfilled' ? result.value : [])))
+}
+
+// On-play full-stream resolver for catalog rows we only know by metadata.
+// One round trip to the same-origin router, ranked exactly like search.
+async function resolveOmniStream(track) {
+  const title = safeText(track?.searchTitle || track?.title).slice(0, 160)
+  if (!title) return null
+  const artist = safeText(track?.artist).slice(0, 160)
+  try {
+    const payload = await fetchJson(
+      `/api/saavn?action=resolve&title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`,
+      { timeout: 6000 },
+    )
+    const rows = (Array.isArray(payload?.data?.results) ? payload.data.results : [])
+      .map(normalizeSaavn)
+      .filter(Boolean)
+    if (!rows.length) return null
+    const ranked = rankCandidates(rows, { ...track, title, duration: track?.duration || 180 })
+    const best = ranked[0]?.track
+    return best?.streamUrl && isFullLengthTrack(best) ? best : null
+  } catch {
+    return null
   }
 }
 
@@ -1927,29 +1961,25 @@ async function resolveYouTubeTrack(seed) {
   return null
 }
 
-// Provider eligibility is independent of fuzzy ordering.
-function rankSearchResults(tracks, query) {
-  return rankBySearchSimilarity(tracks, query)
-}
-
 async function searchEverything(query, options = {}) {
   const trimmed = safeText(query).slice(0, 120)
   if (!trimmed) return []
   const cached = !options.retry && cachedSearchEntry('everything', trimmed, 50)
   if (cached) return cached
-  // The same-origin route owns official/mirror merging; unrelated providers must not hold up catalog search.
-  const tracks = await fetchJioSearch(trimmed, 50, { signal: options.signal, timeout: 10000, fresh: options.retry, throwOnFailure: true })
-  const seen = new Set()
-  const clean = tracks
-    .map(sanitizeTrack)
-    .filter((track) => track && (isFullLengthTrack(track) || track.previewUrl || track.youtubeVideoId || track.provider === 'deezer'))
-    .filter((track) => {
-      const stem = getCanonicalSongStem(track)
-      if (!stem || seen.has(stem)) return false
-      seen.add(stem)
-      return true
-    })
-  const result = rankSearchResults(clean, trimmed).slice(0, 50)
+  // The same-origin router fans out to Apple, JioSaavn, Deezer and YouTube.
+  // Apple's storefronts act as the last-resort catalog so a dead router never
+  // leaves the user with an empty search.
+  let tracks = []
+  try {
+    tracks = await fetchJioSearch(trimmed, 50, { signal: options.signal, timeout: 10000, fresh: options.retry, throwOnFailure: true })
+  } catch (error) {
+    if (options.signal?.aborted) throw error
+    tracks = []
+  }
+  if (!tracks.length) tracks = await fetchItunesOmni(trimmed, 40)
+  const clean = mergeOmniTracks([tracks.map(sanitizeTrack)])
+    .filter((track) => track && (isFullLengthTrack(track) || track.previewUrl || track.youtubeVideoId))
+  const result = rankOmniTracks(clean, trimmed).slice(0, 50)
   cacheSearchEntry('everything', trimmed, 50, result)
   return result
 }
@@ -2006,8 +2036,28 @@ async function resolveFullTrack(candidate, options = {}) {
   }
 
   const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
+  // OmniRoute runs in parallel with the local catalog search: the server
+  // resolver usually wins, and the local rows are already in hand if it misses.
+  const [omni, candidates] = query
+    ? await Promise.all([
+        resolveOmniStream(target),
+        fetchJioSearch(query, 16, { fresh: options.forceRefresh }).catch(() => []),
+      ])
+    : [null, []]
+  if (omni?.streamUrl && isFullLengthTrack(omni)) {
+    const ready = {
+      ...target,
+      ...omni,
+      id: target.id,
+      preview: false,
+      needsHydration: false,
+      status: 'ready',
+      cover: target.cover || omni.cover || null,
+    }
+    cacheResolvedStream(target.id, ready)
+    return ready
+  }
   if (query) {
-    const candidates = await fetchJioSearch(query, 16, { fresh: options.forceRefresh })
     const ranked = rankCandidates(candidates, {
       ...target,
       title: target.searchTitle || target.title,
@@ -2061,12 +2111,27 @@ async function resolveByMetadata(candidate, options = {}) {
   const query = `${target.searchTitle || target.title} ${target.artist || ''}`.trim()
   if (!query) return null
 
-  const [jioResult, youtubeResult] = await Promise.allSettled([
+  const [omniResult, jioResult, youtubeResult] = await Promise.allSettled([
+    withTimeout(resolveOmniStream(target), 6000),
     withTimeout(fetchJioSearch(query, 16, { fresh: options.forceRefresh }), 4500),
     withTimeout(searchYouTubeCandidates(query), 4500),
   ])
   const jioTracks = jioResult.status === 'fulfilled' ? jioResult.value : []
   const youtubeTracks = youtubeResult.status === 'fulfilled' ? youtubeResult.value : []
+  const omni = omniResult.status === 'fulfilled' ? omniResult.value : null
+  if (omni?.streamUrl && !isPreviewTrack(omni) && isFullLengthTrack(omni)) {
+    const ready = sanitizeTrack({
+      ...target,
+      ...omni,
+      id: target.id,
+      cover: target.cover || omni.cover || null,
+      preview: false,
+      needsHydration: false,
+      status: 'ready',
+    })
+    cacheResolvedStream(target.id, ready)
+    return ready
+  }
 
   const ranked = rankCandidates(jioTracks, target)
   for (const entry of ranked.slice(0, 2)) {
