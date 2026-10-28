@@ -1414,7 +1414,7 @@ function normalizeSaavn(raw) {
     language: safeText(source.language),
     year: safeText(source.year || source.releaseDate).slice(0, 4),
     streamUrl: resolvedStream,
-    previewUrl: safeMediaUrl(source.previewUrl) || (provider === 'deezer' ? null : undefined),
+    previewUrl: safeMediaUrl(source.previewUrl || source.preview) || (provider === 'deezer' ? null : undefined),
     youtubeVideoId: youtubeVideoId || undefined,
     cover: cover?.url || null,
     quality: stream?.quality || '',
@@ -1441,6 +1441,7 @@ function normalizeItunes(raw) {
     preview: false,
     needsHydration: true,
     streamUrl: null,
+    previewUrl: safeMediaUrl(source.previewUrl) || null,
     cover: art ? art.replace(/\/\d+x\d+bb[^/]*\.(jpg|png)/i, '/600x600bb.jpg').replace('100x100bb', '600x600bb') : null,
     quality: 'metadata',
   })
@@ -1571,12 +1572,54 @@ async function fetchItunesSearch(query, limit = 12) {
     const results = Array.isArray(payload?.results) ? payload.results : []
     const tracks = results
       .map(normalizeItunes)
-      .filter((track) => track && track.duration >= 45 && !isPreviewTrack(track))
+      .filter((track) => track && track.duration >= 45)
     cacheSearchEntry('itunes', query, limit, tracks)
     return tracks
   } catch {
     return []
   }
+}
+
+// Fastest possible audible frame: Apple's public 30 second preview is a small
+// static MP3/M4A that starts while the full JioSaavn/YouTube stream resolves.
+// The resolved URL is remembered per track and the media bytes are preloaded,
+// so a click made after the first paint starts within one buffer instead of
+// waiting for a provider lookup and a cold TLS handshake.
+const instantPreviewCache = new Map()
+const instantPreviewInflight = new Map()
+
+async function findInstantPreview(track) {
+  const key = track?.id || ''
+  if (key && instantPreviewCache.has(key)) return instantPreviewCache.get(key)
+  const title = track?.searchTitle || track?.title || ''
+  const artist = track?.artist || ''
+  if (!title) return null
+  const tracks = await fetchItunesSearch(`${title} ${artist}`.trim(), 5)
+  if (!tracks.length) return null
+  const ranked = rankCandidates(tracks, { ...track, title, duration: track?.duration || 180 })
+  let url = null
+  for (const entry of ranked.slice(0, 5)) {
+    url = entry.track?.previewUrl || entry.previewUrl || null
+    if (url) break
+  }
+  if (!url) url = tracks.find((item) => item.previewUrl)?.previewUrl || null
+  if (url && key) instantPreviewCache.set(key, url)
+  return url
+}
+
+// Resolve a preview URL before the user asks for it, so the click only has to
+// attach a known URL. Media bytes are never preloaded: one shared connection
+// must stay free for the track that is actually playing.
+function primeInstantPreview(track) {
+  const key = track?.id
+  if (!key || track.previewUrl) return Promise.resolve(track?.previewUrl || null)
+  if (instantPreviewCache.has(key)) return Promise.resolve(instantPreviewCache.get(key))
+  if (instantPreviewInflight.has(key)) return instantPreviewInflight.get(key)
+  const task = findInstantPreview(track)
+    .catch(() => null)
+    .finally(() => instantPreviewInflight.delete(key))
+  instantPreviewInflight.set(key, task)
+  return task
 }
 
 const artworkFallbackCache = new Map()
@@ -1899,7 +1942,7 @@ async function searchEverything(query, options = {}) {
   const seen = new Set()
   const clean = tracks
     .map(sanitizeTrack)
-    .filter((track) => track && isFullLengthTrack(track))
+    .filter((track) => track && (isFullLengthTrack(track) || track.previewUrl || track.youtubeVideoId || track.provider === 'deezer'))
     .filter((track) => {
       const stem = getCanonicalSongStem(track)
       if (!stem || seen.has(stem)) return false
@@ -2597,6 +2640,8 @@ export {
   hydrateJioTrack,
   fetchJioSearch,
   fetchItunesSearch,
+  findInstantPreview,
+  primeInstantPreview,
   artworkFallbackCache,
   artworkFallbackMisses,
   artworkFallbackInflight,

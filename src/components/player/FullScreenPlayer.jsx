@@ -68,7 +68,7 @@ function FullPlayerTimeline({ total, canControl, onSeek, onLock }) {
       </div>
       <div className="time-row">
         <b>{formatTime(progress)}</b>
-        <span>{canControl ? 'CLICK TO SEEK' : 'SYNCED TO ROOM'}</span>
+        <span>{canControl ? '' : 'SYNCED TO ROOM'}</span>
         <span>{formatTime(total)}</span>
       </div>
     </>
@@ -141,17 +141,6 @@ export function FullScreenPlayer({
               </div>
               <h2 className="fp-title">{track?.title}</h2>
               <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
-
-              {previewMode && (
-                <button
-                  type="button"
-                  className="guest-preview-pill full"
-                  data-testid="guest-preview-pill-full"
-                  onClick={onPreviewUpgrade}
-                >
-                  <span aria-hidden="true">🔒</span> 30s Preview · Log in for full track
-                </button>
-              )}
 
               <div className="fp-timeline">
                 <FullPlayerTimeline

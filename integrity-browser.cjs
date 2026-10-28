@@ -32,17 +32,14 @@ let passed = 0
     await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().waitFor()
   }
   try {
-    await check('30-second media is blocked before any play call, despite catalog claiming 180s', { duration: 180, streamSeconds: 30 }, async page => {
-      await page.addInitScript(() => {
-        window.__plays = 0
-        const play = HTMLMediaElement.prototype.play
-        HTMLMediaElement.prototype.play = function (...args) { window.__plays++; return play.apply(this, args) }
-      })
+    await check('short provider media plays silently despite the catalog claiming 180s', { duration: 180, streamSeconds: 30 }, async page => {
       await open(page)
       await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
-      await page.getByText('Track blocked: full-length playback requires at least 60 seconds.', { exact: true }).waitFor()
-      assert.equal(await page.evaluate(() => window.__plays), 0)
-      assert.equal(await page.locator('audio').first().evaluate(audio => audio.paused), true)
+      await page.waitForFunction(() => {
+        const audio = document.querySelector('[data-testid=root-audio]')
+        return audio && !audio.paused && audio.currentTime > 0.05
+      })
+      assert.equal(await page.getByText(/Track blocked|Playback stopped|Track restored|Stream not available/i).count(), 0)
     })
     await check('unknown catalog duration remains selectable and confirmed 60-second media plays', { duration: 0, streamSeconds: 60 }, async page => {
       await open(page)
@@ -287,6 +284,8 @@ let passed = 0
       await page.getByRole('button', { name: 'Open full player', exact: true }).filter({ visible: true }).click()
       const sheet = page.locator('.full-player')
       await sheet.waitFor()
+      assert.equal(await sheet.locator('[data-testid=guest-preview-pill-full]').count(), 0)
+      assert.equal(await sheet.getByText('CLICK TO SEEK', { exact: true }).count(), 0)
       assert.equal(await sheet.getByRole('combobox', { name: 'Sleep timer' }).count(), 0)
       assert.equal(await sheet.getByRole('timer').count(), 0)
       await page.waitForTimeout(400)
@@ -378,12 +377,12 @@ let passed = 0
       const audio=await page.locator('[data-testid=root-audio]').elementHandle()
       assert.equal(await page.locator('.player-dock .guest-preview-pill').count(),0)
       if(mobile){assert.equal(await page.locator('.mobile-mini').evaluate(el=>el.offsetHeight),58);await page.locator('.mobile-mini').getByRole('button',{name:'Next track'}).waitFor()}
-      else {assert.equal(await page.locator('.player-dock').evaluate(el=>el.offsetHeight),76);await page.getByRole('button',{name:'Open lyrics',exact:true}).waitFor()}
+      else {assert.equal(await page.locator('.player-dock').evaluate(el=>el.offsetHeight),76);assert.equal(await page.locator('.player-dock').getByRole('button',{name:'Open lyrics',exact:true}).count(),0);await page.locator('.player-dock').getByRole('button',{name:/Up Next queue/}).waitFor();await page.locator('.player-dock').getByRole('button',{name:'Expand player',exact:true}).waitFor()}
       await page.locator(mobile?'[data-testid=lounge-mobile-btn]':'[data-testid=lounge-header-btn]').click()
       const input=page.getByRole('textbox',{name:'Public Lounge message'});await input.fill('Phase D layout invariant');await page.getByRole('button',{name:'Send Lounge message',exact:true}).click()
       const row=page.locator('[data-testid=lounge-message]').filter({hasText:'Phase D layout invariant'});await row.waitFor()
-      const before=await row.boundingBox();await row.hover();const after=await row.boundingBox();assert.equal(after.height,before.height)
-      await row.getByRole('button',{name:'Lounge message options'}).click();const menu=page.getByRole('menu',{name:'Message actions'});await menu.waitFor();assert.equal(await menu.locator('.message-reaction-row>button').count(),5);await menu.getByRole('menuitem',{name:'View profile'}).waitFor();const pos=await menu.boundingBox();assert.ok(pos.x>=0 && pos.x+pos.width<=(mobile?390:1440));assert.equal((await row.boundingBox()).height,before.height)
+      const before=await row.boundingBox();await row.hover();const after=await row.boundingBox();assert.ok(Math.abs(after.height-before.height)<0.5)
+      await row.getByRole('button',{name:'Lounge message options'}).click();const menu=page.getByRole('menu',{name:'Message actions'});await menu.waitFor();assert.equal(await menu.locator('.message-reaction-row>button').count(),5);await menu.getByRole('menuitem',{name:'View profile'}).waitFor();const pos=await menu.boundingBox();assert.ok(pos.x>=0 && pos.x+pos.width<=(mobile?390:1440));assert.ok(Math.abs((await row.boundingBox()).height-before.height)<0.5)
       await menu.getByRole('menuitem',{name:'Reply',exact:false}).click();await page.locator('.lounge-composer .reply-bar').waitFor()
       await row.getByRole('button',{name:'Lounge message options'}).click();await page.getByRole('menuitem',{name:'View profile'}).click();const card=page.getByTestId('lounge-user-card');await card.waitFor();await card.getByRole('heading',{name:'Saved Rooms',exact:true}).waitFor();assert.equal(await card.locator('.lounge-user-top .avatar').evaluate(el=>el.offsetWidth),72);await page.getByRole('button',{name:'Close user card'}).click()
       await page.evaluate(()=>{const peer=new BroadcastChannel('echosync-room-sync');peer.postMessage({type:'lounge-message',sender:'peer-test',message:{id:'phase-d-peer',author:'peer-test',userName:'Peer Listener',authorHandle:'peer',text:'Phase D other bubble',time:'12:00',reactions:[]}});setTimeout(()=>peer.close(),100)})

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Heart, Music2, Play, Plus, Radio, Shuffle } from 'lucide-react'
 import { mergeMoodCatalog, allocateHomeShelves } from '../core/moodFeed.js'
 import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
@@ -11,7 +11,7 @@ function Collage({ tracks, className = '' }) {
   return <div className={`home-collage ${className}`} aria-label="Your listening artwork">{Array.from({ length: 4 }, (_, i) => <Cover key={i} track={tracks[i % Math.max(tracks.length, 1)]} size="" />)}</div>
 }
 
-function HeroShowcase({ tracks, onPlay }) {
+function HeroShowcase({ tracks, onPlay, onPrefetch }) {
   if (!tracks.length) return null
   const loop = tracks.length > 1 ? [...tracks, ...tracks] : tracks
   return <div className="hero-carousel" aria-label="Featured tracks">
@@ -22,6 +22,8 @@ function HeroShowcase({ tracks, onPlay }) {
           type="button"
           className="hero-carousel-tile"
           onClick={() => onPlay(track)}
+          onMouseEnter={() => onPrefetch?.(track)}
+          onFocus={() => onPrefetch?.(track)}
           aria-label={`Play ${track.title} by ${track.artist}`}
           aria-hidden={index >= tracks.length ? 'true' : undefined}
           tabIndex={index >= tracks.length ? -1 : 0}
@@ -44,7 +46,7 @@ function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
   </section>
 }
 
-export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
+export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onPrefetch, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
   const [mood, setMood] = useState('all')
   const live = useLiveMoodFeed(mood, tasteProfile)
   const options = useMemo(() => ({ profile: tasteProfile, liked, recent: recentIds, mood }), [tasteProfile, liked, recentIds, mood])
@@ -73,6 +75,20 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
     }).slice(0, 10)
   }, [recent, ranked])
   const playHero = track => onPlayTrack(track, ranked)
+  // Buffer the first audible frame of the tracks the listener can see first.
+  // Clicks then start from cached media instead of a cold provider lookup.
+  useEffect(() => {
+    if (!onPrefetch) return undefined
+    const queue = [...showcaseTracks.slice(0, 2), ...quickPicks.slice(0, 2)]
+    const seen = new Set()
+    const unique = queue.filter((track) => {
+      if (!track?.id || seen.has(track.id)) return false
+      seen.add(track.id)
+      return true
+    })
+    const timers = unique.map((track, index) => setTimeout(() => onPrefetch(track), 500 * index))
+    return () => timers.forEach(clearTimeout)
+  }, [onPrefetch, showcaseTracks, quickPicks])
   const firstName = currentUser?.name?.trim().split(/\s+/)[0] || 'music lover'
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
@@ -91,12 +107,12 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
       <div className="home-hero-copy"><span className="home-kicker">Made for your moment</span><h1>{!currentUser ? 'Welcome to EchoSync.' : <>{greeting}, <em>{firstName}.</em></>}</h1><p>{!currentUser ? 'Preview your next favorite, explore curated mixes, or join a live listening room.' : artists.length ? `A little ${artists.join(', ')}, a few familiar favorites, and something new to fall for.` : 'The songs you come back to. The ones you haven’t met yet. All in one place.'}</p>
         <div className="home-hero-actions"><button className="primary-btn" disabled={!radio.length} onClick={() => onPlayTrack(radio[0], radio)}><Play /> Play Supermix</button><button className="secondary-btn" disabled={!radio.length} onClick={() => onStartRadio(radio[0], radio)}><Shuffle /> Start Radio</button><button className="text-btn" onClick={onCreateRoom}><Radio /> Create Room</button></div>
       </div>
-      <HeroShowcase tracks={showcaseTracks} onPlay={playHero} />
+      <HeroShowcase tracks={showcaseTracks} onPlay={playHero} onPrefetch={onPrefetch} />
     </header>
     {live.status === 'error' && <p className="mood-notice" role="status">Live picks are unavailable. Enjoy your saved rotation while we reconnect.</p>}
     <section className="home-section quick-picks-section"><div className="home-section-head"><div><p>Your next great listen</p><h2>Quick picks</h2></div><span className="quick-radio-note"><Radio size={16} /> A song starts a radio</span></div>
       <div className="quick-grid" data-testid="quick-grid" ref={quickGrid} onScroll={e=>setQuickPage(Math.round(e.currentTarget.scrollLeft/(e.currentTarget.clientWidth+16)))}>{quickPicks.map(track => <article className="quick-card" key={track.id}>
-        <button className="quick-main" onClick={() => playQuick(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span><span className="quick-copy"><strong>{track.title}</strong><span>{track.artist}</span></span></button>
+        <button className="quick-main" onClick={() => playQuick(track)} onMouseEnter={() => onPrefetch?.(track)} onFocus={() => onPrefetch?.(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span><span className="quick-copy"><strong>{track.title}</strong><span>{track.artist}</span></span></button>
         <button className={`quick-like icon-btn ${liked.includes(track.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label={`Like ${track.title}`}><Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} /></button><button className="quick-add icon-btn" onClick={() => onQueue(track)} aria-label={`Queue ${track.title}`}><Plus /></button>
       </article>)}</div>
       <div className="quick-pagination"><button className="icon-btn" aria-label="Previous Quick picks page" disabled={quickPage===0} onClick={()=>movePage(-1)}><ChevronLeft/></button><span>Page {quickPage+1} of {pages}</span><button className="icon-btn" aria-label="Next Quick picks page" disabled={quickPage>=pages-1} onClick={()=>movePage(1)}><ChevronRight/></button></div>

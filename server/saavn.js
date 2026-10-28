@@ -341,6 +341,18 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
           return normalizeOfficialPayload({results:payload?.songs?.data || payload?.data?.songs?.data || []}, true).data.results
         } catch { return [] }
       })() : Promise.resolve([])
+      // Page two runs in parallel with page one so a broad artist query still
+      // fills a 50-song shelf inside a single provider budget.
+      const officialPage2Task = (async () => {
+        if (!query.trim() || (Number(params.get('page')) || 1) > 1) return []
+        try {
+          const second = new URLSearchParams(params)
+          second.set('limit', '40')
+          second.set('page', '2')
+          const raw = await request(officialUrl(route, second), Math.min(OFFICIAL_TIMEOUT, remaining()))
+          return normalizeOfficialPayload(raw, true)?.data?.results || []
+        } catch { return [] }
+      })()
       const deezerPromise = query.trim() ? deezerTask() : Promise.resolve([])
       const youtubePromise = query.trim() ? youtubeTask() : Promise.resolve([])
       const audiusPromise = query.trim() ? audiusTask() : Promise.resolve([])
@@ -352,12 +364,12 @@ export function createSaavnHandler({ fetchImpl = globalThis.fetch, timeoutMs = 9
         if(!corrected || corrected===query.toLowerCase().trim() || controller.signal.aborted || remaining()<150)return []
         return deezerTask(corrected)
       })
-      const [official, external, autocompleteRows, correctedRows] = await Promise.all([
+      const [official, external, autocompleteRows, correctedRows, officialPage2Rows] = await Promise.all([
         officialTask,
         Promise.all([deezerPromise, youtubePromise, audiusPromise]),
-        autocompletePromise, correctedDeezer,
+        autocompletePromise, correctedDeezer, officialPage2Task,
       ])
-      let officialRows = [...official.rows, ...autocompleteRows]
+      let officialRows = [...official.rows, ...autocompleteRows, ...officialPage2Rows]
       const officialOk = official.ok
       const officialPlayable = officialRows.filter(isUsable).length
       const needsMirror = !officialOk || officialPlayable < 10

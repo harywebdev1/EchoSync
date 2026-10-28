@@ -18,7 +18,6 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { Cover } from '../Cover'
-import { TelemetryPill } from '../TelemetryPill'
 import { formatTime } from '../../lib/time'
 import { usePlaybackProgress } from '../../state/playbackStore'
 
@@ -140,8 +139,6 @@ export const PlayerDock = memo(function PlayerDock({
         </div>
       </div>
       <div className="dock-actions">
-        <button className="icon-btn dock-lyrics" onClick={onOpenLyrics || onOpenFull} aria-label="Open lyrics" title="Lyrics"><AudioLines/></button>
-        {inRoom && track?.id !== 'empty' && <TelemetryPill compact className="dock-sync-pill" />}
         <button
           className={`dock-queue-pill ${queueOpen ? 'active' : ''}`}
           onClick={onToggleQueue}

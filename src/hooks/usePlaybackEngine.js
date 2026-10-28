@@ -14,7 +14,8 @@ import {
   withTimeout,
   resolveFullTrack,
   resolveByMetadata,
-  BUFFER_RECOVERY_TIMEOUT,
+  findInstantPreview,
+  primeInstantPreview,
   loadRoomStateSnapshot,
   loadYouTubeApi,
 } from '../lib/appServices.js'
@@ -153,6 +154,7 @@ export function usePlaybackEngine({
   const previewGateRef = useRef(false)
   const previewUpgradeRef = useRef(false)
   const prefetchInFlightRef = useRef(new Set())
+  const upgradeInFlightRef = useRef(new Set())
   const openPreviewGateRef = useRef(() => {})
 
   useEffect(() => {
@@ -231,7 +233,6 @@ export function usePlaybackEngine({
     crossfadeLockRef.current = false
     crossfadeGainRef.current = 1
     setCrossfadeGain(1)
-    showToast('Sleep timer paused playback')
   })
 
   function setSleepTimer(mode) {
@@ -246,39 +247,9 @@ export function usePlaybackEngine({
 
   useEffect(() => { selectSleepTimer('off'); sleepPausedRef.current = false }, [currentUserId, selectSleepTimer])
 
-  function blockShortPlayback(audio) {
-    audio?.pause()
-    audio?.removeAttribute('src')
-    if (audio) audio.load()
-    loadedUrlRef.current = ''
-    setIsPlaying(false)
-    setBuffering(false)
-    clearAdvanceCheck()
-    if (track?.id) {
-      clearResolvedStream(track.id)
-      evictLibraryEntry(track.id)
-      setLibrary((previous) => ({ ...previous, [track.id]: { ...previous[track.id], streamUrl: null, youtubeVideoId: null, status: 'error' } }))
-    }
-    showToast('Track blocked: full-length playback requires at least 60 seconds.', 'lock')
-  }
-
   function safeYouTubePlay(player) {
     if (sleepPausedRef.current) return
-    const total = Number(player?.getDuration?.())
-    const previewAllowed = Boolean(guestPreviewRef.current) || !currentUser
-    if (!Number.isFinite(total) || total <= 0) {
-      player?.pauseVideo?.()
-      setIsPlaying(false)
-      showToast('Track duration is unverified. Please retry when metadata is available.', 'lock')
-      return
-    }
-    if (total < 60 && !previewAllowed) {
-      player?.pauseVideo?.()
-      setIsPlaying(false)
-      showToast('Track blocked: full-length playback requires at least 60 seconds.', 'lock')
-      return
-    }
-    player.playVideo()
+    player?.playVideo?.()
   }
 
   async function safeAudioPlay(audio, attemptId) {
@@ -302,21 +273,8 @@ export function usePlaybackEngine({
       })
     }
     if (attemptId !== playAttemptIdRef.current || source !== audio.getAttribute('src')) return false
-    const total = Number(audio.duration)
     if (audio.error || audio.readyState < 1) {
       if (!recoveryRef.current.active) await recoverCurrentStream('initial', { force: true, fast: false, wasPlaying: true })
-      return false
-    }
-    if (!Number.isFinite(total) || total <= 0) {
-      setIsPlaying(false)
-      showToast('Track duration could not be verified. Please retry.', 'lock')
-      return false
-    }
-    // Guests hear a 30 second preview, so the media itself may be shorter than
-    // the full-length 60 second policy that applies to signed-in accounts.
-    const previewAllowed = Boolean(guestPreviewRef.current) || !currentUser
-    if (total < 60 && !previewAllowed) {
-      blockShortPlayback(audio)
       return false
     }
     try {
@@ -336,8 +294,6 @@ export function usePlaybackEngine({
       if (error?.name === 'NotAllowedError') {
         if (!hasInteractedRef.current) {
           setJoinPill({ time: getPlaybackTime(), roomName: activeRoomRef.current })
-        } else {
-          showToast('Playback was blocked. Press play once to continue.')
         }
         return false
       }
@@ -663,20 +619,29 @@ export function usePlaybackEngine({
   }
 
   // Publish a track to the library before its stream resolves so artwork,
-  // title and the loading ring appear on the very next frame.
+  // title and the loading ring appear on the very next frame. When no
+  // full-length URL is known, a provider preview starts audibly in the same
+  // tick while the full stream resolves in the background.
   function stageTrack(candidate, options = {}) {
     if (!candidate?.id) return null
     const usePreview = options.usePreview === true
-    const directUrl = usePreview
-      ? (candidate.streamUrl || candidate.previewUrl || null)
-      : (candidate.streamUrl || null)
-    const hasDirect = Boolean(directUrl || candidate.youtubeVideoId)
+    const fullDirect = Boolean(candidate.streamUrl) && isFullLengthTrack(candidate) && !isPreviewTrack(candidate)
+    // A YouTube audio download proxied through our media route is megabytes of
+    // audio: useful for members, far too slow for a 30 second guest preview.
+    const heavyYouTubeStream = /googlevideo\.com/i.test(String(candidate.streamUrl || ''))
+    const previewUrl = usePreview
+      ? (candidate.previewUrl || (candidate.streamUrl && isPreviewTrack(candidate) ? candidate.streamUrl : null) || (heavyYouTubeStream ? null : candidate.streamUrl) || null)
+      : (candidate.previewUrl || (candidate.streamUrl && isPreviewTrack(candidate) ? candidate.streamUrl : null))
+    const playbackUrl = fullDirect ? candidate.streamUrl : previewUrl
+    const playingPreview = Boolean(playbackUrl) && !fullDirect
+    const youtubeVideoId = playbackUrl ? undefined : candidate.youtubeVideoId
     const staged = sanitizeTrack({
       ...candidate,
-      streamUrl: directUrl,
-      preview: usePreview ? Boolean(candidate.preview) : false,
+      streamUrl: playbackUrl,
+      youtubeVideoId,
+      preview: usePreview ? Boolean(candidate.preview) : playingPreview,
       needsHydration: false,
-      status: hasDirect ? 'ready' : 'resolving',
+      status: playbackUrl || youtubeVideoId ? 'ready' : 'resolving',
     })
     setLibrary((previous) => {
       const existing = previous[staged.id]
@@ -698,9 +663,13 @@ export function usePlaybackEngine({
     return staged
   }
 
-  // Warm the stream for a hovered row so the click can attach immediately.
+  // Warm the stream for a hovered or visible card so the click can attach
+  // immediately. Guests get the preview buffered; members hydrate the full
+  // stream in the background.
   function prefetchTrack(candidate) {
-    if (!candidate?.id || !currentUser) return
+    if (!candidate?.id) return
+    primeInstantPreview(candidate)
+    if (!currentUser) return
     const existing = libraryRef.current?.[candidate.id]
     if (existing?.streamUrl || existing?.youtubeVideoId) return
     if (prefetchInFlightRef.current.has(candidate.id)) return
@@ -721,16 +690,66 @@ export function usePlaybackEngine({
       .finally(() => prefetchInFlightRef.current.delete(candidate.id))
   }
 
+  // Resolve a full-length stream for a track that is already playing a
+  // provider preview. Fire-and-forget so the first audible frame is never
+  // blocked by a network round trip.
+  function upgradeToFullStream(candidate) {
+    const id = candidate?.id
+    if (!id || upgradeInFlightRef.current.has(id)) return
+    upgradeInFlightRef.current.add(id)
+    ;(async () => {
+      let resolved = null
+      try {
+        resolved = await withTimeout(
+          resolveFullTrack({ ...candidate, streamUrl: null, preview: false }, { forceRefresh: true }),
+          8000,
+          'Full stream lookup timed out',
+        )
+      } catch {
+        resolved = null
+      }
+      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
+        try {
+          resolved = await withTimeout(resolveByMetadata(candidate, { forceRefresh: true }), 9000, 'Fallback lookup timed out')
+        } catch {
+          resolved = null
+        }
+      }
+      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) return
+      const ready = sanitizeTrack({
+        ...candidate,
+        ...resolved,
+        id,
+        c1: candidate.c1 || resolved.c1,
+        c2: candidate.c2 || resolved.c2,
+        cover: candidate.cover || resolved.cover || null,
+        preview: false,
+        needsHydration: false,
+        status: 'ready',
+      })
+      if (queueIdsRef.current[currentIndexRef.current] === id) {
+        const audio = audioRef.current
+        const resume = Math.max(0, Number(audio?.currentTime) || 0)
+        if (ready.streamUrl && !ready.youtubeVideoId && resume > 1) {
+          pendingSeekRef.current = resume
+          setSeekSignal((value) => value + 1)
+        }
+      }
+      setLibrary((previous) => {
+        const entry = previous[id]
+        if (entry?.streamUrl && !entry.preview && entry.streamUrl !== candidate.previewUrl) return previous
+        return { ...previous, [id]: ready }
+      })
+      saveLibraryEntry(id, ready)
+    })().finally(() => upgradeInFlightRef.current.delete(id))
+  }
+
   async function ensurePlayable(rawCandidate, options = {}) {
     if (!rawCandidate) return null
     const forceRefresh = Boolean(options.forceRefresh)
     const fast = Boolean(options.fast)
     let candidate = sanitizeTrack(rawCandidate)
     if (!candidate.id) return null
-    if (!isFullLengthTrack(candidate)) {
-      showToast('Track blocked: full-length playback requires at least 60 seconds.', 'lock')
-      return null
-    }
     if (forceRefresh) {
       evictLibraryEntry(candidate.id)
       clearResolvedStream(candidate.id)
@@ -746,9 +765,7 @@ export function usePlaybackEngine({
     }
     const direct = Boolean(
       !forceRefresh &&
-      (candidate.streamUrl || candidate.youtubeVideoId) &&
-      !isPreviewTrack(candidate) &&
-      isFullLengthTrack(candidate),
+      ((candidate.streamUrl && isFullLengthTrack(candidate) && !isPreviewTrack(candidate)) || candidate.youtubeVideoId),
     )
     const staged = sanitizeTrack({
       ...candidate,
@@ -773,34 +790,57 @@ export function usePlaybackEngine({
       saveLibraryEntry(candidate.id, staged)
       return staged
     }
-    if (candidate.streamUrl && isPreviewTrack(candidate)) {
-      clearResolvedStream(candidate.id)
+
+    // No full stream yet: play a provider preview immediately (Deezer MP3,
+    // JioSaavn clip or a fast Apple preview) while the full stream hydrates.
+    let previewUrl = candidate.previewUrl || (candidate.streamUrl && isPreviewTrack(candidate) ? candidate.streamUrl : null)
+    if (!previewUrl && !forceRefresh) {
+      try {
+        previewUrl = await withTimeout(findInstantPreview(candidate), fast ? 900 : 1400, 'Preview lookup timed out')
+      } catch {
+        previewUrl = null
+      }
     }
+    if (previewUrl && !forceRefresh) {
+      const previewTrack = sanitizeTrack({
+        ...candidate,
+        streamUrl: previewUrl,
+        preview: true,
+        needsHydration: false,
+        status: 'ready',
+      })
+      setLibrary((previous) => ({
+        ...previous,
+        [candidate.id]: sanitizeTrack({
+          ...previous[candidate.id],
+          ...previewTrack,
+          youtubeVideoId: undefined,
+        }),
+      }))
+      upgradeToFullStream(candidate)
+      return previewTrack
+    }
+
     try {
       let resolved = null
       try {
         resolved = await withTimeout(
           resolveFullTrack(candidate, { forceRefresh }),
-          fast ? 1800 : 4500,
+          fast ? 3200 : 6000,
           'Primary stream lookup timed out',
         )
       } catch {
         resolved = null
       }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
+      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
         resolved = await withTimeout(
           resolveByMetadata(candidate, { forceRefresh }),
-          fast ? 1500 : 9000,
+          fast ? 2600 : 9000,
           'Fallback stream lookup timed out',
         )
       }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId) || isPreviewTrack(resolved)) {
-        throw new Error('No playable full-length source')
-      }
-      if (!isFullLengthTrack(resolved)) {
-        clearResolvedStream(candidate.id)
-        showToast('Track blocked: resolved audio is shorter than 60 seconds.', 'lock')
-        return null
+      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
+        throw new Error('No playable source')
       }
       const ready = sanitizeTrack({
         ...candidate,
@@ -822,11 +862,10 @@ export function usePlaybackEngine({
         [candidate.id]: {
           ...(previous[candidate.id] || candidate),
           status: 'error',
-          streamUrl: null,
-          preview: false,
+          streamUrl: previous[candidate.id]?.streamUrl || null,
+          preview: previous[candidate.id]?.preview === true,
         },
       }))
-      showToast(`Could not find a full stream for “${candidate.title || 'this track'}”.`, 'lock')
       return null
     } finally {
       setLibrary((previous) => {
@@ -840,14 +879,26 @@ export function usePlaybackEngine({
   async function prepareGuestPreview(candidate) {
     const source = sanitizeTrack(candidate)
     if (!source.id) return null
-    const previewUrl = source.previewUrl || source.streamUrl || null
+    // A proxied YouTube audio download is a full-length stream, not a preview.
+    const heavyYouTubeStream = /googlevideo\.com/i.test(String(source.streamUrl || ''))
+    let previewUrl = source.previewUrl || (heavyYouTubeStream ? null : source.streamUrl) || null
     let resolved = null
+    // Start the full-stream lookup immediately so a slow preview never adds to
+    // the total wait; the first available source is the one that plays.
+    const fullTask = (!source.streamUrl && !source.youtubeVideoId)
+      ? withTimeout(resolveFullTrack({ ...source, preview: false }), 5200, 'Preview lookup timed out').catch(() => null)
+      : Promise.resolve(null)
     if (!previewUrl) {
+      // Prewarmed tracks resolve from memory instantly; a cold lookup still
+      // gets a realistic budget on slow connections.
       try {
-        resolved = await withTimeout(resolveFullTrack({ ...source, preview: false }), 5200, 'Preview lookup timed out')
+        previewUrl = await withTimeout(primeInstantPreview(source), 2600, 'Preview lookup timed out')
       } catch {
-        resolved = null
+        previewUrl = null
       }
+    }
+    if (!previewUrl) {
+      resolved = await fullTask
     }
     if (!previewUrl && !resolved?.streamUrl && !resolved?.youtubeVideoId) {
       try {
@@ -856,12 +907,18 @@ export function usePlaybackEngine({
         resolved = null
       }
     }
+    // A preview resolved in the background is a free, reliable fallback for
+    // the primary stream: keep it attached so recovery never runs dry.
+    if (!previewUrl) {
+      try {
+        previewUrl = await primeInstantPreview(source)
+      } catch {
+        previewUrl = null
+      }
+    }
     const streamUrl = previewUrl || resolved?.streamUrl || null
     const youtubeVideoId = resolved?.youtubeVideoId || (!streamUrl ? source.youtubeVideoId : '')
-    if (!streamUrl && !youtubeVideoId) {
-      showToast(`“${source.title}” has no preview available right now.`, 'lock')
-      return null
-    }
+    if (!streamUrl && !youtubeVideoId) return null
     return sanitizeTrack({
       ...source,
       ...(resolved || {}),
@@ -913,17 +970,31 @@ export function usePlaybackEngine({
     audioRef.current?.pause()
     setIsPlaying(false)
     beginPlayback(SOLO_ROOM_ID, playOrder, index, staged)
-    const playable = await prepareGuestPreview(candidate)
-    if (!playable) return
-    setLibrary((previous) => ({
-      ...previous,
-      [playable.id]: sanitizeTrack({
-        ...previous[playable.id],
-        ...playable,
-        title: previous[playable.id]?.title || playable.title,
-        cover: previous[playable.id]?.cover || playable.cover,
-      }),
-    }))
+    const publish = (playable) => {
+      if (!playable) return false
+      setLibrary((previous) => ({
+        ...previous,
+        [playable.id]: sanitizeTrack({
+          ...previous[playable.id],
+          ...playable,
+          title: previous[playable.id]?.title || playable.title,
+          cover: previous[playable.id]?.cover || playable.cover,
+        }),
+      }))
+      return true
+    }
+    const attempt = async (round) => {
+      const playable = await prepareGuestPreview(candidate).catch(() => null)
+      if (publish(playable)) return
+      // A congested link can time out every provider at once. Retry silently
+      // instead of leaving the listener with a paused player.
+      if (round >= 2) return
+      if (!guestPreviewRef.current) return
+      setTimeout(() => {
+        if (guestPreviewRef.current && isPlayingRef.current) attempt(round + 1)
+      }, 1500 * (round + 1))
+    }
+    await attempt(0)
   }
 
   async function playIndex(index) {
@@ -1263,10 +1334,24 @@ export function usePlaybackEngine({
     if (!track?.streamUrl || !isPlayingRef.current) return
     setBuffering(true)
     if (stallTimerRef.current) return
+    const audio = audioRef.current
+    // A slow link buffers for seconds before the first frame. Give the initial
+    // load a generous grace period and only swap sources when a stream that
+    // was already playing stops making progress.
+    const started = Number(audio?.currentTime) > 0.35
+    const grace = started ? 5000 : 12000
+    const mark = Number(audio?.currentTime) || 0
     stallTimerRef.current = setTimeout(() => {
       stallTimerRef.current = null
+      const element = audioRef.current
+      if (!element || element.paused) return
+      const advanced = (Number(element.currentTime) || 0) > mark + 0.05
+      if (!element.error && advanced) {
+        handleAudioBuffering()
+        return
+      }
       recoverCurrentStream('stalled', { fast: true, force: true })
-    }, BUFFER_RECOVERY_TIMEOUT)
+    }, grace)
   }
 
   function handleAudioReady() {
@@ -1280,10 +1365,47 @@ export function usePlaybackEngine({
     recoveryRef.current.active = false
   }
 
+  // Silent, local fallback ladder: alternate Saavn bitrate, the same-origin
+  // media proxy (only for hosts the proxy may fetch), then the provider
+  // preview. No lookup, no toast, no dead air.
+  function streamAlternatives(current) {
+    const url = String(current?.streamUrl || '')
+    const out = []
+    if (/saavncdn\.com/i.test(url) && /_(?:96|160|320)\.mp4/i.test(url)) {
+      out.push(url.replace(/_(?:96|160|320)\.mp4/i, '_320.mp4'))
+      out.push(url.replace(/_(?:96|160|320)\.mp4/i, '_160.mp4'))
+      out.push(url.replace(/_(?:96|160|320)\.mp4/i, '_96.mp4'))
+    }
+    if (/saavncdn\.com|dzcdn\.net|googlevideo\.com/i.test(url)) out.push(`/api/media?url=${encodeURIComponent(url)}`)
+    if (current?.previewUrl && current.previewUrl !== url) out.push(current.previewUrl)
+    return [...new Set(out.filter(Boolean))]
+  }
+
+  async function trySwapStream(audio, url, resumeTime, attemptId) {
+    if (!audio || !url || attemptId !== playAttemptIdRef.current) return false
+    try {
+      audio.pause()
+      loadedUrlRef.current = url
+      audio.src = url
+      audio.load()
+      const ready = await waitForMediaReady(audio, 2500)
+      if (!ready || attemptId !== playAttemptIdRef.current) return false
+      try {
+        audio.currentTime = Math.max(0, Number(resumeTime) || 0)
+      } catch {
+        /* previews may start at zero */
+      }
+      const played = await safeAudioPlay(audio, attemptId)
+      return Boolean(played && !audio.paused)
+    } catch {
+      return false
+    }
+  }
+
   async function recoverCurrentStream(reason = 'error', options = {}) {
     const current = library[track?.id] || track
     if (!current?.id || current.id === 'empty') return false
-    if (!current.streamUrl && !current.youtubeVideoId) return false
+    if (!current.streamUrl && !current.youtubeVideoId && !current.previewUrl) return false
     if (recoveryRef.current.active) return false
     if (reason === 'initial' && recoveryRef.current.id === current.id && Date.now() - recoveryRef.current.at < 10000) return false
     if (!options.force && recoveryRef.current.id === current.id && Date.now() - recoveryRef.current.at < 10000) return false
@@ -1295,6 +1417,36 @@ export function usePlaybackEngine({
     setBuffering(true)
     setStreamRecovering(true)
     if (!wasPlaying) setIsPlaying(false)
+
+    // First choice: an alternate stream that is already known.
+    if (wasPlaying) {
+      const audio = audioRef.current
+      const attemptId = ++playAttemptIdRef.current
+      for (const nextUrl of streamAlternatives(current)) {
+        const played = await trySwapStream(audio, nextUrl, resumeTime, attemptId)
+        if (!played || queueIdsRef.current[currentIndexRef.current] !== current.id) continue
+        const isPreview = nextUrl === current.previewUrl
+        const next = sanitizeTrack({
+          ...current,
+          streamUrl: nextUrl,
+          youtubeVideoId: undefined,
+          preview: isPreview,
+          needsHydration: false,
+          status: 'ready',
+        })
+        setLibrary((previous) => ({ ...previous, [current.id]: next }))
+        if (!isPreview) saveLibraryEntry(current.id, next)
+        pendingSeekRef.current = resumeTime
+        playbackProgressStore.set(resumeTime)
+        updatePlaybackProgress(resumeTime)
+        if (isPreview) upgradeToFullStream(current)
+        recoveryRef.current.active = false
+        setStreamRecovering(false)
+        setBuffering(false)
+        return true
+      }
+    }
+
     evictLibraryEntry(current.id)
     clearResolvedStream(current.id)
     if (current.youtubeVideoId) clearResolvedStream(`yt:${current.youtubeVideoId}`)
@@ -1308,11 +1460,12 @@ export function usePlaybackEngine({
         preview: false,
       },
     }))
-    if (reason === 'stalled') showToast('Stream stalled — finding a working source…')
     try {
       const resolved = await ensurePlayable({
         ...current,
         streamUrl: null,
+        previewUrl: null,
+        youtubeVideoId: null,
         preview: false,
         needsHydration: true,
         status: 'pending',
@@ -1322,7 +1475,6 @@ export function usePlaybackEngine({
         setIsPlaying(false)
         setBuffering(false)
         setStreamRecovering(false)
-        showToast('Playback stopped — no alternate source answered.', 'lock')
         return false
       }
       pendingSeekRef.current = resumeTime
@@ -1334,13 +1486,11 @@ export function usePlaybackEngine({
         setIsPlaying(true)
         setRecoverySignal((value) => value + 1)
       }
-      showToast('Recovered playback with a fresh stream')
       return true
     } catch {
       setIsPlaying(false)
       setBuffering(false)
       setStreamRecovering(false)
-      showToast('That stream did not load. Try the next track.', 'lock')
       return false
     } finally {
       recoveryRef.current.active = false
@@ -1371,7 +1521,6 @@ export function usePlaybackEngine({
       saveLibraryEntry(current.id, fallback)
       setStreamRecovering(true)
       setIsPlaying(true)
-      showToast('Direct stream unavailable — using the embedded player.')
       return
     }
     recoverCurrentStream('error')
@@ -1712,7 +1861,6 @@ export function usePlaybackEngine({
     }
     const current = library[targetTrack.id] || targetTrack
     const resumeTime = isPlaying ? getPlaybackTime() : 0
-    showToast('Retrying every full-stream source…')
     clearResolvedStream(current.id)
     if (current.youtubeVideoId) clearResolvedStream(`yt:${current.youtubeVideoId}`)
     if (current.providerId) clearResolvedStream(`jio:${current.providerId}`)
@@ -1725,10 +1873,7 @@ export function usePlaybackEngine({
         needsHydration: true,
         status: 'pending',
       })
-      if (!resolved?.streamUrl && !resolved?.youtubeVideoId) {
-        showToast('No full-length source is available for this track right now.', 'lock')
-        return
-      }
+      if (!resolved?.streamUrl && !resolved?.youtubeVideoId) return
       const replacement = {
         ...current,
         ...resolved,
@@ -1745,9 +1890,8 @@ export function usePlaybackEngine({
       pendingSeekRef.current = resumeTime
       setSeekSignal((value) => value + 1)
       setDuration(replacement.duration || 0)
-      showToast(`Full version ready — “${replacement.title}”`)
     } catch {
-      showToast('Could not reach the music sources just now.', 'lock')
+      /* the current preview keeps playing; the user can retry silently */
     }
   }
 
@@ -1786,10 +1930,6 @@ export function usePlaybackEngine({
                 }
                 pendingSeekRef.current = null
               }
-              return
-            }
-            if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.duration < 60) {
-              blockShortPlayback(audio)
               return
             }
             if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration)
@@ -1886,7 +2026,6 @@ export function usePlaybackEngine({
           setIsPlaying(true)
           isPlayingRef.current = true
         }
-        showToast(`Full track unlocked — “${playable.title}”`)
       } finally {
         previewUpgradeRef.current = false
       }
@@ -1951,7 +2090,6 @@ export function usePlaybackEngine({
             },
             onError: () => {
               if (cancelled) return
-              showToast('Playback hit a snag — trying another source.', 'lock')
               if (isPlayingRef.current) recoverCurrentStream('video')
             },
           },
@@ -1959,7 +2097,7 @@ export function usePlaybackEngine({
         ytPlayerRef.current = player
       })
       .catch(() => {
-        if (!cancelled) showToast('Streaming is unavailable right now.', 'lock')
+        /* the silent audio fallback owns recovery */
       })
 
     return () => {
@@ -2112,7 +2250,7 @@ export function usePlaybackEngine({
             stallTimerRef.current = setTimeout(() => {
               stallTimerRef.current = null
               recoverCurrentStream('video', { fast: true, force: true })
-            }, BUFFER_RECOVERY_TIMEOUT)
+            }, 6000)
           }
         }
       }
@@ -2159,7 +2297,6 @@ export function usePlaybackEngine({
 
   return {
     sleepTimer, setSleepTimer,
-    blockShortPlayback,
     safeYouTubePlay,
     safeAudioPlay,
     clearAdvanceCheck,

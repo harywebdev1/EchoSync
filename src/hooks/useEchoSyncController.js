@@ -2305,7 +2305,6 @@ export function useEchoSyncController() {
   }, [translateOn, lyricsKey, lyrics.status, lyrics.type, lyricsRefresh])
 
   const {
-    blockShortPlayback,
     safeYouTubePlay,
     safeAudioPlay,
     clearAdvanceCheck,

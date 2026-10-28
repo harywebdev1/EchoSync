@@ -23,6 +23,46 @@ export function phoneticNormalize(value = '') {
 }
 const tokens = (text) =>
   phoneticNormalize(text).split(' ').filter(Boolean).slice(0, 12)
+const ARTIST_STOPWORDS = new Set([
+  'the', 'and', 'feat', 'ft', 'with', 'from', 'official', 'music', 'video', 'audio',
+  'lyric', 'lyrics', 'song', 'songs', 'full', 'version', 'remix', 'cover', 'original',
+  'soundtrack', 'ost', 'movie', 'film',
+])
+function wordsOf(value) {
+  return phoneticNormalize(value).split(' ').filter(word => word.length > 1 && !ARTIST_STOPWORDS.has(word))
+}
+// Cover impersonators put the famous singer inside the title ("Aadat - Atif Aslam")
+// while the credited artist is somebody else. Reward genuine artist credits and
+// demote title-only attribution so the original recording always wins.
+function artistIntegrityAdjustment(track, words) {
+  const rawTitle = String(track?.title || track?.name || '')
+  const artistWords = wordsOf(
+    track?.artist ||
+      track?.primaryArtists ||
+      track?.artists?.primary?.map((item) => item.name).join(' ') ||
+      '',
+  )
+  if (!artistWords.length) return 0
+  const queryWords = words.filter(word => word.length > 1 && !ARTIST_STOPWORDS.has(word))
+  if (!queryWords.length) return 0
+  const hintMatch =
+    rawTitle.match(/\s[-–—]\s*([^,()[\]{}]{2,48})\s*$/) ||
+    rawTitle.match(/[([]\s*([^,()[\]{}]{2,48})\s*[)\]]\s*$/)
+  const hintWords = hintMatch ? wordsOf(hintMatch[1]) : []
+  const artistMatches =
+    artistWords.length >= 2 &&
+    queryWords.filter(word => artistWords.includes(word)).length >= Math.min(2, queryWords.length)
+  const hintLooksLikeQueryArtist =
+    hintWords.length > 0 &&
+    hintWords.filter(word => queryWords.includes(word)).length >= Math.max(1, Math.min(2, hintWords.length))
+  const hintIsCredited = hintWords.length > 0 && hintWords.every(word => artistWords.includes(word))
+  if (hintLooksLikeQueryArtist && !hintIsCredited) return -1.5
+  if (artistMatches) {
+    const popularity = Math.min(0.35, Math.log10(Math.max(0, Number(track?.playCount) || 0) + 1) * 0.05)
+    return 1.5 + popularity
+  }
+  return 0
+}
 function grams(value) {
   const text = `  ${value} `,
     out = new Set()
@@ -99,7 +139,7 @@ export function searchSimilarity(track, query) {
         (artist === q ? 0.4 : artist.startsWith(q) ? 0.15 : 0),
       fieldScore(`${title} ${artist}`) * 0.9,
       fieldScore(album) * 0.65
-    ) - variantPenalty + popularity
+    ) - variantPenalty + popularity + artistIntegrityAdjustment(track, words)
   )
 }
 export function rankBySearchSimilarity(tracks, query) {

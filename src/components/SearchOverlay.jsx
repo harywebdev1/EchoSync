@@ -102,6 +102,14 @@ export function SearchOverlay({
     return merged
   },[results,instant])
 
+  // Warm the first visible rows so a click starts from an already resolved
+  // preview URL instead of a cold provider lookup.
+  useEffect(() => {
+    if (!onPrefetch || !visibleResults.length) return undefined
+    const timers = visibleResults.slice(0, 3).map((track, index) => setTimeout(() => onPrefetch(track), 180 * index))
+    return () => timers.forEach(clearTimeout)
+  }, [onPrefetch, visibleResults])
+
   useLayoutEffect(() => {
     const place = () => {
       const rect = document.querySelector('.canonical-search')?.getBoundingClientRect()

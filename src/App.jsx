@@ -39,12 +39,38 @@ const LeaveRoomModal = makeLazySurface(() => import('./components/modals/LeaveRo
 const PlaylistModal = makeLazySurface(() => import('./components/modals/PlaylistModal.jsx'), 'PlaylistModal', 'modal', () => import('./components/modals/PlaylistModal.jsx?retry=1'))
 const AddToPlaylistModal = makeLazySurface(() => import('./components/modals/AddToPlaylistModal.jsx'), 'AddToPlaylistModal', 'modal', () => import('./components/modals/AddToPlaylistModal.jsx?retry=1'))
 
+let permissionPromptStarted = false
+
+async function requestStartupPermissions() {
+  if (permissionPromptStarted || typeof window === 'undefined') return
+  permissionPromptStarted = true
+  try {
+    const alreadyAsked = window.localStorage.getItem('echosync_mic_perm_prompted') === '1'
+    if (!alreadyAsked && navigator.mediaDevices?.getUserMedia) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((track) => track.stop())
+      window.localStorage.setItem('echosync_mic_perm_prompted', '1')
+    }
+  } catch {
+    /* permission denied or unavailable: rooms still work on demand */
+  }
+  try {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      await Notification.requestPermission()
+    }
+  } catch {
+    /* notifications are optional */
+  }
+}
+
 export default function App() {
   useEffect(()=>{
     const preload=()=>{SearchOverlay.preload();AuthModal.preload();RoomsView.preload();PublicLoungeDrawer.preload()}
     if(window.requestIdleCallback){const id=window.requestIdleCallback(preload,{timeout:400});return()=>window.cancelIdleCallback(id)}
     const id=setTimeout(preload,400);return()=>clearTimeout(id)
   },[])
+
+  useEffect(() => { requestStartupPermissions() }, [])
 
   const [searchQuery, setSearchQuery] = useState('')
   const {
@@ -363,6 +389,7 @@ export default function App() {
                   onRefreshDaily={refreshDailyFeed}
                   roomCount={rooms.length}
                   onPlayTrack={playSoloTrack}
+                  onPrefetch={prefetchTrack}
                   onPlayPlaylist={playPlaylist}
                   onLike={toggleLike}
                   onAddToPlaylist={requestAddToPlaylist}
