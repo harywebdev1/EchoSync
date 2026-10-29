@@ -326,15 +326,21 @@ function innertubeFixture(url) {
       }
     })
 
-    await check('Vercel rewrites preserve API routes, exclude SPA fallback and never expose legacy providers', () => {
+    await check('Vercel rewrites preserve API routes, serve SPA deep links and never expose legacy providers', () => {
       const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'))
       assert.equal(config.rewrites.find(route => route.source === '/api/ytmusic/:route*').destination, '/api/ytmusic?route=:route*')
       assert.equal(config.rewrites.find(route => route.source === '/api/saavn/:route*').destination, '/api/saavn?route=:route*')
       const youtube = config.rewrites.find(route => route.source === '/api/youtube/audio/:videoId')
       assert.equal(youtube.destination, '/api/youtube-audio?videoId=:videoId')
+      assert.equal(config.rewrites.at(-1).source, '/((?!api/).*)')
       const spa = new RegExp('^' + config.rewrites.at(-1).source + '$')
-      assert.equal(spa.test('/library'), true); assert.equal(spa.test('/room/ES-TEST'), true)
-      assert.equal(spa.test('/api/media'), false); assert.equal(spa.test('/api/unknown'), false); assert.equal(spa.test('/assets/app.js'), false)
+      for (const path of ['/', '/rooms', '/library', '/room/ES-TEST', '/artist/atif-aslam', '/@hary']) {
+        assert.equal(spa.test(path), true, path)
+      }
+      assert.equal(spa.test('/api/media'), false); assert.equal(spa.test('/api/unknown'), false)
+      // Vercel resolves static files before rewrites, so the catch-all may name
+      // /assets/*; API traffic must still never hit index.html.
+      assert.equal(spa.test('/assets/app.js'), true)
       assert.equal(config.outputDirectory, 'dist')
       assert.equal(config.functions['api/media.js'].maxDuration, 30)
       assert.equal(config.functions['api/ytmusic.js'].maxDuration, 20)

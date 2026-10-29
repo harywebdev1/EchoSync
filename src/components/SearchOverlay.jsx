@@ -8,9 +8,9 @@ import {
   X,
 } from 'lucide-react'
 import { Cover } from './Cover'
+import { ArtistLinks } from './ArtistLinks.jsx'
 import { getCanonicalSongStem } from '../core/trackIdentity.js'
 import { rankBySearchSimilarity, searchSimilarity } from '../core/searchRanking.js'
-import { fetchYtArtist } from '../lib/appServices.js'
 
 const SEARCH_CATEGORIES = [
   { id: 'coke-studio-indie', label: 'Coke Studio & Indie', query: 'Coke Studio indie songs', c1: '#633317', c2: '#e9a665' },
@@ -25,6 +25,7 @@ const SEARCH_CATEGORIES = [
 
 export function SearchOverlay({
   onClose,
+  onOpenArtist,
   query, onQueryChange, liked = [], onLike,
   onPlay,
   onQueue,
@@ -129,12 +130,9 @@ export function SearchOverlay({
       .slice(0, 6)
   }, [visibleResults])
 
-  const playArtist = async (artist) => {
+  const openArtist = (artist) => {
     if (!artist?.name && !artist?.browseId) return
-    const profile = await fetchYtArtist({ browseId: artist.browseId, name: artist.name }).catch(() => null)
-    const songs = profile?.songs || []
-    if (songs.length) onPlay(songs[0], songs)
-    else runQuery(`${artist.name} songs`)
+    onOpenArtist?.(artist)
   }
 
   // Warm the first visible rows so a click starts from an already resolved
@@ -253,8 +251,8 @@ export function SearchOverlay({
                     key={artist.browseId || artist.name}
                     type="button"
                     className="search-artist-card"
-                    onClick={() => playArtist(artist)}
-                    aria-label={`Play top songs by ${artist.name}`}
+                    onClick={() => openArtist(artist)}
+                    aria-label={`Open ${artist.name}'s profile`}
                   >
                     <span className="search-artist-avatar">
                       {artist.avatar ? <img src={artist.avatar} alt="" loading="lazy" /> : <Radio />}
@@ -287,22 +285,7 @@ export function SearchOverlay({
                   <Cover track={track} size="cover-size-sm" />
                   <div className="search-copy">
                     <strong>{track.title}</strong>
-                    <span className="search-artist-links">
-                      {(Array.isArray(track.artists) && track.artists.length ? track.artists : [{ name: track.artist }]).map((artist, artistIndex) => (
-                        <Fragment key={`${artist.browseId || artist.name}-${artistIndex}`}>
-                          {artistIndex > 0 && <span>, </span>}
-                          {artist.browseId ? (
-                            <button
-                              type="button"
-                              className="search-artist-link"
-                              onClick={(event) => { event.stopPropagation(); playArtist(artist) }}
-                            >
-                              {artist.name}
-                            </button>
-                          ) : <span>{artist.name}</span>}
-                        </Fragment>
-                      ))}
-                    </span>
+                    <ArtistLinks track={track} onOpenArtist={onOpenArtist} className="search-artist-links" />
                     {pendingTrackId === track.id && <span className="search-pending-copy">Loading stream...</span>}
                   </div>
                   <button

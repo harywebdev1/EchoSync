@@ -26,6 +26,12 @@ import {
   loadLoungeMessages,
 } from '../lib/appServices.js'
 import { usePlaybackState } from './usePlaybackState.js'
+import { parseRoute } from '../lib/router.js'
+
+const initialRoute = parseRoute(
+  typeof window === 'undefined' ? '/' : window.location.pathname,
+  typeof window === 'undefined' ? '' : window.location.search,
+)
 
 export function useAppState() {
   const [queueFilter, setQueueFilter] = useState('All')
@@ -36,7 +42,9 @@ const [currentUserId, setCurrentUserId] = useState(() => {
     if (id) clearActiveSession()
     return null
   })
-const [view, setView] = useState('home')
+const [view, setView] = useState(initialRoute.view === 'room' ? 'rooms' : initialRoute.view)
+const [artistProfile, setArtistProfile] = useState(initialRoute.artist || null)
+const [userProfile, setUserProfile] = useState(initialRoute.user || null)
 const [rooms, setRooms] = useState(() => loadStoredRooms().map(normalizeRoom).filter(Boolean))
 const [activeRoomId, setActiveRoomId] = useState(null)
 const [tasteProfile, setTasteProfile] = useState(() => ({...loadTasteProfile(currentUserId),sessionMomentum:[]}))
@@ -172,6 +180,10 @@ const searchTargetRef = useRef({ mode: 'solo', roomId: null })
     setCurrentUserId,
     view,
     setView,
+    artistProfile,
+    setArtistProfile,
+    userProfile,
+    setUserProfile,
     rooms,
     setRooms,
     activeRoomId,

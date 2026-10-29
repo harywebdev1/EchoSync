@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Logo } from './Logo.jsx'
 import {
   X,
@@ -15,6 +16,8 @@ import {
   Pencil,
   Trash2,
   RotateCcw,
+  Settings,
+  UserRound,
 } from 'lucide-react'
 import { Equalizer } from './Equalizer.jsx'
 import { Avatar } from '../Avatar'
@@ -28,6 +31,7 @@ export function Sidebar({
   role,
   likedCount,
   onOpenProfile,
+  onOpenChannel,
   onCreateRoom,
   onJoinCode,
   onCreatePlaylist,
@@ -47,6 +51,22 @@ export function Sidebar({
   onMobileClose,
 }) {
   const close = onMobileClose || (() => {})
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const onPointer = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false)
+    }
+    const onKey = (event) => { if (event.key === 'Escape') setMenuOpen(false) }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+  useEffect(() => { if (!currentUser) setMenuOpen(false) }, [currentUser])
   const navigate = (nextView) => {
     onNavigate(nextView)
     close()
@@ -235,15 +255,33 @@ export function Sidebar({
           </div>
         </div>
 
-        <div className="side-bottom">
-          <button className="profile" onClick={openProfile}>
-            <Avatar member={currentUser} online />
-            <span className="profile-meta">
-              <strong>{currentUser?.name || 'Sign in'}</strong>
-              <span>@{currentUser?.handle || 'guest'}{inRoom && <> · <Crown size={10} /> {role}</>}</span>
-            </span>
-            <MoreHorizontal size={15} />
-          </button>
+        <div className="side-bottom" ref={menuRef}>
+          <div className="account-menu-wrap">
+            <button
+              className="profile"
+              onClick={() => (currentUser ? setMenuOpen((value) => !value) : openProfile())}
+              aria-haspopup={currentUser ? 'menu' : undefined}
+              aria-expanded={currentUser ? menuOpen : undefined}
+            >
+              <Avatar member={currentUser} online />
+              <span className="profile-meta">
+                <strong>{currentUser?.name || 'Sign in'}</strong>
+                <span>@{currentUser?.handle || 'guest'}{inRoom && <> · <Crown size={10} /> {role}</>}</span>
+              </span>
+              <MoreHorizontal size={15} />
+            </button>
+            {currentUser && menuOpen && (
+              <div className="account-menu" role="menu">
+                <span className="account-menu-label">@{currentUser.handle || 'listener'}</span>
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onOpenChannel?.(currentUser); close() }}>
+                  <UserRound /> View channel
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); openProfile() }}>
+                  <Settings /> Settings
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
     </>

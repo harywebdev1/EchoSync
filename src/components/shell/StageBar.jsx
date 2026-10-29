@@ -1,4 +1,5 @@
-import { Menu, ChevronRight, Search, Globe2, MessageCircle, UserRound, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Menu, ChevronRight, Search, Globe2, MessageCircle, UserRound, Settings, X } from 'lucide-react'
 import { Avatar } from '../Avatar'
 
 export function StageBar({
@@ -13,6 +14,7 @@ export function StageBar({
   onHome,
   currentUser,
   onOpenProfile,
+  onOpenChannel,
   onLogin,
   onSignUp,
   onOpenSidebar,
@@ -20,6 +22,22 @@ export function StageBar({
   unreadLoungeCount,
   onToggleLounge,
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const onPointer = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false)
+    }
+    const onKey = (event) => { if (event.key === 'Escape') setMenuOpen(false) }
+    document.addEventListener('pointerdown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+  useEffect(() => { if (!currentUser) setMenuOpen(false) }, [currentUser])
   return (
     <header className="stage-bar">
       <button className="icon-btn mobile-menu-btn" onClick={onOpenSidebar} aria-label="Open navigation">
@@ -45,9 +63,28 @@ export function StageBar({
             <button className="primary-btn guest-signup" onClick={onSignUp}>Sign up</button>
           </div>
         )}
-        <button className="icon-btn account-mobile" onClick={onOpenProfile} aria-label={currentUser ? 'Account and profile' : 'Log in or sign up'}>
-          {currentUser ? <Avatar member={currentUser} /> : <UserRound />}
-        </button>
+        <div className="account-menu-wrap" ref={menuRef}>
+          <button
+            className="icon-btn account-mobile"
+            onClick={() => (currentUser ? setMenuOpen((value) => !value) : onOpenProfile())}
+            aria-label={currentUser ? 'Account and profile' : 'Log in or sign up'}
+            aria-haspopup={currentUser ? 'menu' : undefined}
+            aria-expanded={currentUser ? menuOpen : undefined}
+          >
+            {currentUser ? <Avatar member={currentUser} /> : <UserRound />}
+          </button>
+          {currentUser && menuOpen && (
+            <div className="account-menu" role="menu">
+              <span className="account-menu-label">@{currentUser.handle || 'listener'}</span>
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onOpenChannel?.(currentUser) }}>
+                <UserRound /> View channel
+              </button>
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onOpenProfile() }}>
+                <Settings /> Settings
+              </button>
+            </div>
+          )}
+        </div>
         <button
           className={`lounge-header-btn ${loungeOpen ? 'active' : ''}`}
           onClick={onToggleLounge}

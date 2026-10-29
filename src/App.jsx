@@ -26,7 +26,8 @@ const LibraryView = makeLazySurface(() => import('./views/LibraryView'), 'Librar
 const RoomView = makeLazySurface(() => import('./views/RoomView'), 'RoomView', 'view', () => import('./views/RoomView?retry=1'))
 const ChatPanel = makeLazySurface(() => import('./components/social/ChatDrawer'), 'ChatDrawer', 'drawer', () => import('./components/social/ChatDrawer?retry=1'))
 const PublicLoungeDrawer = makeLazySurface(() => import('./components/social/PublicLoungeDrawer'), 'PublicLoungeDrawer', 'drawer', () => import('./components/social/PublicLoungeDrawer?retry=1'))
-const LoungeUserCard = makeLazySurface(() => import('./components/social/LoungeUserCard.jsx'), 'LoungeUserCard', 'modal', () => import('./components/social/LoungeUserCard.jsx?retry=1'))
+const ArtistProfileView = makeLazySurface(() => import('./views/ArtistProfileView'), 'ArtistProfileView', 'view', () => import('./views/ArtistProfileView?retry=1'))
+const UserProfileView = makeLazySurface(() => import('./views/UserProfileView'), 'UserProfileView', 'view', () => import('./views/UserProfileView?retry=1'))
 const SearchOverlay = makeLazySurface(() => import('./components/SearchOverlay'), 'SearchOverlay', 'search', () => import('./components/SearchOverlay?retry=1'))
 const FullPlayer = makeLazySurface(() => import('./components/player/FullScreenPlayer'), 'FullScreenPlayer', 'modal', () => import('./components/player/FullScreenPlayer?retry=1'))
 const SettingsModal = makeLazySurface(() => import('./components/modals/SettingsModal.jsx'), 'SettingsModal', 'modal', () => import('./components/modals/SettingsModal.jsx?retry=1'))
@@ -91,6 +92,8 @@ export default function App() {
     displayRoom,
     rooms,
     view,
+    artistProfile,
+    userProfile,
     roomPlaybackActive,
     role,
     likedSet,
@@ -104,6 +107,9 @@ export default function App() {
     requestLeaveRoom,
     confirmLeaveRoom,
     navigateView,
+    openArtistProfile,
+    openUserChannel,
+    profileBack,
     openSearchExperience,
     joinRoom,
     requestJoinCode,
@@ -329,6 +335,7 @@ export default function App() {
             onJoinCode={requestJoinCode}
             onCreateRoom={requestCreateRoom}
             onOpenProfile={openProfile}
+            onOpenChannel={openUserChannel}
             onCreatePlaylist={createPlaylist}
             onOpenPlaylist={openPlaylist}
             onEditRoom={requestEditRoom}
@@ -362,6 +369,7 @@ export default function App() {
               chatOpen={chatOpen}
               unreadCount={activeRoomUnread}
               onOpenProfile={openProfile}
+              onOpenChannel={openUserChannel}
               onSearch={openSearchExperience}
               onToggleChat={() => setChatOpen((value) => !value)}
               onHome={() => navigateView('home')}
@@ -375,6 +383,43 @@ export default function App() {
 
             <ErrorBoundary resetKey={`${view}:${activeRoom?.id || ''}:${activePlaylistId || ''}`}>
               <div className="stage-scroll">
+                {view === 'artist' && artistProfile && (
+                  <ArtistProfileView
+                    profile={artistProfile}
+                    liked={likedSet}
+                    onBack={profileBack}
+                    onOpenArtist={openArtistProfile}
+                    onPlay={playSoloTrack}
+                    onQueue={queueSoloTrack}
+                    onLike={toggleLike}
+                    showToast={showToast}
+                  />
+                )}
+
+                {view === 'user' && userProfile && (
+                  <UserProfileView
+                    profile={userProfile}
+                    currentUser={currentUser}
+                    members={memberIndex}
+                    rooms={rooms}
+                    playlists={playlists}
+                    library={library}
+                    liked={likedSet}
+                    recentIds={recent}
+                    track={track}
+                    profileFor={social.profileFor}
+                    onBack={profileBack}
+                    onPlay={playSoloTrack}
+                    onQueue={queueSoloTrack}
+                    onLike={toggleLike}
+                    onJoinRoom={joinRoom}
+                    onOpenSettings={() => setSettingsOpen(true)}
+                    onOpenArtist={openArtistProfile}
+                    onInvite={(member) => inviteLoungeUser(member?.id)}
+                    showToast={showToast}
+                  />
+                )}
+
                 {view === 'home' && (
                 <HomeView dynamicCatalogTracks={dynamicCatalogTracks} onQueue={queueSoloTrack} onStartRadio={startTasteRadio}
                   currentUser={currentUser}
@@ -388,6 +433,7 @@ export default function App() {
                   onRefreshDaily={refreshDailyFeed}
                   roomCount={rooms.length}
                   onPlayTrack={playSoloTrack}
+                  onOpenArtist={openArtistProfile}
                   onPrefetch={prefetchTrack}
                   onPlayPlaylist={playPlaylist}
                   onLike={toggleLike}
@@ -425,6 +471,7 @@ export default function App() {
                   activePlaylistId={activePlaylistId}
                   onSelectPlaylist={setActivePlaylistId}
                   onPlay={playSoloTrack}
+                  onOpenArtist={openArtistProfile}
                   onLike={toggleLike}
                   onAddToPlaylist={requestAddToPlaylist}
                   onAddToActivePlaylist={(candidate) => {
@@ -474,6 +521,7 @@ export default function App() {
                   onVolume={handleVolume}
                   onToggleMute={toggleMute}
                   onLike={toggleLike}
+                  onOpenArtist={openArtistProfile}
                   onAddToPlaylist={requestAddToPlaylist}
                   onInvite={() => setMembersOpen(true)}
                   onSearch={openSearchExperience}
@@ -510,6 +558,7 @@ export default function App() {
                 onPrev={previousTrack}
                 onNext={nextTrack}
                 onLike={toggleLike}
+                onOpenArtist={openArtistProfile}
                 onAddToPlaylist={requestAddToPlaylist}
                 onVolume={handleVolume}
                 onToggleMute={toggleMute}
@@ -611,6 +660,7 @@ export default function App() {
               onClose={closeQueue}
               onPlayIndex={playIndex}
               onMove={reorderSoloQueue}
+              onOpenArtist={openArtistProfile}
               onRemove={removeSoloQueueTrack}
               onClear={clearSoloQueue}
               onShuffle={shuffleSoloQueue}
@@ -646,7 +696,6 @@ export default function App() {
               onInviteUser={inviteLoungeUser}
               invitingId={loungeInvitingId}
               onLogin={() => openAuth('signin', 'Log in to join the Public Lounge conversation.')}
-              UserCard={LoungeUserCard}
             />
           )}
           {shellDrawerOpen && (
@@ -674,6 +723,7 @@ export default function App() {
           <SearchOverlay
             query={searchQuery} onQueryChange={setSearchQuery} liked={likedSet} onLike={toggleLike}
             onClose={closeSearchExperience}
+            onOpenArtist={openArtistProfile}
             onPlay={playSearchTrack}
             onQueue={queueSearchTrack}
             onPrefetch={prefetchTrack}
@@ -714,6 +764,7 @@ export default function App() {
             onSeek={seekTo}
             onLock={lockToast}
             onLike={toggleLike}
+            onOpenArtist={openArtistProfile}
             onAddToPlaylist={requestAddToPlaylist}
             onVolume={handleVolume}
             onToggleMute={toggleMute}
@@ -859,7 +910,6 @@ export default function App() {
           )}
         </ErrorBoundary>
 
-        {social.profileId && memberIndex[social.profileId] && <LoungeUserCard member={memberIndex[social.profileId]} currentUser={currentUser} room={activeRoom} onClose={social.closeProfile} onInvite={member=>inviteLoungeUser(member.id)} />}
         <Toast toast={toast} />
       </div>
     </SocialContext.Provider>

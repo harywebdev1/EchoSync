@@ -88,6 +88,7 @@ import { useRoomSync } from './useRoomSync.js'
 import { useDynamicTasteCatalog } from './useDynamicTasteCatalog.js'
 import { rankBySearchSimilarity, searchSimilarity } from '../core/searchRanking.js'
 import { useTrackPalette } from './useTrackPalette.js'
+import { artistPath, artistSlug, normalizeHandle, parseRoute, ROUTE_KEY, slugToArtistName, userPath } from '../lib/router.js'
 
 // Connects session, library and community actions to the playback/sync hooks.
 export function useEchoSyncController() {
@@ -109,6 +110,10 @@ export function useEchoSyncController() {
     setCurrentUserId,
     view,
     setView,
+    artistProfile,
+    setArtistProfile,
+    userProfile,
+    setUserProfile,
     rooms,
     setRooms,
     activeRoomId,
@@ -331,6 +336,9 @@ export function useEchoSyncController() {
     searchTargetRef,
     playRequestRef,
   } = useAppState()
+  const lastRoutePathRef = useRef(
+    typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}`,
+  )
   const dynamicTasteCatalog = useDynamicTasteCatalog(tasteProfile, currentUserId || 'guest', fetchJioSearch)
   const dynamicCatalogTracks = dynamicTasteCatalog.tracks
 
@@ -341,6 +349,116 @@ export function useEchoSyncController() {
   const currentUser = useMemo(() => (
     currentAccount ? accountDisplay({ ...currentAccount, online: true }) : null
   ), [currentAccount])
+
+  function currentLocationPath() {
+    return typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}`
+  }
+
+  function writeRoute(path, options = {}) {
+    if (typeof window === 'undefined' || !path) return
+    const previous = window.history.state && typeof window.history.state === 'object' ? window.history.state : {}
+    const alreadyMarked = Boolean(previous[ROUTE_KEY])
+    if (!options.replace && alreadyMarked && currentLocationPath() === path) return
+    const previousIndex = Number(previous[ROUTE_KEY]?.index) || 0
+    const nextState = {
+      ...previous,
+      [ROUTE_KEY]: { index: options.replace ? previousIndex : previousIndex + 1 },
+    }
+    // A URL change closes any open overlay; never let the overlay history
+    // traverse Back after the route has already moved forward.
+    delete nextState.__echoOverlay
+    window.history[options.replace ? 'replaceState' : 'pushState'](nextState, '', path)
+    lastRoutePathRef.current = path
+  }
+
+  function applyRoute(route) {
+    if (!route) return
+    if (route.view === 'artist' || route.view === 'user') {
+      setSearchOpen(false)
+      setFullPlayer(false)
+      setLoungeOpen(false)
+      setChatOpen(false)
+      setQueueOpen(false)
+      if (viewRef.current === 'room') suspendRoomPlayback()
+      if (route.view === 'artist') {
+        setArtistProfile(route.artist || null)
+        setUserProfile(null)
+        setView('artist')
+        viewRef.current = 'artist'
+      } else {
+        setUserProfile(route.user || null)
+        setArtistProfile(null)
+        setView('user')
+        viewRef.current = 'user'
+      }
+      return
+    }
+    setArtistProfile(null)
+    setUserProfile(null)
+    if (route.view === 'room') {
+      const compact = normalizeRoomCode(route.code)
+      const room = roomsRef.current.find((item) => (
+        normalizeRoomCode(item.code) === compact || item.id === route.code
+      ))
+      if (!room) {
+        setView('rooms')
+        viewRef.current = 'rooms'
+        return
+      }
+      if (activeRoomRef.current === room.id) {
+        setView('room')
+        viewRef.current = 'room'
+        setFullPlayer(false)
+        resumeRoomOnEntry(room.id)
+      } else {
+        joinRoom(room, undefined, { fromRoute: true })
+      }
+      return
+    }
+    if (route.view === 'rooms' || route.view === 'library') {
+      setView(route.view)
+      viewRef.current = route.view
+      return
+    }
+    setJoinPill(null)
+    setActivePlaylistId(null)
+    setView('home')
+    viewRef.current = 'home'
+  }
+
+  // Restore the view named by the address bar, then follow browser Back/Forward.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const initial = parseRoute(window.location.pathname, window.location.search)
+    const previous = window.history.state && typeof window.history.state === 'object' ? window.history.state : {}
+    if (!previous[ROUTE_KEY]) {
+      window.history.replaceState({ ...previous, [ROUTE_KEY]: { index: 0 } }, '', currentLocationPath())
+    }
+    if (initial.notFound) {
+      window.history.replaceState({ ...(window.history.state || {}), [ROUTE_KEY]: { index: 0 } }, '', '/')
+    }
+    lastRoutePathRef.current = currentLocationPath()
+    if (initial.view === 'room') {
+      const compact = normalizeRoomCode(initial.code)
+      const room = roomsRef.current.find((item) => (
+        normalizeRoomCode(item.code) === compact || item.id === initial.code
+      ))
+      if (room) joinRoom(room, undefined, { fromRoute: true })
+      else {
+        setView('rooms')
+        viewRef.current = 'rooms'
+      }
+    }
+    const onPop = () => {
+      const path = currentLocationPath()
+      if (path === lastRoutePathRef.current) return
+      lastRoutePathRef.current = path
+      applyRoute(parseRoute(window.location.pathname, window.location.search))
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const activeRoom = activeRoomId ? rooms.find((room) => room.id === activeRoomId) || null : null
 
@@ -806,6 +924,7 @@ export function useEchoSyncController() {
     leaveRoomPlayback()
     setView('home')
     viewRef.current = 'home'
+    writeRoute('/', { replace: true })
   }, [rooms, activeRoomId])
 
   useEffect(() => {
@@ -909,6 +1028,10 @@ export function useEchoSyncController() {
     setActiveRoomId(null)
     setActivePlaylistId(null)
     setView('home')
+    viewRef.current = 'home'
+    setArtistProfile(null)
+    setUserProfile(null)
+    writeRoute('/', { replace: true })
     // A guest preview keeps its queue and position across sign-in so the
     // playback engine can swap in the full-length stream from the same spot.
     if (!guestPreview) {
@@ -1033,6 +1156,10 @@ export function useEchoSyncController() {
     setActiveRoomId(null)
     setActivePlaylistId(null)
     setView('home')
+    viewRef.current = 'home'
+    setArtistProfile(null)
+    setUserProfile(null)
+    writeRoute('/', { replace: true })
     setSearchOpen(false)
     searchRoomRef.current = null
     setFullPlayer(false)
@@ -1171,7 +1298,7 @@ export function useEchoSyncController() {
     channelRef.current?.postMessage({ type: 'chat', roomId, sender: tabIdRef.current, message })
   }
 
-  function joinRoom(candidate, userId = currentUserId) {
+  function joinRoom(candidate, userId = currentUserId, options = {}) {
     if (!candidate?.id) return
     if (!userId) {
       requireAuth(
@@ -1225,12 +1352,17 @@ export function useEchoSyncController() {
     }
     activeRoomRef.current = candidate.id
     setActiveRoomId(candidate.id)
+    setArtistProfile(null)
+    setUserProfile(null)
     setCurrentByRoom((previous) => ({ ...previous, [candidate.id]: previous[candidate.id] || 0 }))
     if (!changed && viewRef.current !== 'room') {
       resumeRoomOnEntry(candidate.id)
     } else {
       setView('room')
       viewRef.current = 'room'
+    }
+    if (!options.fromRoute) {
+      writeRoute(candidate.code ? `/room/${encodeURIComponent(candidate.code)}` : '/rooms')
     }
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     if (changed) setTimeout(() => requestRoomSync(candidate.id), 140)
@@ -1308,9 +1440,12 @@ export function useEchoSyncController() {
     setCurrentByRoom((previous) => ({ ...previous, [room.id]: 0 }))
     activeRoomRef.current = room.id
     setActiveRoomId(room.id)
+    setArtistProfile(null)
+    setUserProfile(null)
     setView('room')
     viewRef.current = 'room'
     setRoomEditor(null)
+    writeRoute(`/room/${encodeURIComponent(room.code)}`)
     if (typeof window !== 'undefined' && window.innerWidth > 1050) setChatOpen(true)
     channelRef.current?.postMessage({ type: 'room-added', sender: tabIdRef.current, room })
     pushSystemMessage(room.id, `${currentUser?.name || 'You'} created this room · invite code ${room.code}`)
@@ -1387,6 +1522,7 @@ export function useEchoSyncController() {
       leaveRoomPlayback()
       setView('rooms')
       viewRef.current = 'rooms'
+      writeRoute('/rooms')
       setMembersOpen(false)
     }
     setRoomEditor(null)
@@ -2677,7 +2813,7 @@ export function useEchoSyncController() {
   const cloudEventRef=useRef(handleCloudEvent);cloudEventRef.current=handleCloudEvent
   const social = useSocialFeatures({ currentUser, tasteProfile, library, playlists, recent, liked: likedSet, members:memberIndex, rooms, activeRoom, roomPlaybackActive, isPlaying, track,
     channelRef, tabIdRef, roomsRef, activeRoomRef, roomClockRef, roomQueueRef, setRooms, setMessages, setPlaylists,
-    rememberTrack, toggleLike, queueSoloTrack, playSearchTrack: (candidate, context) => { searchTargetRef.current = { mode: 'solo', roomId: null }; viewRef.current = 'home'; setView('home'); return playSearchTrack(candidate, context) }, playPlaylist, joinRoom, inviteLoungeUser, showToast, upsertLoungeMessage,
+    rememberTrack, toggleLike, queueSoloTrack, playSearchTrack: (candidate, context) => { searchTargetRef.current = { mode: 'solo', roomId: null }; return playSearchTrack(candidate, context) }, playPlaylist, joinRoom, inviteLoungeUser, showToast, upsertLoungeMessage, openUserChannel,
     getPlaybackTime: (...args)=>getPlaybackTime(...args), roomClockTime: (...args)=>roomClockTime(...args),
     roomSnapshot: (...args)=>roomSnapshot(...args), applyRemoteState: (...args)=>applyRemoteState(...args),
   })
@@ -3083,6 +3219,10 @@ export function useEchoSyncController() {
     if (nextView === 'room' && activeRoomRef.current) {
       if (viewRef.current !== 'room') resumeRoomOnEntry(activeRoomRef.current)
       setFullPlayer(false)
+      setArtistProfile(null)
+      setUserProfile(null)
+      const room = roomsRef.current.find((item) => item.id === activeRoomRef.current)
+      writeRoute(room?.code ? `/room/${encodeURIComponent(room.code)}` : '/rooms')
       return
     }
     if (nextView === 'home') {
@@ -3092,8 +3232,69 @@ export function useEchoSyncController() {
     } else {
       setView(nextView)
     }
+    setArtistProfile(null)
+    setUserProfile(null)
     viewRef.current = nextView
+    if (nextView === 'home') writeRoute('/')
+    else if (nextView === 'rooms') writeRoute('/rooms')
+    else if (nextView === 'library') writeRoute('/library')
     if (typeof window !== 'undefined' && window.innerWidth <= 1050) setChatOpen(false)
+  }
+
+  function openArtistProfile(input, options = {}) {
+    const name = typeof input === 'string' ? input : safeText(input?.name || input?.artist)
+    const browseId = safeText(typeof input === 'object' ? input?.browseId : options.browseId)
+    if (!name && !browseId) return
+    const profile = {
+      slug: artistSlug(name || browseId),
+      name: name || slugToArtistName(artistSlug(browseId)),
+      browseId,
+    }
+    setArtistProfile(profile)
+    setUserProfile(null)
+    setSearchOpen(false)
+    setFullPlayer(false)
+    setLoungeOpen(false)
+    setChatOpen(false)
+    setQueueOpen(false)
+    if (viewRef.current === 'room') suspendRoomPlayback()
+    setView('artist')
+    viewRef.current = 'artist'
+    writeRoute(artistPath(profile, browseId))
+    if (typeof window !== 'undefined' && window.innerWidth <= 1050) setSidebarOpen(false)
+  }
+
+  function openUserChannel(input) {
+    const handle = normalizeHandle(typeof input === 'string' ? input : input?.handle || input?.name)
+    if (!handle) return
+    setUserProfile({ handle })
+    setArtistProfile(null)
+    setSearchOpen(false)
+    setFullPlayer(false)
+    setLoungeOpen(false)
+    setChatOpen(false)
+    setQueueOpen(false)
+    if (viewRef.current === 'room') suspendRoomPlayback()
+    setView('user')
+    viewRef.current = 'user'
+    writeRoute(userPath(handle))
+    if (typeof window !== 'undefined' && window.innerWidth <= 1050) setSidebarOpen(false)
+  }
+
+  function profileBack() {
+    if (typeof window === 'undefined') return
+    const index = Number(window.history.state?.[ROUTE_KEY]?.index) || 0
+    if (index > 0) {
+      window.history.back()
+      return
+    }
+    setArtistProfile(null)
+    setUserProfile(null)
+    setJoinPill(null)
+    setActivePlaylistId(null)
+    setView('home')
+    viewRef.current = 'home'
+    writeRoute('/', { replace: true })
   }
 
   function openProfile() {
@@ -3221,6 +3422,8 @@ export function useEchoSyncController() {
     displayRoom,
     rooms,
     view,
+    artistProfile,
+    userProfile,
     roomPlaybackActive,
     role,
     likedSet,
@@ -3228,6 +3431,9 @@ export function useEchoSyncController() {
     currentUser,
     playlists,
     navigateView,
+    openArtistProfile,
+    openUserChannel,
+    profileBack,
     openSearchExperience,
     joinRoom,
     requestJoinCode,

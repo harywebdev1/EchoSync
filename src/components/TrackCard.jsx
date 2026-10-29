@@ -1,8 +1,9 @@
 import { memo } from 'react'
 import { Heart, Play } from 'lucide-react'
 import { Cover } from './Cover'
+import { ArtistLinks } from './ArtistLinks.jsx'
 
-export const TrackCard = memo(function TrackCard({ track, liked = false, playing = false, onPlay, onLike, contextTracks }) {
+export const TrackCard = memo(function TrackCard({ track, liked = false, playing = false, onPlay, onLike, onOpenArtist, contextTracks }) {
   return (
     <article className={`track-card ${playing ? 'is-playing' : ''}`} data-testid="track-card">
       <div className="track-card-art-wrap">
@@ -26,7 +27,7 @@ export const TrackCard = memo(function TrackCard({ track, liked = false, playing
       </div>
       <div className="track-card-copy">
         <strong title={track?.title}>{track?.title || 'Untitled track'}</strong>
-        <span title={track?.artist}>{track?.artist || 'EchoSync'}</span>
+        <span title={track?.artist}><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
       </div>
     </article>
   )

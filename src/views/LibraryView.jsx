@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { formatTime } from '../lib/time'
 import { Cover } from '../components/Cover'
+import { ArtistLinks } from '../components/ArtistLinks.jsx'
 
 export function LibraryView({
   searchTracks,
@@ -29,6 +30,7 @@ export function LibraryView({
   activePlaylistId,
   onSelectPlaylist,
   onPlay,
+  onOpenArtist,
   onLike,
   onAddToPlaylist,
   onAddToActivePlaylist,
@@ -149,7 +151,7 @@ export function LibraryView({
                     <Cover track={track} size="cover-size-sm" />
                     <div className="queue-copy">
                       <strong>{track.title}</strong>
-                      <span>{track.artist}</span>
+                      <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                     </div>
                     <span className="dur">{formatTime(track.duration)}</span>
                     <button
@@ -186,7 +188,7 @@ export function LibraryView({
                 <Cover track={track} size="cover-size-sm" />
                 <div className="queue-copy">
                   <strong>{track.title}</strong>
-                  <span>{track.artist}</span>
+                  <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                 </div>
                 <span className="album">{track.album || 'Single'}</span>
                 <span className="dur">{formatTime(track.duration)}</span>
@@ -295,7 +297,7 @@ export function LibraryView({
                   <Cover track={track} size="cover-size-sm" />
                   <div className="queue-copy">
                     <strong>{track.title}</strong>
-                    <span>{track.artist}</span>
+                    <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
                   <span className="dur">{formatTime(track.duration)}</span>
@@ -325,7 +327,7 @@ export function LibraryView({
                   <Cover track={track} size="cover-size-sm" />
                   <div className="queue-copy">
                     <strong>{track.title}</strong>
-                    <span>{track.artist}</span>
+                    <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
                   <span className="dur">{formatTime(track.duration)}</span>

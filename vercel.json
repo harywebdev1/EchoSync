@@ -31,7 +31,7 @@
       "destination": "/api/youtube-audio?videoId=:videoId"
     },
     {
-      "source": "/((?!api(?:/|$)|assets(?:/|$)).*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

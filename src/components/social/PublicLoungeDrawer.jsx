@@ -47,14 +47,12 @@ export function PublicLoungeDrawer({
   onInviteUser,
   invitingId,
   onLogin,
-  UserCard,
 }) {
   const social = useSocial()
   const chatRef = useRef(null)
   const inputRef = useRef(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [menuFor, setMenuFor] = useState(null)
-  const [cardFor, setCardFor] = useState(null)
   const [mention, setMention] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [voicePlayingId, setVoicePlayingId] = useState(null)
@@ -92,7 +90,6 @@ export function PublicLoungeDrawer({
     if (!open) return
     setMenuFor(null)
     setMention(null)
-    setCardFor(null)
     setHighlightId(null)
   }, [open])
 
@@ -292,7 +289,6 @@ export function PublicLoungeDrawer({
     onSend()
   }
 
-  const cardMember = cardFor ? members[cardFor] : null
   const currentLabel = currentUser?.handle || 'guest'
 
   return (
@@ -346,7 +342,7 @@ export function PublicLoungeDrawer({
               data-testid="lounge-message"
             >
               {!mine && (
-                <button className="lounge-avatar-btn" onClick={() => setCardFor(author.id)} aria-label={`Open ${author.name}'s profile`}>
+                <button className="lounge-avatar-btn" onClick={() => social.openProfile(author.id)} aria-label={`Open ${author.name}'s profile`}>
                   <Avatar member={author} size="sm" online={Boolean(author.online)} />
                 </button>
               )}
@@ -354,7 +350,7 @@ export function PublicLoungeDrawer({
 <div className={`bubble lounge-bubble ${message.type === 'voice' ? 'voice' : ''}`}>
                 {!mine && (
                   <div className="msg-author">
-                    <button className="lounge-author-btn" onClick={() => setCardFor(author.id)}>@{author.handle}</button>
+                    <button className="lounge-author-btn" onClick={() => social.openProfile(author.id)}>@{author.handle}</button>
                   </div>
                 )}
                                   {message.replyTo && (
@@ -375,7 +371,7 @@ export function PublicLoungeDrawer({
                   )}
                   <span className="bubble-meta">{message.time}</span>
                   <button className="message-chevron" aria-label="Lounge message options" aria-haspopup="menu" aria-expanded={menuFor?.id === message.id} onClick={event=>setMenuFor(menuFor?.id===message.id?null:{id:message.id,anchor:event.currentTarget})}>⌄</button>
-                  {menuFor?.id === message.id && <MessageContextMenu anchor={menuFor.anchor} onClose={()=>setMenuFor(null)} onReply={()=>onReply(message, author)} onProfile={()=>setCardFor(author.id)} onPlay={message.track ? ()=>social.play(message.track) : undefined} onDelete={mine ? ()=>onDelete(message.id) : undefined} onReact={emoji=>onReact(message.id,emoji)} />}
+                  {menuFor?.id === message.id && <MessageContextMenu anchor={menuFor.anchor} onClose={()=>setMenuFor(null)} onReply={()=>onReply(message, author)} onProfile={()=>social.openProfile(author.id)} onPlay={message.track ? ()=>social.play(message.track) : undefined} onDelete={mine ? ()=>onDelete(message.id) : undefined} onReact={emoji=>onReact(message.id,emoji)} />}
                 </div>
                 {message.reactions?.length > 0 && (
                   <div className="msg-reactions">
@@ -522,20 +518,6 @@ export function PublicLoungeDrawer({
           <span>You are reading as a guest.</span>
           <button onClick={onLogin}>Log in to join</button>
         </div>
-      )}
-
-      {cardMember && (
-        <UserCard
-          member={cardMember}
-          currentUser={currentUser}
-          room={room}
-          inviting={invitingId === cardMember.id}
-          onClose={() => setCardFor(null)}
-          onInvite={(member) => {
-            onInviteUser?.(member.id)
-            setCardFor(null)
-          }}
-        />
       )}
     </aside>
   )

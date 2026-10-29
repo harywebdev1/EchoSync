@@ -2,6 +2,7 @@ import { RoomVote } from '../social/RoomSocialControls.jsx'
 import { memo } from 'react'
 import { AudioLines, ChevronDown, ChevronUp, ListMusic, Shuffle, Trash2, X } from 'lucide-react'
 import { Cover } from '../Cover'
+import { ArtistLinks } from '../ArtistLinks.jsx'
 
 export const QueueDrawer = memo(function QueueDrawer({
   open = true,
@@ -13,6 +14,7 @@ export const QueueDrawer = memo(function QueueDrawer({
   onClose,
   onPlayIndex,
   onMove,
+  onOpenArtist,
   onRemove,
   onClear,
   onShuffle,
@@ -51,7 +53,7 @@ export const QueueDrawer = memo(function QueueDrawer({
         <div>
           <span className="queue-now-label"><AudioLines /> Now playing</span>
           <strong>{track?.title || 'Nothing playing'}</strong>
-          <small>{track?.artist || 'EchoSync'}</small>
+          <ArtistLinks track={track} onOpenArtist={onOpenArtist} fallback="EchoSync" />
         </div>
       </div>
 
@@ -68,18 +70,22 @@ export const QueueDrawer = memo(function QueueDrawer({
           </div>
         ) : upcoming.map(({ item, index }) => (
           <div className="queue-drawer-row" key={`${item?.id || 'track'}-${index}`} data-testid="queue-drawer-row">
-            <button
-              type="button"
-              className="queue-drawer-main"
-              onClick={() => onPlayIndex(index)}
-              aria-label={`Play ${item?.title || 'track'} now`}
-            >
-              <Cover track={item} size="cover-size-sm" />
+            <div className="queue-drawer-main">
+              <button
+                type="button"
+                className="queue-drawer-cover-btn"
+                onClick={() => onPlayIndex(index)}
+                aria-label={`Play ${item?.title || 'track'} now`}
+              >
+                <Cover track={item} size="cover-size-sm" />
+              </button>
               <span className="queue-copy">
-                <strong>{item?.title || 'Untitled track'}</strong>
-                <small>{item?.artist || 'EchoSync'}</small>
+                <button type="button" className="queue-title-btn" onClick={() => onPlayIndex(index)}>
+                  <strong>{item?.title || 'Untitled track'}</strong>
+                </button>
+                <ArtistLinks track={item} onOpenArtist={onOpenArtist} fallback="EchoSync" />
               </span>
-            </button>
+            </div>
             {room && <RoomVote room={room} trackId={item.id}/>}
             {!room && <div className="queue-drawer-row-actions">
               <button

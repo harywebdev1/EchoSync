@@ -129,8 +129,15 @@ function flexColumns(item) {
 function detailParts(item) {
   const columns = flexColumns(item)
   const title = textOf(columns[0]).trim()
-  const detail = columns[1] || null
-  const runs = runsOf(detail)
+  // Search rows keep type/artist/album/duration in one detail column, while
+  // artist top-song shelves split artists, plays and album into separate
+  // columns. Read every column after the title so album credits survive.
+  const runs = columns.slice(1).flatMap((column) => {
+    const own = runsOf(column)
+    if (own.length) return own
+    const text = textOf(column).trim()
+    return text ? [{ text }] : []
+  })
   const fixed = textOf(item?.fixedColumns?.[0]?.musicResponsiveListItemFixedColumnRenderer?.text).trim()
   const duration = parseDuration(runs.map(run => run.text).join(' ')) || parseDuration(fixed)
   // Detail rows are "Type • Artist • Album • Year" but some rows drop the type

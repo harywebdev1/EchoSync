@@ -34,6 +34,7 @@ import { AvatarStack } from '../components/shared/AvatarStack'
 import { ROLE_COPY } from '../components/shared/roomRoles'
 import { Cover } from '../components/Cover'
 import { Avatar } from '../components/Avatar'
+import { ArtistLinks } from '../components/ArtistLinks.jsx'
 import { TelemetryPill } from '../components/TelemetryPill'
 
 export function RoomView({
@@ -57,6 +58,7 @@ export function RoomView({
   onVolume,
   onToggleMute,
   onLike,
+  onOpenArtist,
   onAddToPlaylist,
   onInvite,
   onSearch,
@@ -138,7 +140,7 @@ export function RoomView({
         </div>
       </section>
 
-      {!hasTrack ? <section className="room-stage-empty"><h2>Pick a song</h2><p>Start the room with one of these.</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span>{item.artist}</span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
+      {!hasTrack ? <section className="room-stage-empty"><h2>Pick a song</h2><p>Start the room with one of these.</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span><ArtistLinks track={item} onOpenArtist={onOpenArtist} /></span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
         <Cover track={track} size="cover-size-hero" playing={isPlaying} />
         <div className="now-main">
           <div className="now-kicker">
@@ -149,7 +151,7 @@ export function RoomView({
 
           <h2 className="now-title" title={track?.title}>{track?.title || 'Finding a track…'}</h2>
           <p className="now-artist">
-            {track?.artist || 'EchoSync'}
+            <ArtistLinks track={track} onOpenArtist={onOpenArtist} />
             {track?.album && <><span> · </span><span className="album">{track.album}</span></>}
           </p>
 
@@ -288,7 +290,7 @@ export function RoomView({
               <div className="queue-copy">
                 <strong>{item?.title || 'Untitled track'}</strong>
                 <span>
-                  {item?.artist || 'EchoSync'}
+                  <ArtistLinks track={item} onOpenArtist={onOpenArtist} />
                   {itemFailed ? ' · Stream unavailable — tap to retry' : itemPending ? ' · Tuning into the room…' : ''}
                 </span>
               </div>

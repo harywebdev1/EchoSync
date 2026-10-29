@@ -20,6 +20,7 @@ import {
 import { formatTime } from '../../lib/time'
 import { usePlaybackProgress } from '../../state/playbackStore'
 import { Cover } from '../Cover'
+import { ArtistLinks } from '../ArtistLinks.jsx'
 import { TelemetryPill } from '../TelemetryPill'
 import { LyricsPanel } from './LyricsPanel'
 
@@ -94,6 +95,7 @@ export function FullScreenPlayer({
   onLock,
   onLike,
   onAddToPlaylist,
+  onOpenArtist,
   onVolume,
   onToggleMute,
   onRetryLyrics,
@@ -134,7 +136,7 @@ export function FullScreenPlayer({
                 <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}{track?.quality ? ' · ' + track.quality : ''}</span>
               </div>
               <h2 className="fp-title">{track?.title}</h2>
-              <p className="fp-artist">{track?.artist}{track?.album ? ` · ${track.album}` : ''}</p>
+              <p className="fp-artist"><ArtistLinks track={track} onOpenArtist={onOpenArtist} />{track?.album ? ` · ${track.album}` : ''}</p>
 
               <div className="fp-timeline">
                 <FullPlayerTimeline

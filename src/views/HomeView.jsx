@@ -4,6 +4,7 @@ import { mergeMoodCatalog, allocateHomeShelves } from '../core/moodFeed.js'
 import { useLiveMoodFeed } from '../hooks/useLiveMoodFeed.js'
 import { useYtHomeFeed } from '../hooks/useYtHomeFeed.js'
 import { Cover } from '../components/Cover'
+import { ArtistLinks } from '../components/ArtistLinks.jsx'
 import { TrackCard } from '../components/TrackCard'
 import { HOME_MOODS, rankListenerTracks, topTasteLabels } from '../core/listenerProfile.js'
 
@@ -38,16 +39,16 @@ function HeroShowcase({ tracks, onPlay, onPrefetch }) {
   </div>
 }
 
-function Shelf({ title, subtitle, tracks, liked, onPlay, onLike }) {
+function Shelf({ title, subtitle, tracks, liked, onPlay, onLike, onOpenArtist }) {
   const scroll = useRef(null)
   if (!tracks.length) return null
   return <section className="home-section home-shelf">
     <div className="home-section-head"><div><p>{subtitle}</p><h2>{title}</h2></div><div className="shelf-arrows"><button className="icon-btn" aria-label={`Scroll ${title} left`} onClick={() => scroll.current?.scrollBy({ left: -380, behavior: 'smooth' })}><ChevronLeft /></button><button className="icon-btn" aria-label={`Scroll ${title} right`} onClick={() => scroll.current?.scrollBy({ left: 380, behavior: 'smooth' })}><ChevronRight /></button></div></div>
-    <div className="shelf-scroll" ref={scroll}>{tracks.map(track => <TrackCard key={track.id} track={track} liked={liked.includes(track.id)} onPlay={onPlay} contextTracks={tracks} onLike={onLike} />)}</div>
+    <div className="shelf-scroll" ref={scroll}>{tracks.map(track => <TrackCard key={track.id} track={track} liked={liked.includes(track.id)} onPlay={onPlay} contextTracks={tracks} onLike={onLike} onOpenArtist={onOpenArtist} />)}</div>
   </section>
 }
 
-export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onPrefetch, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
+export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], currentUser, library, liked = [], recentIds = [], playlists = [], dailyFeed, tasteProfile, onPlayTrack, onStartRadio, onLike, onQueue, onOpenArtist, onPrefetch, onCreatePlaylist, onOpenPlaylist, onPlayPlaylist, onCreateRoom }) {
   const [mood, setMood] = useState('all')
   const live = useLiveMoodFeed(mood, tasteProfile)
   const recent = useMemo(() => recentIds.map(id => library[id]).filter(Boolean), [recentIds, library])
@@ -127,17 +128,20 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
     {live.status === 'error' && home.status === 'error' && <p className="mood-notice" role="status">Live picks are offline. Showing your saved rotation.</p>}
     <section className="home-section quick-picks-section"><div className="home-section-head"><div><h2>Quick picks</h2></div><span className="quick-radio-note"><Radio size={16} /> A song starts a radio</span></div>
       <div className="quick-grid" data-testid="quick-grid" ref={quickGrid} onScroll={e=>setQuickPage(Math.round(e.currentTarget.scrollLeft/(e.currentTarget.clientWidth+16)))}>{quickPicks.map(track => <article className="quick-card" key={track.id}>
-        <button className="quick-main" onClick={() => playQuick(track)} onMouseEnter={() => onPrefetch?.(track)} onFocus={() => onPrefetch?.(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span><span className="quick-copy"><strong>{track.title}</strong><span>{track.artist}</span></span></button>
+        <div className="quick-main" onMouseEnter={() => onPrefetch?.(track)}>
+          <button className="quick-art-btn" onClick={() => playQuick(track)} onFocus={() => onPrefetch?.(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span></button>
+          <span className="quick-copy"><button className="quick-title-btn" onClick={() => playQuick(track)}><strong>{track.title}</strong></button><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
+        </div>
         <button className={`quick-like icon-btn ${liked.includes(track.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label={`Like ${track.title}`}><Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} /></button><button className="quick-add icon-btn" onClick={() => onQueue(track)} aria-label={`Queue ${track.title}`}><Plus /></button>
       </article>)}</div>
       <div className="quick-pagination"><button className="icon-btn" aria-label="Previous Quick picks page" disabled={quickPage===0} onClick={()=>movePage(-1)}><ChevronLeft/></button><span>Page {quickPage+1} of {pages}</span><button className="icon-btn" aria-label="Next Quick picks page" disabled={quickPage>=pages-1} onClick={()=>movePage(1)}><ChevronRight/></button></div>
       {!quickPicks.length && <p className="home-empty">Nothing here yet. Search for a song to start.</p>}
     </section>
-    <Shelf title={guest ? 'Popular right now' : 'Listen again'} subtitle={guest ? 'Trending this week' : 'Recently played'} tracks={sections.familiar} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
-    <Shelf title="Mixed for you" subtitle="From your YouTube Music radio" tracks={home.mixed} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
+    <Shelf title={guest ? 'Popular right now' : 'Listen again'} subtitle={guest ? 'Trending this week' : 'Recently played'} tracks={sections.familiar} liked={liked} onPlay={onPlayTrack} onLike={onLike} onOpenArtist={onOpenArtist} />
+    <Shelf title="Mixed for you" subtitle="From your YouTube Music radio" tracks={home.mixed} liked={liked} onPlay={onPlayTrack} onLike={onLike} onOpenArtist={onOpenArtist} />
     <section className="home-section home-mixes"><div className="home-section-head"><div><h2>Mixes</h2></div></div><div className="mix-scroll">{mixes.map(mix => <button key={mix.title} className="home-mix-card" disabled={!mix.tracks.length} onClick={() => onPlayTrack(mix.tracks[0], mix.tracks)}><Collage tracks={mix.tracks} /><strong>{mix.title}</strong><span>{mix.subtitle}</span></button>)}</div></section>
-    <Shelf title="Fresh discoveries" subtitle="New to you" tracks={sections.fresh} liked={liked} onPlay={onPlayTrack} onLike={onLike} />
-    {liked.length > 0 && <Shelf title="Forgotten favorites" subtitle="Not played lately" tracks={ranked.filter(track => liked.includes(track.id) && !recentIds.includes(track.id)).slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} />}
+    <Shelf title="Fresh discoveries" subtitle="New to you" tracks={sections.fresh} liked={liked} onPlay={onPlayTrack} onLike={onLike} onOpenArtist={onOpenArtist} />
+    {liked.length > 0 && <Shelf title="Forgotten favorites" subtitle="Not played lately" tracks={ranked.filter(track => liked.includes(track.id) && !recentIds.includes(track.id)).slice(0, 12)} liked={liked} onPlay={onPlayTrack} onLike={onLike} onOpenArtist={onOpenArtist} />}
     {playlists.length > 0 && <section className="home-section home-playlists"><div className="home-section-head"><h2>Your playlists</h2><button className="text-btn" onClick={onCreatePlaylist}><Plus size={16} /> New playlist</button></div><div className="playlist-grid">{playlists.map(playlist => <article className="home-playlist-item" key={playlist.id}><button onClick={() => onOpenPlaylist(playlist)}><Collage tracks={playlist.trackIds.map(id => library[id]).filter(Boolean)} /><strong>{playlist.name}</strong><span>{playlist.trackIds.length} tracks</span></button><button className="text-btn" disabled={!playlist.trackIds.length} onClick={() => onPlayPlaylist(playlist)}><Play size={16} /> Play playlist</button></article>)}</div></section>}
   </div>
 })

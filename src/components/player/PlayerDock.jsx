@@ -18,6 +18,7 @@ import {
   VolumeX,
 } from 'lucide-react'
 import { Cover } from '../Cover'
+import { ArtistLinks } from '../ArtistLinks.jsx'
 import { formatTime } from '../../lib/time'
 import { usePlaybackProgress } from '../../state/playbackStore'
 
@@ -38,6 +39,7 @@ export const PlayerDock = memo(function PlayerDock({
   onNext,
   onLike,
   onAddToPlaylist,
+  onOpenArtist,
   onVolume,
   onToggleMute,
   onSeek,
@@ -68,10 +70,12 @@ export const PlayerDock = memo(function PlayerDock({
             ? <Cover track={track} size="cover-size-md" playing={isPlaying} />
             : <span className="dock-np-icon" aria-hidden="true"><AudioLines /></span>}
         </button>
-        <button type="button" className="dock-copy" onClick={onOpenFull}>
-          <strong title={track?.title || 'Nothing playing'}>{track?.title || 'Nothing playing'}</strong>
-          <span>{track?.artist || 'EchoSync'}</span>
-        </button>
+        <div className="dock-copy">
+          <button type="button" className="dock-copy-title" onClick={onOpenFull}>
+            <strong title={track?.title || 'Nothing playing'}>{track?.title || 'Nothing playing'}</strong>
+          </button>
+          <ArtistLinks track={track} onOpenArtist={onOpenArtist} fallback="EchoSync" />
+        </div>
         <div className="dock-quick-actions">
           <button
             className={`like-btn dock-like ${liked.includes(track?.id) ? 'liked' : ''}`}

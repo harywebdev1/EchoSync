@@ -29,10 +29,22 @@ export function useSocialFeatures(options) {
     if (live && Date.now()-live.ts < 6000) return live
     const user = o.members[id]
     const tracks = ids => [...new Set(ids)].map(key => o.library[key]).filter(Boolean).slice(0,3)
+    const visible = user?.showActivity !== false
+    const likedIds = visible ? readUserValue(LIKES_KEY,id,[]) : []
     // Persisted public collections remain available offline; live activity never does.
-    return { sharing: user?.showActivity !== false, taste: user?.showActivity !== false ? loadTasteProfile(id) : null,
-      rotation: user?.showActivity !== false ? tracks([...readUserValue(RECENT_KEY,id,[]), ...readUserValue(LIKES_KEY,id,[])]) : [],
+    return { sharing: visible, taste: visible ? loadTasteProfile(id) : null,
+      likedCount: Array.isArray(likedIds) ? likedIds.length : 0,
+      rotation: visible ? tracks([...readUserValue(RECENT_KEY,id,[]), ...likedIds]) : [],
       playlists: readUserValue(PLAYLISTS_KEY,id,[]).filter(p=>p.visibility !== 'private').map(p=>({...p, tracks:p.trackIds.map(key=>o.library[key]).filter(Boolean)})) }
+  }
+  function openProfile(id) {
+    const o = now()
+    const member = o.members?.[id] || (id === o.currentUser?.id ? o.currentUser : null)
+    if (typeof o.openUserChannel === 'function') {
+      o.openUserChannel(member || { id, handle: String(id || '').replace(/^@/, '') })
+      return
+    }
+    setProfileId(id)
   }
   function applyVote(data) {
     const o = now(), room = o.roomsRef.current.find(r=>r.id===data.roomId)
@@ -119,5 +131,5 @@ export function useSocialFeatures(options) {
   function toggleVisibility(id) { now().setPlaylists(p=>p.map(item=>item.id===id?{...item,visibility:item.visibility==='private'?'public':'private'}:item)) }
   function playPlaylist(playlist) { const o=now(); playlist.tracks.forEach(o.rememberTrack); if(playlist.tracks[0]) o.playSearchTrack(playlist.tracks[0],playlist.tracks) }
   function play(candidate) { now().playSearchTrack(candidate) }
-  return { profiles, telemetry, profileId, openProfile:setProfileId, closeProfile:()=>setProfileId(null), profileFor, handleEvent, shareSong, toggleVote, forceResync, savePublicPlaylist, toggleVisibility, playPlaylist, play, like:options.toggleLike, queue:options.queueSoloTrack, liked:options.liked, currentUser:options.currentUser, currentTaste:options.tasteProfile, joinRoom:options.joinRoom, invite:options.inviteLoungeUser, rooms:options.rooms }
+  return { profiles, telemetry, profileId, openProfile, closeProfile:()=>setProfileId(null), profileFor, handleEvent, shareSong, toggleVote, forceResync, savePublicPlaylist, toggleVisibility, playPlaylist, play, like:options.toggleLike, queue:options.queueSoloTrack, liked:options.liked, currentUser:options.currentUser, currentTaste:options.tasteProfile, joinRoom:options.joinRoom, invite:options.inviteLoungeUser, rooms:options.rooms }
 }
