@@ -3,7 +3,6 @@ import { SongDrop } from './SongDrop.jsx'
 import { useSocial } from './SocialContext.jsx'
 import { useEffect, useRef, useState } from 'react'
 import {
-  MoreHorizontal,
   Mic,
   MicOff,
   MessageCircle,
@@ -16,13 +15,10 @@ import {
   Check,
   CheckCheck,
   Wifi,
-  Trash2,
   ShieldCheck,
   AtSign,
-  CornerUpLeft,
-  Music,
 } from 'lucide-react'
-import { LYRIC_EMOJIS, REACTION_EMOJIS } from '../../lib/chat'
+import { LYRIC_EMOJIS, } from '../../lib/chat'
 import { formatTime } from '../../lib/time'
 import { blobToDataUrl, makeVoiceWaveform, isUsableVoiceBlob } from '../../lib/voice'
 import { useMembers } from '../shared/MembersContext'

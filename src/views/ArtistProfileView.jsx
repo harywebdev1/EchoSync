@@ -8,7 +8,6 @@ import {
   Play,
   Radio,
   Share2,
-  Shuffle,
   Sparkles,
   Users,
 } from 'lucide-react'

@@ -1,4 +1,4 @@
-import { setLiveTelemetry, liveTelemetryStore } from '../state/playbackStore'
+import { setLiveTelemetry } from '../state/playbackStore'
 
 const PING_INTERVAL_MS = 2000
 const NETWORK_CHANNEL = 'echosync-network-telemetry-v1'
@@ -6,8 +6,6 @@ const LOW_LATENCY_MS = 180
 const MEDIUM_LATENCY_MS = 550
 
 let started = false
-let pingTimer = null
-let echoTimer = null
 let channel = null
 let preferredQuality = 'auto'
 let apiLatencyMs = 0
@@ -102,7 +100,7 @@ function setupChannel() {
         }
       }
     }
-    echoTimer = setInterval(() => {
+    setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       channel?.postMessage({ type: 'ping', id: `${Date.now()}-${Math.random()}`, sentAt: performance.now() })
     }, 4000)
@@ -118,30 +116,12 @@ export function startNetworkMonitor() {
   connection?.addEventListener?.('change', publishTelemetry)
   setupChannel()
   pingProxy()
-  pingTimer = setInterval(pingProxy, PING_INTERVAL_MS)
-}
-
-export function stopNetworkMonitor() {
-  if (!started) return
-  started = false
-  clearInterval(pingTimer)
-  clearInterval(echoTimer)
-  connection?.removeEventListener?.('change', publishTelemetry)
-  channel?.close()
-  channel = null
+  setInterval(pingProxy, PING_INTERVAL_MS)
 }
 
 export function setPreferredStreamQuality(value) {
   preferredQuality = ['auto', 'high', 'normal', 'saver'].includes(value) ? value : 'auto'
   publishTelemetry()
-}
-
-export function getActiveStreamQuality() {
-  return qualityFromNetwork()
-}
-
-export function getNetworkSnapshot() {
-  return liveTelemetryStore.get()
 }
 
 export function recordRoomDrift(driftSeconds) {

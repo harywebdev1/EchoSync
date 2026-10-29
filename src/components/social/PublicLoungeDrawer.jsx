@@ -4,23 +4,18 @@ import { useSocial } from './SocialContext.jsx'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AtSign,
-  CornerUpLeft,
   Globe2,
   MessageCircle,
   Mic,
-  MoreHorizontal,
   Send,
   Smile,
   Sparkles,
-  Trash2,
-  UserPlus,
-  Wifi,
   X,
 } from 'lucide-react'
 import { Avatar } from '../Avatar'
 import { MessageText } from '../MessageText'
 import { VoiceNoteBubble } from '../VoiceNoteBubble'
-import { LOUNGE_REACTIONS, LYRIC_EMOJIS } from '../../lib/chat'
+import { LYRIC_EMOJIS } from '../../lib/chat'
 import { formatTime } from '../../lib/time'
 import { blobToDataUrl, makeVoiceWaveform, isUsableVoiceBlob } from '../../lib/voice'
 

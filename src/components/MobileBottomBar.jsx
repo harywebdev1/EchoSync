@@ -1,14 +1,12 @@
 import {
   Globe2,
-  Heart,
   Home,
   Library,
   MessageCircle,
   Pause,
   Play,
   Radio,
-  RefreshCw,
-  Search, UserRound, SkipForward,
+  RefreshCw,UserRound, SkipForward,
 } from 'lucide-react'
 import { Cover } from './Cover'
 import { usePlaybackProgress } from '../state/playbackStore'

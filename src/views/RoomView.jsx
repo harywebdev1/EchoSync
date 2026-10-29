@@ -5,12 +5,6 @@ import {
   Plus,
   Heart,
   Play,
-  Pause,
-  SkipBack,
-  SkipForward,
-  Volume2,
-  Volume1,
-  VolumeX,
   X,
   Headphones,
   ListMusic,
@@ -22,15 +16,11 @@ import {
   Trash2,
   ShieldCheck,
   UsersRound,
-  Clock3,
   ListPlus,
   DoorOpen,
-  ArrowRight,
 } from 'lucide-react'
 import { formatTime } from '../lib/time'
-import { usePlaybackProgress } from '../state/playbackStore'
 import { useMembers } from '../components/shared/MembersContext'
-import { AvatarStack } from '../components/shared/AvatarStack'
 import { ROLE_COPY } from '../components/shared/roomRoles'
 import { Cover } from '../components/Cover'
 import { Avatar } from '../components/Avatar'
@@ -86,15 +76,15 @@ export function RoomView({
   const members = useMembers()
   const words = room.name.split(' ')
   const lastWord = words.pop()
-  const linePeople = room.members
+  const _linePeople = room.members
     .filter((id) => id !== currentUser?.id && members[id]?.showActivity !== false)
     .slice(0, 4)
-  const total = duration || track?.duration || 0
+  const _total = duration || track?.duration || 0
   const hasTrack = Boolean(queue.length && track?.id && !['empty', 'room-empty'].includes(track.id))
   const ready = track?.status === 'ready' && Boolean(track?.streamUrl || track?.youtubeVideoId)
   const failed = track?.status === 'error'
   const pending = track?.status === 'pending' || track?.status === 'resolving'
-  const RoleIcon = ROLE_COPY[role]?.Icon || Headphones
+  const _RoleIcon = ROLE_COPY[role]?.Icon || Headphones
   const requestable = role === 'listener' ? 'dj' : null
 
   return (

@@ -1,5 +1,4 @@
 export { getCanonicalSongStem as songStem } from './trackIdentity.js'
-export { HOME_MOODS } from './listenerProfile.js'
 import { getCanonicalSongStem } from './trackIdentity.js'
 
 export function collectMoodResults(results) {

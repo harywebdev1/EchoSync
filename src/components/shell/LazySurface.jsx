@@ -8,9 +8,6 @@ export function SurfaceSkeleton({ kind = 'view', onRetry }) {
     {slow&&<div className="surface-retry">This panel is taking longer than usual. <button className="text-btn" onClick={onRetry}>Retry panel</button></div>}
   </div>
 }
-export const RoomStageSkeleton=props=><SurfaceSkeleton {...props} kind="view"/>
-export const DrawerSkeleton=props=><SurfaceSkeleton {...props} kind="drawer"/>
-export const ModalSkeleton=props=><SurfaceSkeleton {...props} kind="modal"/>
 class ChunkBoundary extends Component {
   state={failed:false}
   static getDerivedStateFromError(){return{failed:true}}

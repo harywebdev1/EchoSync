@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "index.html",
+    "api/**/*.js",
+    "server/**/*.js",
+    "integrity-unit.cjs",
+    "api-verify.cjs",
+    "integrity-browser.cjs",
+    "integrity-fixtures.cjs"
+  ],
+  "project": ["src/**/*.{js,jsx,css}", "api/**/*.js", "server/**/*.js", "*.cjs"],
+  "ignoreExportsUsedInFile": true,
+  "includeEntryExports": false
+}

@@ -1,7 +1,7 @@
 import { roomFromCloud, cloudFingerprint, messageFromCloud } from '../cloud/cloudAdapter.js'
 import { normalizeTasteProfile } from '../core/listenerProfile.js'
 import { useCloudBackend } from './useCloudBackend.js'
-import { isCloudVoiceUrl, isSupabaseConfigured } from '../lib/supabaseClient.js'
+import { isSupabaseConfigured } from '../lib/supabaseClient.js'
 import { useSocialFeatures } from './useSocialFeatures.js'
 import { useOverlayHistory } from './useOverlayHistory.js'
 import { useStableActions } from './useStableActions.js'
@@ -78,7 +78,7 @@ import {
 } from '../lib/appServices.js'
 import { useAppState } from './useAppState.js'
 import { startNetworkMonitor, setPreferredStreamQuality } from '../services/networkMonitor'
-import { topTasteLabels, applyTasteSignal, buildTasteSuggestions, artistNames } from '../core/listenerProfile.js'
+import { topTasteLabels, applyTasteSignal, buildTasteSuggestions } from '../core/listenerProfile.js'
 import { playbackProgressStore } from '../state/playbackStore'
 import { initials, normalizeArtworkUrl } from '../lib/media'
 import { clearPreloadSession } from '../services/preloadManager'
@@ -246,7 +246,6 @@ export function useEchoSyncController() {
     speaking,
     setSpeaking,
     duckTest,
-    setDuckTest,
     buffering,
     setBuffering,
     streamRecovering,
@@ -2429,16 +2428,8 @@ export function useEchoSyncController() {
   }, [translateOn, lyricsKey, lyrics.status, lyrics.type, lyricsRefresh])
 
   const {
-    safeYouTubePlay,
-    safeAudioPlay,
-    clearAdvanceCheck,
-    waitForMediaReady,
-    retryDirectUrl,
-    scheduleAdvanceCheck,
     getPlaybackTime,
     updatePlaybackProgress,
-    buildSoloPlayOrder,
-    commitSoloQueue,
     cycleRepeatMode,
     toggleShuffleMode,
     shuffleSoloQueue,
@@ -2451,29 +2442,20 @@ export function useEchoSyncController() {
     beginPlayback,
     ensurePlayable,
     playIndex,
-    startPlaybackAt,
     togglePlay,
     nextTrack,
     previousTrack,
     seekTo,
     handleVolume,
     handleEnded,
-    maybePreloadNext,
-    maybeCrossfade,
-    clearStallTimer,
     handleAudioBuffering,
     handleAudioReady,
-    recoverCurrentStream,
     handleAudioError,
     acceptJoin,
-    commitRoomQueue,
-    placeRoomAt,
-    startRoomQueueAt,
     addTrackToRoomQueue,
     removeRoomQueueTrack,
     clearRoomQueue,
     importPlaylistToRoom,
-    searchRoomTarget,
     startTasteRadio,
     playSearchTrack,
     queueSearchTrack,
@@ -2481,7 +2463,6 @@ export function useEchoSyncController() {
     playSoloTrack,
     prefetchTrack,
     replayGuestPreview,
-    stageTrack,
     queueSoloTrack,
     findFullVersion,
     handleTimeUpdate,
@@ -2821,7 +2802,6 @@ export function useEchoSyncController() {
     requestRoomSync,
     setRoomClock,
     roomClockTime,
-    roomTrackDuration,
     syncRoomClockFromPlayback,
     suspendRoomPlayback,
     resumeRoomOnEntry,

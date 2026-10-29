@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Radio, Plus, Lock, Globe2, Headphones, KeyRound, UsersRound, Pencil, Trash2, RotateCcw, Search, X } from 'lucide-react'
-import { Cover } from '../components/Cover'
 import { AvatarStack } from '../components/shared/AvatarStack'
 
 export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, onCreate, onJoinCode, onEditRoom, onDeleteRoom }) {

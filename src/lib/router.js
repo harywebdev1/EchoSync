@@ -86,14 +86,3 @@ export function userPath(value = '') {
   const handle = normalizeHandle(typeof value === 'string' ? value : value?.handle)
   return `/@${encodeURIComponent(handle)}`
 }
-
-export function viewPath(view, context = {}) {
-  if (view === 'rooms') return '/rooms'
-  if (view === 'library') return '/library'
-  if (view === 'room') {
-    return context.roomCode ? `/room/${encodeURIComponent(context.roomCode)}` : '/rooms'
-  }
-  if (view === 'artist') return artistPath(context.artist || {}, context.artist?.browseId)
-  if (view === 'user') return userPath(context.user || context.handle)
-  return '/'
-}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Menu, ChevronRight, Search, Globe2, MessageCircle, UserRound, Settings, X } from 'lucide-react'
+import { Menu, Search, Globe2, MessageCircle, UserRound, Settings, X } from 'lucide-react'
 import { Avatar } from '../Avatar'
 
 export function StageBar({

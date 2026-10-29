@@ -1,4 +1,3 @@
-export const QUEUE_FILTERS = ['All', 'Familiar', 'Discover', 'Deep Cuts']
 const normalize = value => String(value || '').toLowerCase().trim()
 
 // Keep original queue indexes: filtering is presentation-only, never a queue mutation.

@@ -32,17 +32,3 @@ export const TrackCard = memo(function TrackCard({ track, liked = false, playing
     </article>
   )
 })
-
-export function SkeletonShelf({ count = 6 }) {
-  return (
-    <div className="shelf-scroll skeleton-shelf" aria-label="Loading recommendations" aria-busy="true">
-      {Array.from({ length: count }, (_, index) => (
-        <div className="skeleton-card" key={index}>
-          <span className="skeleton-art" />
-          <span className="skeleton-line wide" />
-          <span className="skeleton-line" />
-        </div>
-      ))}
-    </div>
-  )
-}

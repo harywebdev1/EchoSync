@@ -82,7 +82,7 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
   const quickGrid = useRef(null), [quickPage, setQuickPage] = useState(0)
   const pages = Math.max(1, Math.ceil(quickPicks.length / 4))
   const movePage = direction => { const node = quickGrid.current; if (node) node.scrollTo({ left: (node.clientWidth + 16) * Math.max(0, Math.min(pages - 1, quickPage + direction)), behavior: 'smooth' }) }
-  const collage = recent.length >= 4 ? recent : (ranked.length ? ranked : quickPicks)
+  const _collage = recent.length >= 4 ? recent : (ranked.length ? ranked : quickPicks)
   const showcaseTracks = useMemo(() => {
     const seen = new Set()
     return [...radio, ...quickPicks, ...recent, ...ranked].filter((track) => {

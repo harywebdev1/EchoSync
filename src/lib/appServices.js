@@ -2,7 +2,6 @@ import { isCloudVoiceUrl, isSupabaseConfigured } from './supabaseClient.js'
 import { createStorageAdapter } from '../core/storageAdapter.js'
 import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
 import { ARTIST_LANGUAGE, normalizeTasteProfile } from '../core/listenerProfile.js'
-import { getActiveStreamQuality } from '../services/networkMonitor'
 import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc } from '../core/lrcParser.js'
 
 // One upstream catalog: YouTube Music's own WEB_REMIX InnerTube API.
@@ -106,8 +105,6 @@ const MAX_PALETTE_ENTRIES = 150
 const RESUME_RELOAD_TIMEOUT = 1500
 
 const RESUME_ADVANCE_TIMEOUT = 1800
-
-const BUFFER_RECOVERY_TIMEOUT = 1800
 
 function rememberBoundedId(set, id, limit = MAX_SESSION_IDS) {
   if (!set || !id) return false
@@ -530,14 +527,6 @@ function accountDisplay(account) {
     ...account,
     initials: account.initials || initials(account.name || account.handle || 'Echo'),
   }
-}
-
-function rolesForRoom(room) {
-  const matrix = {}
-  room.members.forEach((id) => {
-    matrix[id] = id === room.dj ? 'admin' : 'listener'
-  })
-  return matrix
 }
 
 function randomAvatarPreset(seed = '') {
@@ -1665,6 +1654,7 @@ async function resolveByMetadata(candidate, options = {}) {
 
 const resolutionPromises = new Map()
 
+/** @public Consumed by integrity-unit.cjs via the vm fixture. */
 async function resolveSeed(seed, options = {}) {
   if (!seed?.id) return null
   const cached = !options.forceRefresh && cachedResolvedStream(seed.id)
@@ -2115,7 +2105,6 @@ export {
   MAX_PALETTE_ENTRIES,
   RESUME_RELOAD_TIMEOUT,
   RESUME_ADVANCE_TIMEOUT,
-  BUFFER_RECOVERY_TIMEOUT,
   rememberBoundedId,
   trimBoundedSet,
   seededShuffle,
@@ -2154,7 +2143,6 @@ export {
   SEED_TRACKS,
   SEED_BY_ID,
   accountDisplay,
-  rolesForRoom,
   randomAvatarPreset,
   HARD_BAD_MATCH,
   SOFT_BAD_MATCH,
@@ -2233,7 +2221,6 @@ export {
   resolveFullTrack,
   resolveByMetadata,
   resolutionPromises,
-  resolveSeed,
   prepareLyricsData,
   normalizeLyricData,
   delay,
@@ -2251,3 +2238,7 @@ export {
   ytApiPromise,
   loadYouTubeApi,
 }
+
+/** @public Consumed by integrity-unit.cjs via the vm fixture. */
+export { resolveSeed }
+

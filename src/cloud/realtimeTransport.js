@@ -1,5 +1,5 @@
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabaseClient.js'
-import { createCloudAdapter, roomFromCloud, messageFromCloud } from './cloudAdapter.js'
+import { createCloudAdapter, roomFromCloud, } from './cloudAdapter.js'
 
 // A single owner supplies the existing BroadcastChannel interface to Web hooks.
 // Cloud messages come only from the database-authorized RPC, never client broadcasts.

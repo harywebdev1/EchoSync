@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { ModalShell } from './ModalShell.jsx'
 import { X, Check, Copy, Link2, UserRoundPlus, Send, ShieldCheck, Disc3, Headphones, UserMinus, Shield } from 'lucide-react'
 import { Avatar } from '../Avatar'
-import { TelemetryPill } from '../TelemetryPill'
 import { ROLE_COPY } from '../shared/roomRoles'
 
 export function MembersModal({

@@ -80,7 +80,7 @@ export function SearchOverlay({
     return()=>{cancelled=true;clearTimeout(timer);clearTimeout(deadline);controller.abort()}
   },[query,retry])
   const instant=useMemo(()=>{
-    const words=query.toLowerCase().trim().split(/\s+/).filter(Boolean)
+    const _words=query.toLowerCase().trim().split(/\s+/).filter(Boolean)
     if(query.trim().length<2)return[]
     const seen=new Set()
     return rankBySearchSimilarity(Object.values(catalog), query).filter(t=>{

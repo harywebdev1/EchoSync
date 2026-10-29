@@ -47,4 +47,5 @@ export function getCanonicalSongStem(track) {
   return cleanTitleCore(title)
 }
 
+/** @public Consumed by integrity-unit.cjs via the vm fixture. */
 export { getCanonicalSongStem as songStem }

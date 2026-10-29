@@ -35,14 +35,6 @@ export function normalizeArtworkUrl(value) {
   return /^(https:\/\/|data:image\/|blob:|\/(?!\/))/i.test(text) ? text : null
 }
 
-export function artworkThumbUrl(url) {
-  if (!url || /^(data:|blob:)/i.test(url)) return url
-  return url
-    .replace(/\/\d+x\d+bb\.(jpg|jpeg|png|webp)$/i, '/160x160bb.$1')
-    .replace(/-\d+x\d+\.(jpg|jpeg|png|webp)$/i, '-160x160.$1')
-    .replace(/\/(?:hq|sd|maxres)default\.(jpg|jpeg|png|webp)$/i, '/mqdefault.$1')
-}
-
 export function initials(value = '') {
   return value
     .replace(/[^\w\s]/g, ' ')

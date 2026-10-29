@@ -1,7 +1,6 @@
 import { findActiveLyricLine } from '../../core/lrcParser.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sparkles, Music2, AlertCircle, RefreshCw, Globe } from 'lucide-react'
-import { formatTime } from '../../lib/time'
 import { usePlaybackProgress } from '../../state/playbackStore'
 import { Cover } from '../Cover'
 
@@ -28,7 +27,7 @@ export function LyricsPanel({
     && lyrics.language !== 'en'
     && lyrics.language !== 'hi'
     && Boolean(lyrics.lines?.length)
-  const languageLabel = lyrics?.status === 'ready'
+  const _languageLabel = lyrics?.status === 'ready'
     ? lyrics.language === 'hi'
       ? 'HINGLISH'
       : lyrics.language === 'ur'

@@ -15,7 +15,6 @@ import {
   Shuffle,
   Repeat,
   Repeat1,
-  ArrowRight,
 } from 'lucide-react'
 import { formatTime } from '../../lib/time'
 import { usePlaybackProgress } from '../../state/playbackStore'
