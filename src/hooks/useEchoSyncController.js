@@ -1226,8 +1226,6 @@ export function useEchoSyncController() {
 
   function showToast(message, tone = 'info') {
     setToast({ id: Date.now() + Math.random(), message, tone })
-    clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToast(null), 3400)
   }
 
   function lockToast() {
@@ -3626,6 +3624,7 @@ export function useEchoSyncController() {
     addTrack,
     setAddTrack,
     toast,
+    setToast,
   })
 
 }

@@ -439,7 +439,7 @@ export function ChatDrawer({
                     )}
                                           {message.replyTo && (
                         <button className="reply-quote" onClick={() => scrollToMessage(message.replyTo.id)}>
-                          <strong>{message.replyTo.name || message.replyTo.handle}</strong>
+                          <strong>@{message.replyTo.handle || message.replyTo.name}</strong>
                           <span>{message.replyTo.text || 'Voice note'}</span>
                         </button>
                       )}

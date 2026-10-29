@@ -17,11 +17,25 @@ export function MessageContextMenu({
     const previous = document.activeElement
     const place = () => {
       const r = anchor.getBoundingClientRect()
-      const h = ref.current?.offsetHeight || 220
-      setPosition({
-        left: Math.max(8, Math.min(innerWidth - 248, r.right - 240)),
-        top: Math.max(8, Math.min(innerHeight - h - 8, r.bottom + 6))
-      })
+      const node = ref.current
+      const w = node?.offsetWidth || 240
+      const h = node?.offsetHeight || 260
+      const margin = 8
+      const gap = 6
+      const scroller = anchor.closest('.chat-body')
+      const bounds = scroller?.getBoundingClientRect()
+      const topLimit = Math.max(margin, (bounds?.top ?? 0) + margin)
+      const bottomLimit = Math.min(innerHeight - margin, (bounds?.bottom ?? innerHeight) - margin)
+      const below = r.bottom + gap
+      const above = r.top - gap - h
+      const fitsBelow = below + h <= bottomLimit
+      const fitsAbove = above >= topLimit
+      let top
+      if (fitsBelow) top = below
+      else if (fitsAbove) top = above
+      else top = Math.max(topLimit, Math.min(bottomLimit - h, below))
+      const left = Math.max(margin, Math.min(innerWidth - w - margin, r.right - w))
+      setPosition({ left, top })
     }
     place()
     ref.current?.querySelector('button')?.focus({ preventScroll: true })
@@ -83,16 +97,16 @@ export function MessageContextMenu({
         ↩ Reply
       </button>
       <button role="menuitem" onClick={run(onProfile)}>
-        👤 View profile
+        👤 View channel
       </button>
       {onPlay && (
         <button role="menuitem" onClick={run(onPlay)}>
-          🎵 Play song
+          🎵 Play track
         </button>
       )}
       {onDelete && (
         <button role="menuitem" className="danger" onClick={run(onDelete)}>
-          🗑 Delete message
+          🗑 Delete
         </button>
       )}
     </div>,

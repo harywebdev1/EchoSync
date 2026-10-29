@@ -57,6 +57,28 @@ async function installFixtures(context) {
     }
     if (url.origin === APP_URL && !url.pathname.startsWith('/api/')) return route.continue()
     if (route.request().resourceType() === 'image') return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#426"/></svg>' })
+    if (url.pathname === '/api/ytmusic') {
+      const action = url.searchParams.get('action') || 'search'
+      if (action !== 'search') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ songs: [] }) })
+      const query = (url.searchParams.get('q') || '').toLowerCase().trim()
+      const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 50))
+      const songs = seeds
+        .filter(seed => {
+          const title = seed.title.toLowerCase()
+          return query && (title.includes(query) || query.includes(title))
+        })
+        .slice(0, limit)
+        .map(seed => ({
+          videoId: (seed.id.replace(/[^A-Za-z0-9_-]/g, '') + 'XXXXXXXXXXX').slice(0, 11),
+          title: seed.title,
+          artist: seed.artist,
+          artists: [{ name: seed.artist }],
+          album: { name: seed.album },
+          duration: seed.duration,
+          cover: seed.cover,
+        }))
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ songs }) })
+    }
     if (url.pathname.includes('/api/search/songs') || url.pathname.includes('/api/songs/')) {
       const songs = seeds.map(seed => { const track = configured[seed.id]?.track || seed; return ({ id: track.id, name: track.title, duration: track.duration, primaryArtists: track.artist, album: { name: track.album }, image: [], downloadUrl: [{ quality: '320kbps', url: (track.streamUrl || `https://aac.saavncdn.com/integrity/${track.id}.wav?seconds=180`) + '&resolved=1' }] }) })
       const data = url.pathname.includes('/api/search/songs') ? { results: songs } : songs.filter(song => url.pathname.endsWith(`/${song.id}`))

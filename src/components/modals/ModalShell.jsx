@@ -66,10 +66,13 @@ export function ModalShell({ children, onClose, size = '' }) {
   }, [titleId])
 
   return (
-    <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div
+      className="modal-scrim es-modal-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
       <div
         ref={modalRef}
-        className={`modal ${size}`}
+        className={`modal es-modal-card ${size}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy || undefined}

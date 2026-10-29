@@ -18,7 +18,7 @@ import { PreviewEndedCard } from './components/player/PreviewEndedCard'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
 import { QueueDrawer } from './components/player/QueueDrawer'
 import { InviteBanner } from './components/shell/InviteBanner.jsx'
-import { Toast } from './components/shell/Toast.jsx'
+import { ToastViewport } from './components/shell/Toast.jsx'
 import { GUEST_PREVIEW_BANNER } from './hooks/usePlaybackEngine.js'
 
 const RoomsView = makeLazySurface(() => import('./views/RoomsView'), 'RoomsView', 'view', () => import('./views/RoomsView?retry=1'))
@@ -291,6 +291,7 @@ export default function App() {
     addTrack,
     setAddTrack,
     toast,
+    setToast,
   } = useEchoSyncController()
 
   useEffect(() => { if (searchOpen) document.getElementById('canonical-search-input')?.focus() }, [searchOpen])
@@ -539,12 +540,6 @@ export default function App() {
             </ErrorBoundary>
 
             <ErrorBoundary resetKey="player-dock">
-              <PreviewEndedCard
-                visible={previewCard}
-                onSignIn={() => { setPreviewCard(false); openAuth('signin', GUEST_PREVIEW_BANNER) }}
-                onReplay={replayGuestPreview}
-                onDismiss={() => setPreviewCard(false)}
-              />
               <PlayerDock
                 track={track}
                 inRoom={roomPlaybackActive}
@@ -910,7 +905,14 @@ export default function App() {
           )}
         </ErrorBoundary>
 
-        <Toast toast={toast} />
+        <ToastViewport toast={toast} onDismiss={() => setToast(null)}>
+          <PreviewEndedCard
+            visible={previewCard}
+            onSignIn={() => { setPreviewCard(false); openAuth('signin', GUEST_PREVIEW_BANNER) }}
+            onReplay={replayGuestPreview}
+            onDismiss={() => setPreviewCard(false)}
+          />
+        </ToastViewport>
       </div>
     </SocialContext.Provider>
     </MembersContext.Provider>
