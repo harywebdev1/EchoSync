@@ -23,7 +23,6 @@
   border-radius: 6px;
   color: #fff;
   background: rgba(12, 13, 16, 0.62);
-  backdrop-filter: blur(10px);
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.09em;
@@ -934,7 +933,6 @@
   color: #fff;
   background: rgba(8, 9, 12, 0.48);
   opacity: 0;
-  backdrop-filter: blur(10px);
   transition: 0.2s var(--ease);
 }
 
@@ -1777,7 +1775,6 @@
 
 .home-v81 .home-chip {
   background: rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(10px);
 }
 
 .home-v81 .home-chip.active {
@@ -1945,8 +1942,6 @@
   margin: 0;
   padding: 18px 0 4px;
   background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 .home-v81 .home-chip {
@@ -1954,8 +1949,6 @@
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 .home-v81 .home-chip:hover {
@@ -2208,8 +2201,6 @@
   box-shadow:
     0 14px 34px rgba(0, 0, 0, 0.38),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -2580,4 +2571,21 @@
 .home-v81 .shelf-scroll::-webkit-scrollbar,
 .mix-scroll::-webkit-scrollbar {
   display: none;
+}
+
+.home-v81 .quick-card {
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  overflow: hidden;
+  box-sizing: border-box;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+}
+.home-v81 .quick-art,
+.home-v81 .quick-art-btn,
+.home-v81 .quick-art .cover {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
 }

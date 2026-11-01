@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
+import { useSocial } from '../components/social/SocialContext.jsx'
 import { Radio, Plus, Lock, Globe2, Headphones, KeyRound, UsersRound, Pencil, Trash2, RotateCcw, Search, X } from 'lucide-react'
 import { AvatarStack } from '../components/shared/AvatarStack'
 
 export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, onCreate, onJoinCode, onEditRoom, onDeleteRoom }) {
+  const social = useSocial()
   const [query, setQuery] = useState('')
   const viewerId = currentUser?.id || ''
   const visibleRooms = useMemo(() => {
@@ -96,7 +98,7 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
                 <span className="rc-listeners">{saved ? 'No one inside · Rejoin anytime' : `${members.length} in the room`}</span>
               </div>
               <h2 className="rc-title">{room.name}</h2>
-              {host && <span className="rc-host">{room.ownerHandle || host}{room.ownerHandle && room.hostName ? ` · ${host}` : ''}</span>}
+              {host && <button className="rc-host" onClick={event=>{event.stopPropagation();social.openProfile(room.ownerId || room.createdBy || room.dj)}}>{room.ownerHandle || host}{room.ownerHandle && room.hostName ? ` · ${host}` : ''}</button>}
               <p className="rc-sub">{room.tagline}</p>
               <div className="rc-foot">
                 <AvatarStack ids={members} size="xs" max={3} />

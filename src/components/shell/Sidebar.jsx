@@ -259,17 +259,16 @@ export function Sidebar({
           <div className="account-menu-wrap">
             <button
               className="profile"
-              onClick={() => (currentUser ? setMenuOpen((value) => !value) : openProfile())}
-              aria-haspopup={currentUser ? 'menu' : undefined}
-              aria-expanded={currentUser ? menuOpen : undefined}
+              onClick={() => { if(currentUser)onOpenChannel?.(currentUser);else openProfile();close() }}
             >
               <Avatar member={currentUser} online />
               <span className="profile-meta">
                 <strong>{currentUser?.name || 'Sign in'}</strong>
                 <span>@{currentUser?.handle || 'guest'}{inRoom && <> · <Crown size={10} /> {role}</>}</span>
               </span>
-              <MoreHorizontal size={15} />
+
             </button>
+            {currentUser && <button className="account-options-btn" aria-label="Account menu" aria-haspopup="menu" aria-expanded={menuOpen} onClick={()=>setMenuOpen(value=>!value)}><MoreHorizontal size={15}/></button>}
             {currentUser && menuOpen && (
               <div className="account-menu" role="menu">
                 <span className="account-menu-label">@{currentUser.handle || 'listener'}</span>

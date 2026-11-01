@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { artistPath } from '../lib/router.js'
 
 function artistList(track) {
   const artists = Array.isArray(track?.artists) ? track.artists.filter((artist) => artist?.name) : []
@@ -17,24 +18,26 @@ function artistList(track) {
 export function ArtistLinks({ track, onOpenArtist, fallback = 'EchoSync', className = '' }) {
   const artists = artistList(track)
   if (!onOpenArtist || !artists.length) {
-    return <span className={className}>{track?.artist || fallback}</span>
+    return <span className={`track-artists-line ${className}`}>{track?.artist || fallback}</span>
   }
   return (
-    <span className={`artist-links ${className}`.trim()}>
+    <span className={`artist-links track-artists-line ${className}`.trim()}>
       {artists.map((artist, index) => (
         <Fragment key={`${artist.browseId || artist.name}-${index}`}>
           {index > 0 && <span className="artist-sep">, </span>}
-          <button
-            type="button"
+          <a
+            href={artistPath(artist, artist.browseId)}
             className="artist-link"
             onClick={(event) => {
+              event.preventDefault()
               event.stopPropagation()
               onOpenArtist(artist)
             }}
+            onKeyDown={event => event.stopPropagation()}
             title={`Open ${artist.name}`}
           >
             {artist.name}
-          </button>
+          </a>
         </Fragment>
       ))}
     </span>

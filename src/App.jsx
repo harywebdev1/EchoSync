@@ -16,7 +16,7 @@ import { searchEverything, normalizeRoomCode } from './lib/appServices.js'
 import { PlayerDock } from './components/player/PlayerDock'
 import { PreviewEndedCard } from './components/player/PreviewEndedCard'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
-import { QueueDrawer } from './components/player/QueueDrawer'
+const QueueDrawer = makeLazySurface(() => import('./components/player/QueueDrawer'), 'QueueDrawer', 'drawer')
 import { InviteBanner } from './components/shell/InviteBanner.jsx'
 import { ToastViewport } from './components/shell/Toast.jsx'
 import { GUEST_PREVIEW_BANNER } from './hooks/usePlaybackEngine.js'
@@ -369,7 +369,7 @@ export default function App() {
               currentUser={currentUser}
               chatOpen={chatOpen}
               unreadCount={activeRoomUnread}
-              onOpenProfile={openProfile}
+              onOpenProfile={() => currentUser ? openUserChannel(currentUser) : openProfile()}
               onOpenChannel={openUserChannel}
               onSearch={openSearchExperience}
               onToggleChat={() => setChatOpen((value) => !value)}
@@ -580,7 +580,7 @@ export default function App() {
               onLike={toggleLike}
               onOpenFull={openFullPlayer}
             />
-            <MobileBottomBar onAccount={openProfile}
+            <MobileBottomBar onAccount={() => currentUser ? openUserChannel(currentUser) : openProfile()}
               view={view}
               inRoom={roomPlaybackActive}
               chatOpen={chatOpen}
@@ -647,7 +647,7 @@ export default function App() {
             />
           )}
           {/* Keep the queue DOM ready so opening does not build every row in the click task. */}
-            <QueueDrawer open={shellQueueOpen} room={roomPlaybackActive ? activeRoom : null}
+            <div style={{display:shellQueueOpen?'contents':'none'}}><QueueDrawer open={shellQueueOpen} room={roomPlaybackActive ? activeRoom : null}
               queue={queue}
               currentIndex={currentIndex}
               track={track}
@@ -659,7 +659,7 @@ export default function App() {
               onRemove={removeSoloQueueTrack}
               onClear={clearSoloQueue}
               onShuffle={shuffleSoloQueue}
-            />
+            /></div>
           {loungeOpen && (
             <PublicLoungeDrawer
               open={loungeOpen}
@@ -739,7 +739,7 @@ export default function App() {
         )}
 
         {fullPlayer && (
-          <FullPlayer
+          <FullPlayer onPlayIndex={playIndex}
             room={displayRoom}
             inRoom={roomPlaybackActive}
             track={track}

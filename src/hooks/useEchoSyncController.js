@@ -82,6 +82,7 @@ import { topTasteLabels, applyTasteSignal, buildTasteSuggestions } from '../core
 import { playbackProgressStore } from '../state/playbackStore'
 import { initials, normalizeArtworkUrl } from '../lib/media'
 import { clearPreloadSession } from '../services/preloadManager'
+import { compareCommands } from '../core/roomCommandPolicy.js'
 import { ROLE_COPY } from '../components/shared/roomRoles'
 import { usePlaybackEngine } from './usePlaybackEngine.js'
 import { useRoomSync } from './useRoomSync.js'
@@ -2750,7 +2751,7 @@ export function useEchoSyncController() {
   function rememberCloudTrack(track){const previous=libraryRef.current[track?.id];const incoming=previous?.streamUrl?{...track,streamUrl:previous.streamUrl,status:previous.status,quality:previous.quality}:track;if(incoming?.title&&cloudFingerprint(sanitizeTrack(incoming))!==cloudFingerprint(sanitizeTrack(previous||{})))rememberTrack(incoming)}
   function handleCloudEvent(data){
     if(data.type==='cloud-rooms'){
-      const incoming=data.rooms.map(roomFromCloud),pending=new Set(data.pending),ids=new Set(incoming.map(r=>r.id))
+      const incoming=data.rooms.map(roomFromCloud).map(room=>{const previous=roomsRef.current.find(item=>item.id===room.id);return previous&&compareCommands({room}, {room:previous})<0?previous:room}),pending=new Set(data.pending),ids=new Set(incoming.map(r=>r.id))
       const active=incoming.find(r=>r.id===activeRoomRef.current)
       if(activeRoomRef.current&&!pending.has(activeRoomRef.current)&&(!active||!active.members.includes(currentUserId))){activeRoomRef.current=null;setActiveRoomId(null);setView('home');setIsPlaying(false);audioRef.current?.pause();showToast('Room access changed — returned to your player')}
       setRooms(previous=>{const next=[...incoming,...previous.filter(r=>pending.has(r.id)&&!ids.has(r.id))];return cloudFingerprint(next)===cloudFingerprint(previous)?previous:next})

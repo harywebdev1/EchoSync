@@ -1201,7 +1201,7 @@ export function usePlaybackEngine({
     setJoinPill(null)
     if (roomPlaybackActive) {
       setRoomClock({ time: target })
-      announce({ time: target })
+      announce({ time: target, command: 'SEEK' })
     }
   }
 
@@ -1706,7 +1706,7 @@ export function usePlaybackEngine({
       startRoomQueueAt(room.id, nextIds, startIndex)
       announce({ index: startIndex, time: 0, isPlaying: true })
     } else {
-      announce({ heartbeat: true })
+      announce({ command: 'QUEUE_UPDATE' })
     }
     showToast(`Added ${additions.length} track${additions.length === 1 ? '' : 's'} to ${room.name}`)
   }

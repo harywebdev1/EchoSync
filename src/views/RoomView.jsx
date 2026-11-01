@@ -142,11 +142,11 @@ export function RoomView({
           <h2 className="now-title" title={track?.title}>{track?.title || 'Finding a track…'}</h2>
           <p className="now-artist">
             <ArtistLinks track={track} onOpenArtist={onOpenArtist} />
-            {track?.album && <><span> · </span><span className="album">{track.album}</span></>}
           </p>
+          {track?.album && <p className="now-album">{track.album}</p>}
 
           <div className="room-stage-attribution">
-            Hosted by {members[room.ownerId || room.dj || room.createdBy]?.name || 'the room admin'}
+            Hosted by <button className="room-host-link" onClick={() => social.openProfile(room.ownerId || room.dj || room.createdBy)}>{members[room.ownerId || room.dj || room.createdBy]?.name || 'the room admin'}</button>
             <span className="host-badge">Admin</span>
             <span className="attribution-you">· You are {ROLE_COPY[role]?.label}</span>
           </div>

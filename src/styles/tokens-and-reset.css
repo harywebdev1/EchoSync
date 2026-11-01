@@ -126,7 +126,7 @@ img {
     transparent 67%
   );
   filter: blur(40px);
-  animation: drift 22s ease-in-out infinite alternate;
+  transform: translateZ(0);
   transition: background 0.9s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -526,4 +526,13 @@ html {
   flex-shrink: 0;
   line-height: 1;
   vertical-align: middle;
+}
+
+/* A static ambient surface is independent from scrollable stage contents. */
+.ambient {
+  pointer-events: none;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  contain: strict;
+  isolation: isolate;
 }

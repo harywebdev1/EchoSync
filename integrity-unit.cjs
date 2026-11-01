@@ -1037,6 +1037,17 @@ const artistPayload = {
       assert.equal(config.rewrites.at(-1).source, '/((?!api/).*)')
     })
 
+    await check('room command ordering is monotonic, actor-stable and drift corrections never seek inside three seconds',async()=>{
+      const {compareCommands,driftCorrection}=await import('./src/core/roomCommandPolicy.js')
+      assert.ok(compareCommands({stateVersion:20,lastActorId:'a'},{stateVersion:19,lastActorId:'z'})>0)
+      assert.ok(compareCommands({stateVersion:20,lastActorId:'b'},{stateVersion:20,lastActorId:'a'})>0)
+      assert.equal(compareCommands({stateVersion:20,lastActorId:'a'},{stateVersion:20,lastActorId:'a'}),0)
+      for(const drift of [0,.1,.49,.5,1,2.49,2.5,2.99,3]){const result=driftCorrection(10,10+drift);assert.equal(result.seek,false);assert.equal(result.rate,drift<.5?1:1.03)}
+      assert.deepEqual(driftCorrection(10,9),{seek:false,rate:.97});assert.deepEqual(driftCorrection(10,13.01),{seek:true,rate:1});assert.equal(driftCorrection(10,10.1,{explicit:true}).seek,true);assert.equal(driftCorrection(10,10.1,{loaded:true}).seek,true)
+    })
+    await check('profile album labels omit singles and duplicate names while preserving distinct albums',async()=>{
+      const {distinctAlbum}=await import('./src/core/songDisplay.js');assert.equal(distinctAlbum({title:'Song',album:'Song'}),'');assert.equal(distinctAlbum({title:'Song',album:{name:'Single'}}),'');assert.equal(distinctAlbum({title:'Song',album:{name:'Different Album'}}),'Different Album')
+    })
     console.log(`Application integrity: ${passed} checks passed`)
   } finally {
     for (const server of servers) {

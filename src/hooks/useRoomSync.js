@@ -11,7 +11,8 @@ import {
 } from '../lib/appServices.js'
 import { getLiveRoomPosition, computeMemberDrift } from '../core/roomSyncMath.js'
 import { recordRoomDrift } from '../services/networkMonitor'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { commandStamp, compareCommands, driftCorrection } from '../core/roomCommandPolicy.js'
 import { resetRoomTelemetry } from '../state/playbackStore'
 import { ROLE_COPY } from '../components/shared/roomRoles'
 
@@ -86,9 +87,39 @@ export function useRoomSync({
     stopRemoteAudio,
   },
 }) {
+  const lastAppliedVersionRef = useRef({})
+  const localActionGraceUntilRef = useRef({})
+  const nudgeTimerRef = useRef(null)
+  const lastHeartbeatRef = useRef(0)
+  function nextCommand(roomId) {
+    const previous = lastAppliedVersionRef.current[roomId]
+    const stamp = { stateVersion: Math.max(Date.now(), commandStamp(previous).version + 1), lastActorId: currentUserRef.current?.id || tabIdRef.current }
+    lastAppliedVersionRef.current[roomId] = stamp
+    localActionGraceUntilRef.current[roomId] = Date.now() + 2500
+    roomClockRef.current = { ...roomClockRef.current, ...stamp }
+    return stamp
+  }
+  function acceptCommand(data) {
+    const roomId = data.roomId || data.room?.id
+    const previous = lastAppliedVersionRef.current[roomId]
+    if (previous && compareCommands(data, previous) < 0) return false
+    if (data.heartbeat && (Date.now() < (localActionGraceUntilRef.current[roomId] || 0) || (previous && commandStamp(data).actor !== commandStamp(previous).actor))) return false
+    lastAppliedVersionRef.current[roomId] = data
+    return true
+  }
+  useEffect(() => () => {
+    clearTimeout(nudgeTimerRef.current)
+    if (audioRef.current) audioRef.current.playbackRate = 1
+  }, [activeRoomId])
   function broadcastRoom(room) {
     if (!room) return
-    channelRef.current?.postMessage({ type: 'room-updated', sender: tabIdRef.current, room })
+    const previous = roomsRef.current.find(item => item.id === room.id)
+    const roleChanged = JSON.stringify(previous?.roles) !== JSON.stringify(room.roles)
+    const stamp = nextCommand(room.id)
+    const next = { ...room, ...stamp }
+    roomsRef.current = roomsRef.current.map(item => item.id === next.id ? next : item)
+    setRooms(items => items.map(item => item.id === next.id ? next : item))
+    channelRef.current?.postMessage({ type: roleChanged ? 'ROLE_UPDATE' : 'room-updated', command: roleChanged ? 'ROLE_CHANGE' : 'QUEUE_UPDATE', sender: tabIdRef.current, roomId: room.id, room: next, ...stamp })
   }
 
   function requestRoomSync(roomId) {
@@ -193,7 +224,7 @@ export function useRoomSync({
 
   function advanceRoomClock({ broadcast = true } = {}) {
     const roomId = activeRoomRef.current
-    if (!roomId) return false
+    if (!roomId || roomClockRef.current.lastActorId !== currentUserRef.current?.id) return false
     const room = roomsRef.current.find((candidate) => candidate.id === roomId)
     const ids = room?.trackIds || roomQueueRef.current || []
     const clock = roomClockRef.current
@@ -243,7 +274,10 @@ export function useRoomSync({
     }
     const clock = roomClockRef.current
     const index = Math.max(0, Math.min(Number(clock.index) || 0, Math.max(0, roomQueueRef.current.length - 1)))
+    const stamp = overrides.heartbeat || overrides.snapshot ? { stateVersion: clock.stateVersion || 0, lastActorId: clock.lastActorId || '' } : nextCommand(roomId)
     const snapshot = {
+      ...stamp,
+      command: overrides.command || (Object.hasOwn(overrides, 'isPlaying') ? overrides.isPlaying ? 'PLAY' : 'PAUSE' : Object.hasOwn(overrides, 'index') ? 'CHANGE_TRACK' : Object.hasOwn(overrides, 'time') ? 'SEEK' : 'STATE'),
       type: 'state',
       roomId,
       sender: tabIdRef.current,
@@ -260,15 +294,17 @@ export function useRoomSync({
 
   function announce(overrides = {}) {
     const snapshot = roomSnapshot(overrides)
+    if (snapshot?.heartbeat && (snapshot.lastActorId !== currentUserRef.current?.id || !snapshot.isPlaying)) return
     if (snapshot) channelRef.current?.postMessage(snapshot)
   }
 
   function applyRemoteState(data) {
-    if (!data?.roomId || data.roomId !== activeRoomRef.current) return
+    if (!data?.roomId || data.roomId !== activeRoomRef.current || !acceptCommand(data)) return
+    const previousTrackId = roomClockRef.current.trackId
     const room = roomsRef.current.find((candidate) => candidate.id === data.roomId)
     const roomQueue = room?.trackIds || roomQueueRef.current
     let index = typeof data.index === 'number' ? data.index : currentIndexRef.current
-    if (typeof data.index !== 'number' && data.trackId) {
+    if (data.trackId) {
       const found = roomQueue.indexOf(data.trackId)
       if (found >= 0) index = found
     }
@@ -276,6 +312,8 @@ export function useRoomSync({
     const nextPlaying = data.isPlaying === undefined
       ? Boolean(roomClockRef.current.isPlaying)
       : Boolean(data.isPlaying)
+    // Stop the audio on receipt; do not wait for a catalog-sized React commit.
+    if (!nextPlaying && viewRef.current === 'room') audioRef.current?.pause()
     const baseTime = Math.max(0, Number(data.time) || 0)
     const stamp = Number(data.ts) || Date.now()
     setRoomClock({
@@ -285,6 +323,8 @@ export function useRoomSync({
       time: baseTime,
       updatedAt: stamp,
       isPlaying: nextPlaying,
+      stateVersion: commandStamp(data).version,
+      lastActorId: commandStamp(data).actor,
     })
     if (index !== currentIndexRef.current) {
       setCurrentByRoom((previous) => ({ ...previous, [data.roomId]: index }))
@@ -309,9 +349,15 @@ export function useRoomSync({
       setIsPlaying(true)
       return
     }
-    if (indexChanged || !data.heartbeat || drift > 0.35) {
+    const correction = driftCorrection(getPlaybackTime(), target, { loaded: previousTrackId !== (roomQueue[index] || data.trackId), explicit: !data.heartbeat && (data.command === 'SEEK' || data.type === 'FORCE_RESYNC') })
+    clearTimeout(nudgeTimerRef.current)
+    if (audioRef.current) audioRef.current.playbackRate = 1
+    if (correction.seek) {
       pendingSeekRef.current = target
       setSeekSignal((value) => value + 1)
+    } else if (nextPlaying && audioRef.current) {
+      audioRef.current.playbackRate = correction.rate
+      if (correction.rate !== 1) nudgeTimerRef.current = setTimeout(() => { if (audioRef.current) audioRef.current.playbackRate = 1 }, 1500)
     }
     setIsPlaying(nextPlaying)
     if (nextPlaying) setJoinPill(null)
@@ -419,7 +465,8 @@ export function useRoomSync({
         return
       }
 
-      if (data.type === 'room-updated' && data.room) {
+      if ((data.type === 'room-updated' || data.type === 'ROLE_UPDATE') && data.room) {
+        if (!acceptCommand(data)) return
         const incoming = normalizeRoom(data.room)
         if (!incoming) return
         if (incoming.id === activeRoomRef.current) {
@@ -431,6 +478,8 @@ export function useRoomSync({
             : 0
           roomQueueRef.current = incoming.trackIds
           setRoomClock({
+            stateVersion: commandStamp(data).version,
+            lastActorId: commandStamp(data).actor,
             roomId: incoming.id,
             index: nextIndex,
             trackId: incoming.trackIds[nextIndex] || null,
@@ -445,6 +494,12 @@ export function useRoomSync({
               audioRef.current?.pause()
             }
           }
+        }
+        roomsRef.current = roomsRef.current.map(room => room.id === incoming.id ? incoming : room)
+        if (incoming.id === activeRoomRef.current) {
+          const role = incoming.roles?.[currentUserRef.current?.id]
+          roomControlRef.current = role === 'admin' || role === 'dj'
+          canControlRef.current = roomControlRef.current
         }
         setRooms((previous) => previous.map((room) => (room.id === incoming.id ? incoming : room)))
         return
@@ -615,8 +670,8 @@ export function useRoomSync({
       }
 
       if (data.type === 'join-sync-request' && data.roomId) {
-        if (data.roomId === activeRoomRef.current && canControlRef.current) {
-          channel.postMessage(roomSnapshot({ heartbeat: false }))
+        if (data.roomId === activeRoomRef.current && roomClockRef.current.lastActorId === currentUserRef.current?.id) {
+          channel.postMessage(roomSnapshot({ heartbeat: true, snapshot: true }))
         }
         return
       }
@@ -637,7 +692,7 @@ export function useRoomSync({
     const timer = setInterval(() => {
       const roomId = activeRoomRef.current
       if (!roomId) return
-      if (viewRef.current === 'room') syncRoomClockFromPlayback()
+      // Passive controllers never replace the authoritative clock with local audio.
       const clock = roomClockRef.current
       if (!clock.isPlaying) return
       const duration = roomTrackDuration(clock)
@@ -647,7 +702,10 @@ export function useRoomSync({
         advanceRoomClock()
         return
       }
-      if (roomControlRef.current) announce({ heartbeat: true })
+      if (roomControlRef.current && clock.lastActorId === currentUserRef.current?.id && Date.now() - lastHeartbeatRef.current >= 10000) {
+        lastHeartbeatRef.current = Date.now()
+        announce({ heartbeat: true })
+      }
     }, 1000)
     return () => clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps

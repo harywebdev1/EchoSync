@@ -2391,3 +2391,19 @@ textarea {
 .chat-toggle-label {
   display: none;
 }
+.account-options-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.account-menu-wrap .profile {
+  padding-right: 48px;
+}

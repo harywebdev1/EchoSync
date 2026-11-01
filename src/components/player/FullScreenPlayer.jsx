@@ -100,6 +100,7 @@ export function FullScreenPlayer({
   onToggleMute,
   onRetryLyrics,
   onToggleQueue,
+  onPlayIndex,
   onCycleRepeat,
   onToggleShuffle,
   repeatMode = 'off',
@@ -143,8 +144,9 @@ export function FullScreenPlayer({
             className={mobileTab === 'lyrics' ? 'active' : ''}
             onClick={() => setMobileTab('lyrics')}
           >
-            Lyrics &amp; Up Next
+            Lyrics
           </button>
+          <button type="button" role="tab" aria-selected={mobileTab === 'queue'} className={mobileTab === 'queue' ? 'active' : ''} onClick={() => setMobileTab('queue')}>Up Next</button>
         </div>
 
         <div className="fp-body" data-mobile-tab={mobileTab}>
@@ -158,7 +160,7 @@ export function FullScreenPlayer({
                 <span>{isPlaying ? 'Playing now' : inRoom ? 'Paused in room' : 'Paused'}{track?.quality ? ' · ' + track.quality : ''}</span>
               </div>
               <h2 className="fp-title">{track?.title}</h2>
-              <p className="fp-artist"><ArtistLinks track={track} onOpenArtist={onOpenArtist} />{track?.album ? ` · ${track.album}` : ''}</p>
+              <p className="fp-artist"><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></p>
 
               <div className="fp-timeline">
                 <FullPlayerTimeline
@@ -256,6 +258,7 @@ export function FullScreenPlayer({
               onToggleTranslate={onToggleTranslate}
             />
           </div>
+          {mobileTab === 'queue' && <div className="fp-queue" role="tabpanel" aria-label="Up Next">{queue?.slice(Math.max(0,queue.findIndex(item=>item.id===track?.id)+1)).map(item => <button className="fp-queue-row" key={item.id} onClick={() => onPlayIndex?.(queue.indexOf(item))}><Cover track={item} size="cover-size-sm"/><span><strong>{item.title}</strong><ArtistLinks track={item} onOpenArtist={onOpenArtist}/></span></button>)}{queue?.length < 2 && <p>Nothing up next.</p>}</div>}
         </div>
       </div>
     </div>

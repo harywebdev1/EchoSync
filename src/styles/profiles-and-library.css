@@ -2538,3 +2538,113 @@
 .channel-name {
   min-width: 0;
 }
+
+/* Shared single-line credits: nested artist anchors never inherit row/button sizing. */
+.track-artists-line,
+.artist-links {
+  display: block !important;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1.3 !important;
+}
+.artist-links .artist-link,
+.artist-links .artist-sep {
+  display: inline !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  height: auto !important;
+  width: auto !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  line-height: inherit !important;
+  white-space: nowrap !important;
+  vertical-align: baseline !important;
+}
+.artist-link {
+  color: inherit;
+  text-decoration: none;
+}
+.artist-link:hover {
+  text-decoration: underline;
+}
+.artist-hero,
+.channel-hero {
+  border: 0;
+  box-shadow: none;
+}
+.artist-song-copy,
+.channel-song-copy,
+.queue-copy,
+.quick-copy,
+.dock-copy,
+.fp-info {
+  min-width: 0;
+}
+.artist-song-copy > strong,
+.channel-song-copy > strong,
+.quick-copy > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artist-song-row,
+.channel-song-row,
+.search-result,
+.library-track-row,
+.queue-drawer-row {
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  contain: layout style;
+}
+.queue-drawer-main {
+  display: contents;
+}
+.queue-drawer-main > .queue-drawer-index {
+  display: none;
+}
+.artist-song-row > .cover,
+.channel-song-row > .cover,
+.search-result .search-result-cover {
+  width: 44px;
+  height: 44px;
+}
+.song-row,
+.quick-card,
+.library-row,
+.shelf-card,
+.track-card {
+  contain: layout style;
+}
+.library-row {
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  overflow: hidden;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+}
+.library-row > .cover {
+  width: 44px;
+  height: 44px;
+}
+.now-album {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

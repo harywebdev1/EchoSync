@@ -1,3 +1,4 @@
+import { distinctAlbum } from '../core/songDisplay.js'
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
@@ -228,7 +229,7 @@ export function ArtistProfileView({
                       </span>
                     </div>
                     <div className="song-row-actions">
-                      <span className="artist-song-album">{song.album || 'Single'}</span>
+                      <span className="artist-song-album">{distinctAlbum(song)}</span>
                       <button
                         className={`artist-song-icon ${liked.includes(song.id) ? 'liked' : ''}`}
                         onClick={(event) => { event.stopPropagation(); onLike?.(song) }}

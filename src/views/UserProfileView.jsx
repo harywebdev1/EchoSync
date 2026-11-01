@@ -1,3 +1,4 @@
+import { distinctAlbum } from '../core/songDisplay.js'
 import { useMemo } from 'react'
 import {
   ArrowLeft,
@@ -64,7 +65,7 @@ function ChannelSongs({ title, tracks, liked, onPlay, onQueue, onLike, onOpenArt
               <span><ArtistLinks track={song} onOpenArtist={onOpenArtist} /></span>
             </div>
             <div className="song-row-actions">
-              <span className="channel-song-album">{song.album || 'Single'}</span>
+              <span className="channel-song-album">{distinctAlbum(song)}</span>
               <span className="channel-song-duration">{song.duration ? formatTime(song.duration) : '—'}</span>
               <button
                 className={`channel-song-icon ${liked.includes(song.id) ? 'liked' : ''}`}

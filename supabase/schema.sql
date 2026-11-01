@@ -94,12 +94,21 @@ $$;
 
 -- Only this RPC may publish cloud broadcasts. Client broadcast INSERT is denied below.
 create or replace function public.echosync_event(p_event jsonb) returns jsonb language plpgsql security definer set search_path='' as $$
-declare e jsonb:=p_event;typ text:=p_event->>'type';u text:=auth.uid()::text;rid text:=coalesce(p_event->>'roomId',p_event#>>'{room,id}');topic text;role text;r public.rooms;c jsonb:=p_event->'cloudRoom';m public.messages;pr public.profiles;msg jsonb:=p_event->'message';ctx text;votes jsonb;old jsonb;change jsonb;tid text;emoji text;active boolean;users jsonb;reacts jsonb;inv jsonb;target text;recipient text;begin
+declare e jsonb:=p_event;typ text:=p_event->>'type';u text:=auth.uid()::text;rid text:=coalesce(p_event->>'roomId',p_event#>>'{room,id}');topic text;role text;r public.rooms;c jsonb:=p_event->'cloudRoom';m public.messages;pr public.profiles;msg jsonb:=p_event->'message';ctx text;votes jsonb;old jsonb;change jsonb;tid text;emoji text;active boolean;users jsonb;reacts jsonb;inv jsonb;target text;recipient text;v numeric;saved numeric;begin
  if u is null then raise exception 'Authentication required';end if;
  if octet_length(p_event::text)>262144 then raise exception 'Event too large';end if;
  select * into pr from public.profiles where id=auth.uid();if pr.id is null then raise exception 'Profile required';end if;
  e:=e-'_server';
  if rid is not null then select * into r from public.rooms where id=rid for update;role:=public.echosync_role(rid);end if;
+
+ -- Server-authoritative actor and one monotonic command order across queue/roles/playback.
+ if rid is not null and r.id is not null and typ in ('state','FORCE_RESYNC','room-updated','role-resolved','member-changed') then
+   v:=coalesce((e->>'stateVersion')::numeric,(e->>'ts')::numeric,extract(epoch from clock_timestamp())*1000);
+   saved:=greatest(coalesce((r.metadata->>'stateVersion')::numeric,0),coalesce((r.playback_clock->>'stateVersion')::numeric,0));
+   if v>extract(epoch from clock_timestamp())*1000+15000 or v<0 then raise exception 'Invalid command version';end if;
+   if v<saved or (v=saved and u<coalesce(r.metadata->>'lastActorId','')) then return jsonb_build_object('_discarded',true);end if;
+   e:=e||jsonb_build_object('stateVersion',v,'lastActorId',u);
+ end if;
  topic:=case when rid is null then 'echosync:lounge' else 'echosync:room:'||rid end;
  if typ='room-added' then
    if r.id is not null then if r.host_id<>u then raise exception 'Room id already owned';end if;return '{}'::jsonb;end if;
@@ -123,7 +132,11 @@ declare e jsonb:=p_event;typ text:=p_event->>'type';u text:=auth.uid()::text;rid
  elsif typ in ('state','FORCE_RESYNC') then
    if role is null or role not in ('admin','dj') then raise exception 'Controller role required';end if;
    if coalesce((e->>'time')::numeric,-1)<0 or abs(extract(epoch from now())*1000-(e->>'ts')::numeric)>15000 then raise exception 'Invalid clock';end if;
-   if not coalesce((e->>'heartbeat')::boolean,false) or r.updated_at<now()-interval '5 seconds' then
+   if coalesce((e->>'heartbeat')::boolean,false) then
+     if r.playback_clock->>'lastActorId' is distinct from u or not coalesce((r.playback_clock->>'isPlaying')::boolean,false) or v<>coalesce((r.playback_clock->>'stateVersion')::numeric,0) then return jsonb_build_object('_discarded',true);end if;
+     e:=r.playback_clock||jsonb_build_object('type','state','command','POSITION','time',e->'time','ts',e->'ts','heartbeat',true,'sender',e->'sender','_eventId',e->'_eventId');
+     update public.rooms set playback_clock=e where id=rid;
+   else
      update public.rooms set playback_clock=e-'track',current_track=e->'track' where id=rid;
    end if;
    e:=e||jsonb_build_object('userId',u);
@@ -186,6 +199,10 @@ declare e jsonb:=p_event;typ text:=p_event->>'type';u text:=auth.uid()::text;rid
  elsif typ in ('lounge-typing','invite-resolved') then
    e:=e||jsonb_build_object('userId',u);topic:='echosync:lounge';
  else raise exception 'Unsupported cloud event: %',typ;end if;
+ if rid is not null and v is not null and not coalesce((e->>'heartbeat')::boolean,false) then
+   update public.rooms set metadata=metadata||jsonb_build_object('stateVersion',v,'lastActorId',u),playback_clock=playback_clock||jsonb_build_object('stateVersion',v,'lastActorId',u) where id=rid returning * into r;
+   if e ? 'room' then e:=e||jsonb_build_object('room',public.echosync_room_payload(r),'cloudRoom',to_jsonb(r));end if;
+ end if;
  e:=e||jsonb_build_object('_server',true);
  if topic like 'echosync:room:%' then
    -- Fan out sensitive traffic through member inboxes. A removed subscriber's

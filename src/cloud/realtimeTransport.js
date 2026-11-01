@@ -5,14 +5,16 @@ import { createCloudAdapter, roomFromCloud, } from './cloudAdapter.js'
 // Cloud messages come only from the database-authorized RPC, never client broadcasts.
 export function createRealtimeTransport({ channelName='echosync-room-sync', Broadcast=globalThis.BroadcastChannel, getClient=getSupabaseClient, configured=isSupabaseConfigured(), onError=()=>{}, getContext=()=>({}) }={}) {
   const local=Broadcast?new Broadcast(channelName):null
+  const commandVersions=new Map()
   let refreshGeneration=0
-  let closed=false, client, adapter, authSubscription, serial=Promise.resolve(), context={}, channels=new Map(), generation=0
+  let closed=false, client, adapter, authSubscription, serial=Promise.resolve(), prioritySerial=Promise.resolve(), context={}, channels=new Map(), generation=0
   const presenceByTopic=new Map(), tracked=new Map(), connected=new Set()
   const seen=new Set(), callbacks=new Set(), pendingMessages=new Set(), pendingRooms=new Set()
-  const result={onmessage:null,postMessage,close,setContext,subscribe(fn){callbacks.add(fn);return ()=>callbacks.delete(fn)},flush:()=>serial}
+  const result={onmessage:null,postMessage,close,setContext,subscribe(fn){callbacks.add(fn);return ()=>callbacks.delete(fn)},flush:()=>Promise.all([serial,prioritySerial])}
   function receive(data) {
     if(closed||!data)return
     if(data._eventId){if(seen.has(data._eventId))return;seen.add(data._eventId);if(seen.size>2000)seen.delete(seen.values().next().value)}
+    const roomId=data.roomId||data.room?.id; if(roomId)commandVersions.set(roomId,Math.max(commandVersions.get(roomId)||0,Number(data.stateVersion||data.room?.stateVersion)||0))
     result.onmessage?.({data});callbacks.forEach(fn=>fn(data))
   }
   if(local)local.onmessage=event=>receive(event.data)
@@ -27,11 +29,15 @@ export function createRealtimeTransport({ channelName='echosync-room-sync', Broa
   function enqueue(action){serial=serial.then(()=>closed?undefined:action()).catch(fail);return serial}
   function postMessage(event) {
     const data={...event,_eventId:event._eventId||globalThis.crypto?.randomUUID?.()||Math.random().toString(36)}
+    const roomId=data.roomId||data.room?.id
+    const priority=['state','FORCE_RESYNC','room-updated','ROLE_UPDATE','role-resolved','member-changed'].includes(data.type)
+    if(roomId && priority && !data.stateVersion && !data.heartbeat){data.stateVersion=Math.max(Date.now(),(commandVersions.get(roomId)||0)+1);data.lastActorId=context.userId;commandVersions.set(roomId,data.stateVersion)}
     const owner=context.userId
     if(configured&&data.message?.id)pendingMessages.add(data.message.id)
     if(configured&&data.type==='room-added'&&data.room?.id)pendingRooms.add(data.room.id)
-    local?.postMessage(data)
-    if(configured) enqueue(async()=>{await ready;if(!client)return; const session=await client.auth.getSession();if(session.error)throw session.error;if(!session.data?.session){if(!['channel-profile','member-telemetry'].includes(data.type))throw new Error('Sign in to sync with the cloud');return} if(owner && session.data.session.user.id!==owner)throw new Error('Account changed before sync; action was not sent');await adapter.publish(data,getContext().library||{});if(data.message?.id)pendingMessages.delete(data.message.id);if(data.type==='room-added')pendingRooms.delete(data.room?.id)})
+    if(roomId)commandVersions.set(roomId,Math.max(commandVersions.get(roomId)||0,Number(data.stateVersion)||0))
+    if(!configured || data.type!=='ROLE_UPDATE')local?.postMessage(data)
+    if(configured) { const publish=async()=>{await ready;if(!client)return; const session=await client.auth.getSession();if(session.error)throw session.error;if(!session.data?.session){if(!['channel-profile','member-telemetry'].includes(data.type))throw new Error('Sign in to sync with the cloud');return} if(owner && session.data.session.user.id!==owner)throw new Error('Account changed before sync; action was not sent');await adapter.publish(data,getContext().library||{});if(data.message?.id)pendingMessages.delete(data.message.id);if(data.type==='room-added')pendingRooms.delete(data.room?.id)};if(priority)prioritySerial=prioritySerial.then(publish).then(()=>{if(data.type==='ROLE_UPDATE')local?.postMessage(data)}).catch(fail);else enqueue(publish)}
   }
   async function refresh() {
     if(closed||!adapter)return
