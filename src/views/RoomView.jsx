@@ -284,44 +284,46 @@ export function RoomView({
                   {itemFailed ? ' · Stream unavailable — tap to retry' : itemPending ? ' · Tuning into the room…' : ''}
                 </span>
               </div>
-              {index > currentIndex && <RoomVote room={room} trackId={item.id}/>}
-              <div className="queue-right">
-                <span className="queue-dur">{itemReady ? formatTime(item.duration) : '—'}</span>
-              </div>
-              <button
-                className={`queue-heart ${liked.includes(item?.id) ? 'liked' : ''}`}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onLike(item)
-                }}
-                aria-label="Like track"
-              >
-                <Heart />
-              </button>
-              <button
-                className="queue-more queue-add"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onAddToPlaylist(item)
-                }}
-                aria-label="Add to playlist"
-                title="Add to playlist"
-              >
-                <ListPlus />
-              </button>
-              {canControlRoom && (
+              <div className="queue-actions">
+                {index > currentIndex && <RoomVote room={room} trackId={item.id}/>}
+                <div className="queue-right">
+                  <span className="queue-dur">{itemReady ? formatTime(item.duration) : '—'}</span>
+                </div>
                 <button
-                  className="queue-more queue-remove"
+                  className={`queue-heart ${liked.includes(item?.id) ? 'liked' : ''}`}
                   onClick={(event) => {
                     event.stopPropagation()
-                    onRemoveQueueTrack?.(index)
+                    onLike(item)
                   }}
-                  aria-label={`Remove ${item?.title || 'track'} from room queue`}
-                  title="Remove from room queue"
+                  aria-label="Like track"
                 >
-                  <Trash2 />
+                  <Heart />
                 </button>
-              )}
+                <button
+                  className="queue-more queue-add"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onAddToPlaylist(item)
+                  }}
+                  aria-label="Add to playlist"
+                  title="Add to playlist"
+                >
+                  <ListPlus />
+                </button>
+                {canControlRoom && (
+                  <button
+                    className="queue-more queue-remove"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRemoveQueueTrack?.(index)
+                    }}
+                    aria-label={`Remove ${item?.title || 'track'} from room queue`}
+                    title="Remove from room queue"
+                  >
+                    <Trash2 />
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}

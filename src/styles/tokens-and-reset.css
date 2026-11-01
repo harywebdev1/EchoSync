@@ -360,3 +360,170 @@ html {
 :root {
   --motion: 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* ---------------------------------------------------------------
+   Phase 4 · Global text containment and inline control alignment
+   --------------------------------------------------------------- */
+
+/* Text-bearing flex/grid children must never force their track wider. */
+.track-meta,
+.song-info,
+.card-body,
+.room-header-info,
+.profile-header-meta,
+.chat-bubble-content,
+.player-track-info,
+.playlist-header-info,
+.quick-copy,
+.queue-copy,
+.artist-song-copy,
+.channel-song-copy,
+.search-copy,
+.track-card-copy,
+.hero-carousel-copy,
+.dock-copy,
+.mini-copy,
+.fp-info,
+.fp-head-copy,
+.now-main,
+.channel-copy,
+.channel-identity,
+.playlist-detail-copy,
+.home-section-head > div,
+.section-head > div,
+.room-meta,
+.channel-actions,
+.artist-actions,
+.playlist-detail-actions,
+.quick-actions,
+.song-row-actions,
+.library-row-actions,
+.queue-actions,
+.search-result-actions {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* One-line truncation for every title, credit, album and chip label. */
+.quick-copy strong,
+.quick-copy span,
+.quick-copy .artist-links,
+.queue-copy strong,
+.queue-copy span,
+.queue-copy small,
+.queue-copy .artist-links,
+.artist-song-copy strong,
+.artist-song-credit,
+.artist-song-credit .artist-links,
+.channel-song-copy strong,
+.channel-song-copy span,
+.channel-song-copy .artist-links,
+.search-copy strong,
+.search-copy span,
+.search-artist-links,
+.track-card-copy strong,
+.track-card-copy span,
+.hero-carousel-copy strong,
+.hero-carousel-copy span,
+.dock-copy strong,
+.dock-copy span,
+.mini-copy strong,
+.mini-copy span,
+.now-artist,
+.fp-artist,
+.library-row .album,
+.artist-song-album,
+.channel-song-album,
+.channel-handle-pill,
+.home-mix-card > strong,
+.home-mix-card > span,
+.playlist-card > strong,
+.playlist-card > span,
+.home-playlist-item strong,
+.home-playlist-item span,
+.rc-title,
+.album {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Headline-level truncation stays on one line too. */
+.now-title,
+.fp-title,
+.channel-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two-line clamps for descriptive copy. */
+.artist-bio,
+.channel-bio,
+.room-sub,
+.page-sub,
+.home-hero-copy > p,
+.rc-sub,
+.playlist-detail-copy > p,
+.channel-empty-note {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.room-title {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Inline controls never wrap their labels or shrink unevenly. */
+.text-btn,
+.primary-btn,
+.secondary-btn,
+.home-chip,
+.live-pill,
+.source-badge,
+.host-badge,
+.queue-heart,
+.queue-more,
+.like-btn,
+.search-play,
+.search-save,
+.search-add,
+.artist-song-icon,
+.channel-song-icon,
+.room-member,
+.profile-back,
+.artist-action,
+.channel-action,
+.artist-bio-toggle,
+.quick-like,
+.quick-add,
+.quick-art-btn,
+.quick-title-btn,
+.mini-play,
+.mini-next,
+.dock-play,
+.fp-play,
+.fp-mobile-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1;
+  vertical-align: middle;
+}

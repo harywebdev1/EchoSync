@@ -108,6 +108,7 @@ export function StageBar({
             aria-label={unreadCount ? `Toggle room chat, ${unreadCount} unread messages` : 'Toggle room chat'}
           >
             <MessageCircle />
+            <span className="chat-toggle-label">Chat</span>
             {!chatOpen && unreadCount > 0 && (
               <span className="chat-unread-badge" data-testid="chat-toggle-unread">
                 {unreadCount > 99 ? '99+' : unreadCount}

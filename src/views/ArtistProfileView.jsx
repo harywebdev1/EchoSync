@@ -227,23 +227,25 @@ export function ArtistProfileView({
                         <ArtistLinks track={song} onOpenArtist={onOpenArtist} />
                       </span>
                     </div>
-                    <span className="artist-song-album">{song.album || 'Single'}</span>
-                    <button
-                      className={`artist-song-icon ${liked.includes(song.id) ? 'liked' : ''}`}
-                      onClick={(event) => { event.stopPropagation(); onLike?.(song) }}
-                      aria-label={liked.includes(song.id) ? `Unlike ${song.title}` : `Like ${song.title}`}
-                    >
-                      <Heart fill={liked.includes(song.id) ? 'currentColor' : 'none'} />
-                    </button>
-                    <span className="artist-song-duration">{song.duration ? formatTime(song.duration) : '—'}</span>
-                    <button
-                      className="artist-song-icon queue"
-                      onClick={(event) => { event.stopPropagation(); onQueue?.(song) }}
-                      aria-label={`Add ${song.title} to queue`}
-                      title="Add to queue"
-                    >
-                      <ListPlus />
-                    </button>
+                    <div className="song-row-actions">
+                      <span className="artist-song-album">{song.album || 'Single'}</span>
+                      <button
+                        className={`artist-song-icon ${liked.includes(song.id) ? 'liked' : ''}`}
+                        onClick={(event) => { event.stopPropagation(); onLike?.(song) }}
+                        aria-label={liked.includes(song.id) ? `Unlike ${song.title}` : `Like ${song.title}`}
+                      >
+                        <Heart fill={liked.includes(song.id) ? 'currentColor' : 'none'} />
+                      </button>
+                      <span className="artist-song-duration">{song.duration ? formatTime(song.duration) : '—'}</span>
+                      <button
+                        className="artist-song-icon artist-song-add"
+                        onClick={(event) => { event.stopPropagation(); onQueue?.(song) }}
+                        aria-label={`Add ${song.title} to queue`}
+                        title="Add to queue"
+                      >
+                        <ListPlus />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

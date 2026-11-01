@@ -191,23 +191,25 @@ export function LibraryView({
                   <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                 </div>
                 <span className="album">{track.album || 'Single'}</span>
-                <span className="dur">{formatTime(track.duration)}</span>
-                <button
-                  className="queue-heart queue-add"
-                  onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }}
-                  aria-label="Add to playlist"
-                  title="Add to playlist"
-                >
-                  <ListPlus />
-                </button>
-                <button
-                  className="queue-heart"
-                  onClick={(event) => { event.stopPropagation(); onRemoveFromPlaylist(activePlaylist.id, track.id) }}
-                  aria-label="Remove from playlist"
-                  title="Remove from playlist"
-                >
-                  <X />
-                </button>
+                <div className="library-row-actions">
+                  <span className="dur">{formatTime(track.duration)}</span>
+                  <button
+                    className="queue-heart queue-add"
+                    onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }}
+                    aria-label="Add to playlist"
+                    title="Add to playlist"
+                  >
+                    <ListPlus />
+                  </button>
+                  <button
+                    className="queue-heart"
+                    onClick={(event) => { event.stopPropagation(); onRemoveFromPlaylist(activePlaylist.id, track.id) }}
+                    aria-label="Remove from playlist"
+                    title="Remove from playlist"
+                  >
+                    <X />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -300,13 +302,15 @@ export function LibraryView({
                     <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
-                  <span className="dur">{formatTime(track.duration)}</span>
-                  <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
-                    <ListPlus />
-                  </button>
-                  <button className="queue-heart liked" onClick={(event) => { event.stopPropagation(); onLike(track) }} aria-label="Unlike track">
-                    <Heart />
-                  </button>
+                  <div className="library-row-actions">
+                    <span className="dur">{formatTime(track.duration)}</span>
+                    <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
+                      <ListPlus />
+                    </button>
+                    <button className="queue-heart liked" onClick={(event) => { event.stopPropagation(); onLike(track) }} aria-label="Unlike track">
+                      <Heart />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -330,13 +334,15 @@ export function LibraryView({
                     <span><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
                   </div>
                   <span className="album">{track.album || 'Single'}</span>
-                  <span className="dur">{formatTime(track.duration)}</span>
-                  <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
-                    <ListPlus />
-                  </button>
-                  <button className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`} onClick={(event) => { event.stopPropagation(); onLike(track) }} aria-label="Like track">
-                    <Heart />
-                  </button>
+                  <div className="library-row-actions">
+                    <span className="dur">{formatTime(track.duration)}</span>
+                    <button className="queue-heart queue-add" onClick={(event) => { event.stopPropagation(); onAddToPlaylist(track) }} aria-label="Add to playlist" title="Add to playlist">
+                      <ListPlus />
+                    </button>
+                    <button className={`queue-heart ${liked.includes(track.id) ? 'liked' : ''}`} onClick={(event) => { event.stopPropagation(); onLike(track) }} aria-label="Like track">
+                      <Heart />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

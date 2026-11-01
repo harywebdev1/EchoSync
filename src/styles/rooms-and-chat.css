@@ -3664,3 +3664,114 @@
   min-width: 0;
   flex: 1 1 auto;
 }
+
+/* ---------------------------------------------------------------
+   Phase 4 · Room header, action strip and chat containment
+   --------------------------------------------------------------- */
+
+.room-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.room-meta::-webkit-scrollbar {
+  display: none;
+}
+
+.room-meta > .text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.room-head .section-head,
+.room-head .head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.room-head .section-head::-webkit-scrollbar,
+.room-head .head-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.room-head .head-actions > * {
+  flex-shrink: 0;
+}
+
+.room-member-strip {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.room-member-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.room-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.now-card {
+  min-width: 0;
+}
+
+.now-main,
+.now-title,
+.now-artist {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.room-sync-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.room-sync-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.room-sync-actions > * {
+  flex-shrink: 0;
+}
+
+.chat-toggle-label {
+  display: none;
+}
+
+.bubble,
+.bubble-content,
+.chat-bubble-content,
+.bubble-meta {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}

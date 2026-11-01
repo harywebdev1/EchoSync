@@ -1835,3 +1835,56 @@
 .message-context-menu .danger {
   color: #ff9d9d;
 }
+
+/* ---------------------------------------------------------------
+   Phase 4 · Modal / drawer text containment and inline actions
+   --------------------------------------------------------------- */
+
+.modal-actions,
+.es-modal-card .modal-actions,
+.invite-code-row,
+.auth-switch,
+.auth-switch-top,
+.remember-row,
+.modal-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.modal-actions > button,
+.modal-tabs > button,
+.auth-switch > button,
+.auth-switch-top > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.es-modal-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.es-modal-card h1,
+.es-modal-card h2,
+.es-modal-card h3,
+.es-modal-card p,
+.es-toast-message {
+  max-width: 100%;
+}
+
+.es-modal-card .field,
+.es-modal-card .field input,
+.es-modal-card .field textarea,
+.es-modal-card .field select {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}

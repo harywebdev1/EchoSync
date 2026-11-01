@@ -288,42 +288,44 @@ export function SearchOverlay({
                     <ArtistLinks track={track} onOpenArtist={onOpenArtist} className="search-artist-links" />
                     {pendingTrackId === track.id && <span className="search-pending-copy">Loading stream...</span>}
                   </div>
-                  <button
-                    className="search-play"
-                    disabled={context.mode === 'room' && !canControlRoom}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onPlay(track, visibleResults)
-                    }}
-                    aria-label={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
-                    title={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
-                  >
-                    {pendingTrackId === track.id ? <span className="spinner" /> : <Play />}
-                  </button>
-                  <button
-                    className="search-save"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onLike(track)
-                    }}
-                    aria-label={`${liked.includes(track.id) ? 'Unlike' : 'Like'} ${track.title}`}
-                    title="Like song"
-                  >
-                    <Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} />
-                  </button>
-                  <button
-                    className="search-add"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onQueue(track)
-                    }}
-                    aria-label={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
-                    title={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
-                    disabled={context.mode === 'room' && !canAddToRoom}
-                  >
-                    <Plus />
-                    <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>
-                  </button>
+                  <div className="search-result-actions">
+                    <button
+                      className="search-play"
+                      disabled={context.mode === 'room' && !canControlRoom}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onPlay(track, visibleResults)
+                      }}
+                      aria-label={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
+                      title={context.mode === 'room' ? 'Play in Room' : 'Play in Solo Mode'}
+                    >
+                      {pendingTrackId === track.id ? <span className="spinner" /> : <Play />}
+                    </button>
+                    <button
+                      className="search-save"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onLike(track)
+                      }}
+                      aria-label={`${liked.includes(track.id) ? 'Unlike' : 'Like'} ${track.title}`}
+                      title="Like song"
+                    >
+                      <Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} />
+                    </button>
+                    <button
+                      className="search-add"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onQueue(track)
+                      }}
+                      aria-label={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
+                      title={context.mode === 'room' ? 'Add to Room Queue' : 'Add to Solo Queue'}
+                      disabled={context.mode === 'room' && !canAddToRoom}
+                    >
+                      <Plus />
+                      <span>{context.mode === 'room' ? 'Room Queue' : 'Solo Queue'}</span>
+                    </button>
+                  </div>
                 </div></Fragment>
               ))}
             </>

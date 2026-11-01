@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Heart,
   Play,
@@ -110,6 +111,7 @@ export function FullScreenPlayer({
   onToggleTranslate,
 }) {
   const total = duration || track?.duration || 0
+  const [mobileTab, setMobileTab] = useState('player')
   return (
     <div className="full-player">
       {track?.cover && <div className="fp-bg" style={{ backgroundImage: `url(${track.cover})` }} />}
@@ -124,7 +126,28 @@ export function FullScreenPlayer({
           <div className="head-spacer" />
         </header>
 
-        <div className="fp-body">
+        <div className="fp-mobile-tabs" role="tablist" aria-label="Player panels">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileTab === 'player'}
+            className={mobileTab === 'player' ? 'active' : ''}
+            onClick={() => setMobileTab('player')}
+          >
+            Player
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileTab === 'lyrics'}
+            className={mobileTab === 'lyrics' ? 'active' : ''}
+            onClick={() => setMobileTab('lyrics')}
+          >
+            Lyrics &amp; Up Next
+          </button>
+        </div>
+
+        <div className="fp-body" data-mobile-tab={mobileTab}>
           <div className="fp-left">
             <div className="fp-art-wrap">
               <Cover track={track} size="" playing={isPlaying} />

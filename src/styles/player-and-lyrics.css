@@ -333,14 +333,17 @@
 }
 
 .queue-heart {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border: 0;
   border-radius: 7px;
   color: var(--muted);
   background: transparent;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .queue-heart:hover {
@@ -1094,8 +1097,9 @@
 }
 
 .fp-play {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 58px;
   height: 58px;
   border: 0;
@@ -1104,6 +1108,8 @@
   background: var(--text);
   box-shadow: 0 12px 35px rgba(0, 0, 0, 0.32);
   transition: transform 0.2s;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .fp-play:hover {
@@ -1498,8 +1504,9 @@
 }
 
 .queue-add {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -1507,6 +1514,8 @@
   border-radius: 7px;
   color: var(--muted);
   background: transparent;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .queue-add:hover {
@@ -1545,7 +1554,9 @@
   }
 
   .queue-more.queue-add {
-    display: grid;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
@@ -2847,4 +2858,110 @@ input[type="range"] {
   display: block;
   min-width: 0;
   max-width: 100%;
+}
+
+/* ---------------------------------------------------------------
+   Phase 4 · Strict queue + song row geometry
+   --------------------------------------------------------------- */
+
+.queue-row,
+.room-queue .queue-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+}
+
+.queue-row .queue-index-wrap,
+.room-queue .queue-index-wrap {
+  display: none;
+}
+
+.queue-row > .cover,
+.queue-row .cover-size-sm {
+  width: 48px;
+  height: 48px;
+  border-radius: 9px;
+}
+
+.queue-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.queue-actions .queue-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.queue-actions .queue-more,
+.queue-actions .queue-heart,
+.queue-actions .room-vote {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.queue {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.queue-drawer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+}
+
+.queue-drawer-main {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.queue-drawer-main .queue-drawer-cover-btn,
+.queue-drawer-main .cover {
+  width: 48px;
+  height: 48px;
+}
+
+.queue-drawer-main .queue-copy {
+  min-width: 0;
+}
+
+.queue-drawer-main .queue-title-btn {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+}
+
+.queue-drawer-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fp-mobile-tabs {
+  display: none;
 }

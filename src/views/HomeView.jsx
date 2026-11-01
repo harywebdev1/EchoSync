@@ -132,7 +132,10 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
           <button className="quick-art-btn" onClick={() => playQuick(track)} onFocus={() => onPrefetch?.(track)} aria-label={`Play ${track.title}`}><span className="quick-art"><Cover track={track} size="" /><span className="quick-play"><Play /></span></span></button>
           <span className="quick-copy"><button className="quick-title-btn" onClick={() => playQuick(track)}><strong>{track.title}</strong></button><ArtistLinks track={track} onOpenArtist={onOpenArtist} /></span>
         </div>
-        <button className={`quick-like icon-btn ${liked.includes(track.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label={`Like ${track.title}`}><Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} /></button><button className="quick-add icon-btn" onClick={() => onQueue(track)} aria-label={`Queue ${track.title}`}><Plus /></button>
+        <div className="quick-actions">
+          <button className={`quick-like icon-btn ${liked.includes(track.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label={`Like ${track.title}`}><Heart fill={liked.includes(track.id) ? 'currentColor' : 'none'} /></button>
+          <button className="quick-add icon-btn" onClick={() => onQueue(track)} aria-label={`Queue ${track.title}`}><Plus /></button>
+        </div>
       </article>)}</div>
       <div className="quick-pagination"><button className="icon-btn" aria-label="Previous Quick picks page" disabled={quickPage===0} onClick={()=>movePage(-1)}><ChevronLeft/></button><span>Page {quickPage+1} of {pages}</span><button className="icon-btn" aria-label="Next Quick picks page" disabled={quickPage>=pages-1} onClick={()=>movePage(1)}><ChevronRight/></button></div>
       {!quickPicks.length && <p className="home-empty">Nothing here yet. Search for a song to start.</p>}

@@ -63,23 +63,25 @@ function ChannelSongs({ title, tracks, liked, onPlay, onQueue, onLike, onOpenArt
               <strong>{song.title}</strong>
               <span><ArtistLinks track={song} onOpenArtist={onOpenArtist} /></span>
             </div>
-            <span className="channel-song-album">{song.album || 'Single'}</span>
-            <span className="channel-song-duration">{song.duration ? formatTime(song.duration) : '—'}</span>
-            <button
-              className={`channel-song-icon ${liked.includes(song.id) ? 'liked' : ''}`}
-              onClick={(event) => { event.stopPropagation(); onLike?.(song) }}
-              aria-label={liked.includes(song.id) ? `Unlike ${song.title}` : `Like ${song.title}`}
-            >
-              <Heart fill={liked.includes(song.id) ? 'currentColor' : 'none'} />
-            </button>
-            <button
-              className="channel-song-icon"
-              onClick={(event) => { event.stopPropagation(); onQueue?.(song) }}
-              aria-label={`Add ${song.title} to queue`}
-              title="Add to queue"
-            >
-              <ListMusic />
-            </button>
+            <div className="song-row-actions">
+              <span className="channel-song-album">{song.album || 'Single'}</span>
+              <span className="channel-song-duration">{song.duration ? formatTime(song.duration) : '—'}</span>
+              <button
+                className={`channel-song-icon ${liked.includes(song.id) ? 'liked' : ''}`}
+                onClick={(event) => { event.stopPropagation(); onLike?.(song) }}
+                aria-label={liked.includes(song.id) ? `Unlike ${song.title}` : `Like ${song.title}`}
+              >
+                <Heart fill={liked.includes(song.id) ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                className="channel-song-icon"
+                onClick={(event) => { event.stopPropagation(); onQueue?.(song) }}
+                aria-label={`Add ${song.title} to queue`}
+                title="Add to queue"
+              >
+                <ListMusic />
+              </button>
+            </div>
           </div>
         ))}
       </div>
