@@ -6,7 +6,7 @@ const CHROME_PATH = process.env.CHROME_PATH || 'C:/Users/haryw/AppData/Local/ms-
 let passed = 0
 
 ;(async () => {
-  const browser = await chromium.launch({ headless: true, executablePath: CHROME_PATH, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] })
+  const browser = await chromium.launch({ headless: true, executablePath: CHROME_PATH, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--mute-audio'] })
   async function check(name, options, test) {
     if (process.env.ECHOSYNC_CASE && !name.includes(process.env.ECHOSYNC_CASE)) return
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: fixtureState(options), permissions: ['microphone'] })
@@ -22,7 +22,7 @@ let passed = 0
       console.log(`PASS ${name}`)
     } catch (error) {
       if (errors.length) console.error('Application page errors:', errors)
-      console.error(await page.evaluate(() => ({ audio: [...document.querySelectorAll('audio')].map(a => ({ duration: a.duration, paused: a.paused, readyState: a.readyState, error: a.error?.code })), alerts: [...document.querySelectorAll('[role=alert], .toast')].map(e => e.textContent) })))
+      console.error(await page.evaluate(() => ({ audio: [...document.querySelectorAll('audio')].map(a => ({ duration: a.duration, paused: a.paused, readyState: a.readyState, error: a.error?.code })), alerts: [...document.querySelectorAll('[role=alert], .toast')].map(e => e.textContent) })).catch(error => ({diagnosticError:error.message})))
       throw error
     } finally { await context.close() }
   }
@@ -32,14 +32,11 @@ let passed = 0
     await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().waitFor()
   }
   try {
-    await check('short provider media plays silently despite the catalog claiming 180s', { duration: 180, streamSeconds: 30 }, async page => {
+    await check('short provider media is rejected despite catalog claiming 180s', { duration:180, streamSeconds:30 }, async page => {
       await open(page)
-      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
-      await page.waitForFunction(() => {
-        const audio = document.querySelector('[data-testid=root-audio]')
-        return audio && !audio.paused && audio.currentTime > 0.05
-      })
-      assert.equal(await page.getByText(/Track blocked|Playback stopped|Track restored|Stream not available/i).count(), 0)
+      await page.getByRole('button', {name:'Play Chaleya', exact:true}).first().click()
+      await page.locator('.es-toast-message').filter({hasText:/Track blocked/}).waitFor()
+      assert.equal(await page.locator('[data-testid=root-audio]').evaluate(audio => audio.paused), true)
     })
     await check('unknown catalog duration remains selectable and confirmed 60-second media plays', { duration: 0, streamSeconds: 60 }, async page => {
       await open(page)
@@ -254,27 +251,30 @@ let passed = 0
         localStorage.setItem('echosync.library.v1', JSON.stringify(library))
       })
       await open(page)
-      await page.getByRole('button', { name: 'Play Chaleya', exact: true }).first().click()
+      await page.locator('.quick-card .quick-art-btn').first().waitFor()
+      const chosenTitle=await page.locator('.quick-card .quick-copy strong').first().innerText()
+      await page.locator('.quick-card .quick-art-btn').first().click()
       await page.waitForFunction(() => !document.querySelector('[data-testid=root-audio]').paused)
       const original = await page.locator('[data-testid=root-audio]').elementHandle()
       const source = await original.evaluate(audio => audio.currentSrc)
       await page.locator('[data-testid=queue-btn]').click()
       const drawer = page.locator('[data-testid=solo-queue-drawer]')
+      await drawer.locator('.queue-drawer-list').waitFor()
       const titles = () => drawer.locator('[data-testid=queue-drawer-row] .queue-copy strong').allTextContents()
       const all = await titles()
-      assert.ok(all.length > 2)
+      assert.ok(all.length > 2, JSON.stringify({upcoming:all,model:await drawer.evaluate(el=>{let fiber=el[Object.keys(el).find(k=>k.startsWith('__reactFiber'))];while(fiber&&!Array.isArray(fiber.memoizedProps?.queue))fiber=fiber.return;return fiber?{index:fiber.memoizedProps.currentIndex,ids:fiber.memoizedProps.queue.map(t=>t.id)}:null}),quick:await page.locator('.quick-card .quick-copy strong').allTextContents(),now:await drawer.locator('[data-testid=queue-now-playing]').innerText()}))
       // Phase B removed the numbered/filter chrome from the drawer markup.
       assert.equal(await drawer.locator('.queue-filter-chips').count(), 0)
       assert.equal(await drawer.locator('.queue-index').count(), 0)
       await drawer.getByRole('button', { name: 'Shuffle queue', exact: true }).waitFor()
       const movable = all[1]
-      await drawer.getByRole('button', { name: `Move ${movable} down`, exact: true }).click()
+      await drawer.getByTestId('queue-drawer-row').nth(1).getByRole('button', { name: `Move ${movable} down`, exact: true }).click()
       assert.equal((await titles())[2], movable)
-      await drawer.getByRole('button', { name: `Move ${movable} up`, exact: true }).click()
+      await drawer.getByTestId('queue-drawer-row').nth(2).getByRole('button', { name: `Move ${movable} up`, exact: true }).click()
       assert.deepEqual(await titles(), all)
-      await drawer.getByRole('button', { name: `Remove ${movable} from queue`, exact: true }).click()
-      assert.ok(!(await titles()).includes(movable))
-      assert.match(await drawer.locator('[data-testid=queue-now-playing]').innerText(), /Chaleya/)
+      await drawer.getByTestId('queue-drawer-row').nth(1).getByRole('button', { name: `Remove ${movable} from queue`, exact: true }).click()
+      assert.equal((await titles()).filter(title=>title===movable).length, all.filter(title=>title===movable).length-1)
+      assert.ok((await drawer.locator('[data-testid=queue-now-playing]').innerText()).includes(chosenTitle))
       assert.deepEqual(await page.locator('[data-testid=root-audio]').evaluate((audio, previous) => ({ same: audio === previous, paused: audio.paused, source: audio.currentSrc }), original), { same: true, paused: false, source })
     })
     await check('Full player omits Sleep Timer and keeps playback running', {}, async page => {
@@ -407,6 +407,7 @@ let passed = 0
       await page.locator('[data-testid=root-audio]').evaluate(audio=>{audio.currentTime=30.1;audio.dispatchEvent(new Event('timeupdate'))})
       await page.getByTestId('preview-ended-card').waitFor();assert.equal(await page.getByTestId('root-audio').evaluate(audio=>audio.paused),true);await page.getByRole('button',{name:'Dismiss preview notice'}).click();assert.equal(await page.getByTestId('preview-ended-card').count(),0)
     })
+    await require('./production-overhaul-verify.cjs')({check,open})
     await require('./overhaul-verify.cjs')({browser,check,open,APP_URL})
     console.log(`Application browser integrity: ${passed} checks passed`)
   } finally { await browser.close() }

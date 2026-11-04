@@ -314,7 +314,7 @@ export function PublicLoungeDrawer({
       </div>
 
       <div className="chat-body lounge-body" ref={chatRef}>
-        <div className="chat-day"><span>Public Lounge</span></div>
+        <div className="chat-day"><span>🕒 Messages auto-clear after 24h</span></div>
         {!messages.length && (
           <div className="lounge-empty">
             <span><Globe2 /></span>

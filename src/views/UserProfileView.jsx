@@ -2,7 +2,6 @@ import { distinctAlbum } from '../core/songDisplay.js'
 import { useMemo } from 'react'
 import {
   ArrowLeft,
-  BadgeCheck,
   Globe2,
   Headphones,
   Heart,
@@ -235,7 +234,7 @@ export function UserProfileView({
             <span className="channel-kicker"><Globe2 size={12} /> Listener channel</span>
             <h1 className="channel-name">
               {name}
-              {member?.cloud && <BadgeCheck className="channel-verified" aria-label="Verified listener" />}
+
             </h1>
             <span className="channel-handle-pill">@{handle}</span>
             <p className="channel-bio">{bio}</p>

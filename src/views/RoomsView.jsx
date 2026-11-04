@@ -30,7 +30,7 @@ export function RoomsView({ rooms, library, currentRoom, currentUser, onJoin, on
       <div className="eyebrow">
         <span className="live-pill"><Radio size={9} /> DISCOVER</span>
         <span className="seg" />
-        <span>{rooms.length} {rooms.length === 1 ? 'ROOM' : 'ROOMS'} SAVED</span>
+        <span className="rooms-saved-count">{rooms.length} {rooms.length === 1 ? 'ROOM' : 'ROOMS'} SAVED</span>
         <span className="grow" />
         <button className="text-btn" onClick={onJoinCode}><KeyRound size={11} /> Join with code</button>
       </div>

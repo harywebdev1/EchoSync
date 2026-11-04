@@ -80,7 +80,6 @@ export default function App() {
     memberIndex,
     rootStyle,
     audioRef,
-    ytContainerRef,
     track,
     handleTimeUpdate,
     handleLoadedMetadata,
@@ -292,6 +291,7 @@ export default function App() {
     setAddTrack,
     toast,
     setToast,
+    notifications, markNotificationsRead, clearNotifications,
   } = useEchoSyncController()
 
   useEffect(() => { if (searchOpen) document.getElementById('canonical-search-input')?.focus() }, [searchOpen])
@@ -308,7 +308,6 @@ export default function App() {
         <div className="ambient" />
         <AudioRootContainer
           audioRef={audioRef}
-          containerRef={ytContainerRef}
           trackId={track?.id}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
@@ -362,14 +361,14 @@ export default function App() {
                 <AudioLines size={16} />
               </button>
             )}
-            <StageBar searchQuery={searchQuery} onSearchQuery={setSearchQuery} searchOpen={searchOpen}
+            <StageBar notifications={notifications} onReadNotifications={markNotificationsRead} onClearNotifications={clearNotifications} searchQuery={searchQuery} onSearchQuery={setSearchQuery} searchOpen={searchOpen}
               room={displayRoom}
               view={view}
               inRoom={roomPlaybackActive}
               currentUser={currentUser}
               chatOpen={chatOpen}
               unreadCount={activeRoomUnread}
-              onOpenProfile={() => currentUser ? openUserChannel(currentUser) : openProfile()}
+              onOpenProfile={openProfile}
               onOpenChannel={openUserChannel}
               onSearch={openSearchExperience}
               onToggleChat={() => setChatOpen((value) => !value)}
@@ -492,7 +491,7 @@ export default function App() {
               )}
 
               {view === 'room' && activeRoom && (
-                <RoomView starterTracks={searchTasteTracks} onStartTrack={startRoomTrack} onResync={acceptJoin}
+                <RoomView onOpenChat={() => setChatOpen(true)} unreadCount={activeRoomUnread} starterTracks={searchTasteTracks} onStartTrack={startRoomTrack} onResync={acceptJoin}
                   room={activeRoom}
                   track={track}
                   queue={queue}

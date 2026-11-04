@@ -259,6 +259,7 @@ const artistPayload = {
       assert.equal(stem({ title: 'Tu Jhoom (Official Audio)' }), stem({ title: 'Tu Jhoom' }))
       assert.equal(stem({ title: 'Audio' }), 'audio')
       assert.equal(stem({ name: 'Arz Kiya Hai' }), 'arz kiya hai')
+      assert.notEqual(stem({title:'Husn',artist:'Anuv Jain'}),stem({title:'Husn',artist:'Another Artist'}))
     })
 
     await check('live mood queries rotate and fresh metadata preserves user IDs without duplicate songs', async () => {
@@ -422,6 +423,16 @@ const artistPayload = {
       assert.deepEqual(scope.rank([], seed), [])
     })
 
+    await check('preview cache cleanup retains saved song identity and metadata for full-stream hydration',()=>{
+      const library={saved:{savedAt:Date.now(),track:{id:'saved',title:'My saved song',artist:'Artist',duration:30,fullDuration:30,quality:'30s',preview:true,streamUrl:'https://example.test/preview/a.m4a'}}}
+      const scope=vm.createContext({streamCache:{searches:{},streams:{}},LIBRARY_CACHE_KEY:'library',readStorage:()=>library,writeStorage(){},persistStreamCache(){}})
+      vm.runInContext(section(app,'function isPreviewTrack(', 'function notifyStorageFailure('),scope)
+      vm.runInContext(section(app,'function purgePreviewCaches(', 'function cachedSearchEntry('),scope)
+      assert.equal(library.saved.track.id,'saved');assert.equal(library.saved.track.title,'My saved song')
+      assert.equal(library.saved.track.streamUrl,null);assert.equal(library.saved.track.duration,0)
+      assert.equal(scope.isPreviewTrack(library.saved.track),false)
+    })
+
     await check('catalog retains unknown durations, rejects known short tracks and previews', () => {
       const scope = vm.createContext({})
       vm.runInContext(section(app, 'function isPreviewTrack(', 'function notifyStorageFailure(') + section(app, 'function isFullLengthTrack(', 'async function resolveFullTrack('), scope)
@@ -430,35 +441,32 @@ const artistPayload = {
       assert.equal(scope.isFullLengthTrack({ duration: 180, preview: true }), false)
     })
 
-    await check('playback waits for metadata; short provider previews still play silently', async () => {
-      let plays = 0, blocked = 0
-      const scope = vm.createContext({ setTimeout, clearTimeout, sleepPausedRef: { current: false }, playAttemptIdRef: { current: 1 }, guestPreviewRef: { current: false }, currentUser: { id: 'member' }, blockShortPlayback: () => blocked++, setIsPlaying() {}, showToast() {} })
+    await check('native playback rejects short media, waits for metadata, and permits verified 60s streams', async () => {
+      let plays=0, notices=0
+      const scope=vm.createContext({setTimeout,clearTimeout,sleepPausedRef:{current:false},playAttemptIdRef:{current:1},setIsPlaying(){},showToast(){notices++}})
       vm.runInContext(section(app, '  async function safeAudioPlay(', '  function clearAdvanceCheck('), scope)
-      const audio = new EventTarget()
-      Object.assign(audio, { readyState: 1, duration: 30, getAttribute: () => 'fixture', play: async () => plays++ })
-      assert.equal(await scope.safeAudioPlay(audio, 1), true)
-      assert.equal(blocked, 0)
-      audio.duration = NaN
-      assert.equal(await scope.safeAudioPlay(audio, 1), true)
-      audio.duration = 60
-      assert.equal(await scope.safeAudioPlay(audio, 2), false)
-      assert.equal(plays, 2)
-      audio.readyState = 0
-      scope.playAttemptIdRef.current = 1
-      const pending = scope.safeAudioPlay(audio, 1)
-      assert.equal(plays, 2)
-      audio.readyState = 1
-      audio.dispatchEvent(new Event('loadedmetadata'))
-      assert.equal(await pending, true)
-      assert.equal(plays, 3)
-      scope.guestPreviewRef.current = true
-      scope.playAttemptIdRef.current = 2
-      audio.duration = 30
-      assert.equal(await scope.safeAudioPlay(audio, 2), true)
-      assert.equal(plays, 4)
-      assert.equal(blocked, 0)
+      const audio=new EventTarget()
+      Object.assign(audio,{readyState:1,duration:30,getAttribute:()=> 'fixture',pause(){},play:async()=>plays++})
+      assert.equal(await scope.safeAudioPlay(audio,1),false)
+      assert.equal(plays,0);assert.equal(notices,1)
+      audio.duration=60
+      assert.equal(await scope.safeAudioPlay(audio,1),true)
+      audio.readyState=0
+      const pending=scope.safeAudioPlay(audio,1)
+      assert.equal(plays,1)
+      audio.readyState=1;audio.dispatchEvent(new Event('loadedmetadata'))
+      assert.equal(await pending,true);assert.equal(plays,2)
+      assert.equal(await scope.safeAudioPlay(audio,2),false)
     })
 
+    await check('Lounge expiry includes the 24h boundary, drops old voice/text and rejects invalid timestamps',async()=>{
+      const {isFreshLoungeMessage}=await import('./src/core/loungeExpiry.js')
+      const now=Date.now()
+      assert.equal(isFreshLoungeMessage({createdAt:now-86400000},now),true)
+      assert.equal(isFreshLoungeMessage({createdAt:now-86400001,type:'voice'},now),false)
+      assert.equal(isFreshLoungeMessage({created_at:new Date(now).toISOString()},now),true)
+      assert.equal(isFreshLoungeMessage({},now),false)
+    })
     await check('RTT 100→160→120 gives jitter 0→60→40; drift remains 0/140/1800/4200', async () => {
       let now = 0, latency = 100, snapshot = {}
       const probes = []

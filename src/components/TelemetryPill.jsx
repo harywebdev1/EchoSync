@@ -7,7 +7,7 @@ export function SyncDot({ ms = 0 }) {
   return <i className={`sync-dot ${telemetryTone(ms)}`} aria-hidden="true" />
 }
 
-export function TelemetryPill({ compact = false, detail = false, className = '' }) {
+export function TelemetryPill({ compact = false, detail = false, simple = false, className = '' }) {
   const telemetry = useLiveTelemetry()
   const ms = Math.max(0, Math.round(telemetry.roomDriftMs || 0))
   const display = ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`
@@ -21,14 +21,14 @@ export function TelemetryPill({ compact = false, detail = false, className = '' 
       title={`Live audio drift ${ms} ms`}
     >
       <SyncDot ms={ms} />
-      {compact ? (
+      {simple ? <span>{tone === 'good' ? 'Synced' : 'Syncing'}</span> : compact ? (
         <b>{display}</b>
       ) : (
         <>
           <Wifi aria-hidden="true" />
           <span>{telemetryLabel(ms)}</span>
           <b>{display}</b>
-          {detail && <em>drift</em>}
+          {detail && <em>behind</em>}
         </>
       )}
     </span>

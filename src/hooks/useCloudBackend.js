@@ -9,7 +9,7 @@ export function useCloudBackend(options) {
   const migration=useRef(null), migrationDone=useRef(false)
   const epoch=useRef(0), seenOwn=useRef(''), dirty=useRef(false)
   const ownSignature=data=>cloudFingerprint({likes:data.profile?.liked_tracks,taste:data.profile?.taste_profile,privacy:data.profile?.privacy_settings,recent:data.profile?.activity_status?.recent,playlists:[...(data.playlists||[])].sort((a,b)=>a.id.localeCompare(b.id)).map(p=>({id:p.id,name:p.name,description:p.description||'',visibility:p.visibility,tracks:p.tracks}))})
-  if(!migration.current)migration.current=(options.currentUser?.cloud?{likes:[],playlists:[],taste:{},library:{}}:options.legacyMigration?.() || {likes:options.liked.map(id=>options.library[id]).filter(Boolean),playlists:options.playlists,taste:options.tasteProfile,library:options.library})
+  if(!migration.current)migration.current=(options.currentUser?.cloud?{likes:[],playlists:[],taste:{},library:{}}:options.legacyMigration?.() || {likes:options.liked.map(id=>options.library[id]||{id}),playlists:options.playlists,taste:options.tasteProfile,library:options.library})
   async function accept(session) {
     const user=session?.user
     if(!user){epoch.current++;if(applied.current){applied.current=null;setReadyId(null);latest.current.onSignedOut()}else latest.current.clearLocalIdentity();return}
@@ -18,7 +18,7 @@ export function useCloudBackend(options) {
     const ticket=++epoch.current
     pending.current=(async()=>{
       const client=await getSupabaseClient(),adapter=createCloudAdapter(client);adapterRef.current=adapter
-      if(!migrationDone.current&&!latest.current.currentUser?.cloud){const o=latest.current;migration.current={...migration.current,likes:[...(migration.current?.likes||[]),...o.liked.map(id=>o.library[id]).filter(Boolean)],taste:mergeMigrationTaste(migration.current?.taste,o.tasteProfile),library:o.library,playlists:o.playlists.length?o.playlists:migration.current?.playlists||[]}}
+      if(!migrationDone.current&&!latest.current.currentUser?.cloud){const o=latest.current;migration.current={...migration.current,likes:[...(migration.current?.likes||[]),...o.liked.map(id=>o.library[id]||{id})],taste:mergeMigrationTaste(migration.current?.taste,o.tasteProfile),library:o.library,playlists:o.playlists.length?o.playlists:migration.current?.playlists||[]}}
       const data=await adapter.hydrate(user,migration.current)
       if(!mounted.current || ticket!==epoch.current)return
       seenOwn.current=ownSignature(data)
@@ -48,7 +48,7 @@ export function useCloudBackend(options) {
   const [retry,setRetry]=useState(0)
   function libraryData(){
     const o=latest.current,visible=o.currentUser.showActivity!==false
-    return {likes:o.liked.map(id=>o.library[id]).filter(Boolean),taste:o.tasteProfile,privacy:{...privacy.current,showActivity:visible,allowInvites:o.currentUser.allowInvites!==false},activity:{recent:o.recent,room:visible&&o.roomPlaybackActive&&o.activeRoom&&!o.activeRoom.private?{id:o.activeRoom.id,name:o.activeRoom.name}:null,track:visible&&o.isPlaying?o.track:null,rotation:visible?o.recent.slice(0,3).map(id=>o.library[id]).filter(Boolean):[]},playlists:o.playlists,library:o.library}
+    return {likes:o.liked.map(id=>o.library[id]||{id}),taste:o.tasteProfile,privacy:{...privacy.current,showActivity:visible,allowInvites:o.currentUser.allowInvites!==false},activity:{recent:o.recent,room:visible&&o.roomPlaybackActive&&o.activeRoom&&!o.activeRoom.private?{id:o.activeRoom.id,name:o.activeRoom.name}:null,track:visible&&o.isPlaying?o.track:null,rotation:visible?o.recent.slice(0,3).map(id=>o.library[id]).filter(Boolean):[]},playlists:o.playlists,library:o.library}
   }
   useEffect(()=>{if(!configured)return;const retry=()=>setRetry(n=>n+1);window.addEventListener('online',retry);return()=>window.removeEventListener('online',retry)},[configured])
   useEffect(()=>{

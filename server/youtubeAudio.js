@@ -7,8 +7,9 @@ async function youtubeClient() {
     youtubeClientPromise = import('youtubei.js')
       .then(({ Innertube }) => Innertube.create({
         lang: 'en', location: 'US',
+        generate_session_locally:true, retrieve_player:false, retrieve_innertube_config:false,
         fetch: (input, init = {}) => {
-          const deadline = AbortSignal.timeout(10_000)
+          const deadline = AbortSignal.timeout(3500)
           const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline
           return globalThis.fetch(input, { ...init, signal })
         },
@@ -25,13 +26,12 @@ export async function extractYouTubeAudio(videoId) {
   if (inflight.has(videoId)) return inflight.get(videoId)
   const task = (async () => {
     const client = await youtubeClient()
-    let lastError
-    for (const clientType of ['VISIONOS', 'IOS', 'ANDROID_VR']) {
-      try {
+    return Promise.any(['ANDROID', 'IOS', 'ANDROID_VR'].map(async clientType => {
         const info = await client.getBasicInfo(videoId, { client: clientType })
-        const format = info.chooseFormat({ type: 'audio', quality: 'best' })
-        if (!format?.url) continue
-        const data = { url: format.url, mimeType: format.mime_type || 'audio/mp4',
+        const format = info.chooseFormat({ type: 'audio', quality: 'best', format:'mp4' })
+        const streamUrl = format.url
+        if (!streamUrl) throw new Error('No direct audio URL')
+        const data = { url: streamUrl, mimeType: format.mime_type || 'audio/mp4',
           bitrate: Number(format.bitrate || format.average_bitrate) || 0,
           duration: Number(info.basic_info?.duration) || Math.round(Number(format.approx_duration_ms || 0) / 1000) || 0,
           title: info.basic_info?.title || '', author: info.basic_info?.author || '',
@@ -41,15 +41,13 @@ export async function extractYouTubeAudio(videoId) {
         if (cache.size >= 200) cache.delete(cache.keys().next().value)
         if (expiresAt > Date.now()) cache.set(videoId, { data, expiresAt })
         return data
-      } catch (error) { lastError = error }
-    }
-    throw lastError || new Error('No playable audio format found')
+    }))
   })().finally(() => inflight.delete(videoId))
   inflight.set(videoId, task)
   return task
 }
 
-export function createYoutubeAudioHandler({ resolve = extractYouTubeAudio, timeoutMs = 12_000 } = {}) {
+export function createYoutubeAudioHandler({ resolve = extractYouTubeAudio, timeoutMs = 3500 } = {}) {
   return async function youtubeAudioHandler(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
     res.setHeader('Cache-Control', 'no-store')

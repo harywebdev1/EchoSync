@@ -29,8 +29,6 @@ const queueIdsRef = useRef([])
 const currentIndexRef = useRef(0)
 const isPlayingRef = useRef(false)
 const canControlRef = useRef(true)
-const ytPlayerRef = useRef(null)
-const ytContainerRef = useRef(null)
 const handleEndedRef = useRef(null)
 const hasInteractedRef = useRef(false)
 const stallTimerRef = useRef(null)
@@ -83,8 +81,6 @@ const playRequestRef = useRef({ seq: 0, id: '' })
     currentIndexRef,
     isPlayingRef,
     canControlRef,
-    ytPlayerRef,
-    ytContainerRef,
     handleEndedRef,
     hasInteractedRef,
     stallTimerRef,

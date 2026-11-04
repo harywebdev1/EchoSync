@@ -35,7 +35,7 @@ export async function refreshDynamicTasteCatalog(
   ).slice(0, 240)
 }
 
-export function useDynamicTasteCatalog(profile, userKey, search) {
+export function useDynamicTasteCatalog(profile, userKey, search, enabled = true) {
   const [catalog, setCatalog] = useState({ tracks: [], status: 'loading' })
   const latest = useRef(profile)
   latest.current = profile
@@ -47,6 +47,7 @@ export function useDynamicTasteCatalog(profile, userKey, search) {
       cache.current.clear()
       setCatalog({ tracks: [], status: 'loading' })
     }
+    if (!enabled) return undefined
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       const cachedSearch = async (query, limit, options) => {
@@ -79,6 +80,6 @@ export function useDynamicTasteCatalog(profile, userKey, search) {
       clearTimeout(timer)
       controller.abort()
     }
-  }, [userKey, profile?.events, search])
+  }, [userKey, profile?.events, search, enabled])
   return catalog
 }

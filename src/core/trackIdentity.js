@@ -39,12 +39,13 @@ export function cleanTitleCore(value) {
   return core || baseNormalize(original)
 }
 
-/** Canonical dedupe key for a track: title only, intentionally artist-agnostic. */
+/** Canonical dedupe key for a track: title and primary artist. */
 export function getCanonicalSongStem(track) {
   const title = track && typeof track === 'object'
     ? track.title || track.name || track.song || track.trackName || ''
     : track
-  return cleanTitleCore(title)
+  const artist = track && typeof track === 'object' ? String(track.artist || track.artists?.[0]?.name || '').split(/,| & | and /i)[0] : ''
+  return artist ? `${cleanTitleCore(title)}|${baseNormalize(artist)}` : cleanTitleCore(title)
 }
 
 /** @public Consumed by integrity-unit.cjs via the vm fixture. */

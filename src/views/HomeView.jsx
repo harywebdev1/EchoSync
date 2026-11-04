@@ -67,7 +67,7 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
     )
   }, [dailyFeed, currentUser?.id, library, live.tracks, home.quick, home.mixed, home.fresh, dynamicCatalogTracks])
   const ranked = useMemo(() => rankListenerTracks(catalog, options), [catalog, options])
-  const quickPool = useMemo(() => mergeMoodCatalog([...live.tracks, ...home.quick], []), [live.tracks, home.quick])
+  const quickPool = useMemo(() => mergeMoodCatalog([...live.tracks, ...home.quick], Object.values(library)), [live.tracks, home.quick, library])
   const sections = useMemo(
     () => allocateHomeShelves(
       quickPool,
@@ -91,7 +91,7 @@ export const HomeView = memo(function HomeView({ dynamicCatalogTracks = [], curr
       return true
     }).slice(0, 10)
   }, [radio, quickPicks, recent, ranked])
-  const playHero = track => onPlayTrack(track, radio)
+  const playHero = track => onPlayTrack(track, [track, ...quickPicks.filter(item => item.id !== track.id)])
   // Buffer the first audible frame of the tracks the listener can see first.
   useEffect(() => {
     if (!onPrefetch) return undefined

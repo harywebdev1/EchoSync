@@ -3,6 +3,7 @@ import { Menu, Search, Globe2, MessageCircle, UserRound, Settings, X } from 'luc
 import { Avatar } from '../Avatar'
 
 export function StageBar({
+  notifications = [], onReadNotifications, onClearNotifications,
   room,
   view,
   inRoom,
@@ -22,6 +23,7 @@ export function StageBar({
   unreadLoungeCount,
   onToggleLounge,
 }) {
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
   useEffect(() => {
@@ -57,6 +59,10 @@ export function StageBar({
         {searchQuery ? <button className="icon-btn" aria-label="Clear search" onClick={() => { onSearchQuery(''); document.getElementById('canonical-search-input')?.focus() }}><X /></button> : <kbd>Ctrl K</kbd>}
       </div>
       <div className="stage-actions">
+        <div className="notification-bell-wrap">
+          <button className="icon-btn notification-bell" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => { setNotificationsOpen(value => !value); onReadNotifications?.() }}>🔔{notifications.some(item => item.unread) && <i className="notification-unread" />}</button>
+          {notificationsOpen && <><button className="notification-scrim" aria-label="Close notifications" onClick={() => setNotificationsOpen(false)} /><section className="notification-popover" aria-label="Recent activity and notifications"><header><strong>Recent activity</strong><button className="text-btn" onClick={onClearNotifications}>Clear all</button><button className="icon-btn" aria-label="Close notifications" onClick={() => setNotificationsOpen(false)}><X /></button></header>{notifications.length ? notifications.map(item => <article key={item.id}><span aria-hidden="true">{item.category === 'music' ? '🎵' : item.category === 'chat' ? '💬' : item.category === 'room' ? '🎙️' : '✅'}</span><div><strong>{item.title}</strong><p>{item.subtitle || item.message}</p></div>{item.action && <button className="text-btn" onClick={() => { item.action.onClick(); setNotificationsOpen(false) }}>{item.action.label}</button>}</article>) : <p>No notifications yet.</p>}</section></>}
+        </div>
         {!currentUser && (
           <div className="guest-actions">
             <button className="text-btn guest-login" onClick={onLogin}>Log in</button>

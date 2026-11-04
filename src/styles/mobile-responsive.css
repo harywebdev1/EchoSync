@@ -2704,3 +2704,311 @@
     display: flex;
   }
 }
+
+/* Production layout corrections: keep the player scrollport and action rails explicit. */
+.home-v81 .quick-card {
+  display: grid !important;
+  grid-template-columns: 48px minmax(0, 1fr) auto !important;
+  width: 100%;
+  align-items: center;
+}
+.home-v81 .quick-copy {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.home-v81 .quick-copy .quick-title-btn {
+  min-height: 0;
+  height: auto;
+  display: block;
+  max-width: 100%;
+}
+.home-v81 .quick-actions {
+  justify-self: end;
+  margin-left: auto;
+}
+.rooms-saved-count {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.library-hero .library-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  margin-top: 18px;
+}
+.library-hero .library-head-actions button {
+  min-width: 110px;
+  width: auto;
+  flex: none;
+}
+.settings-nav .signout-btn {
+  position: static;
+  margin-top: 12px;
+}
+@media (max-width: 768px) {
+  .full-player .fp-inner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .full-player .fp-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .full-player .fp-queue {
+    min-height: 0;
+    padding-bottom: 24px;
+  }
+  .room-queue-header {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .room-queue-header > div {
+    width: 100%;
+    min-width: 0;
+  }
+  .room-queue-header .head-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+  .room-queue-header h3 {
+    white-space: nowrap;
+  }
+  .room-sync-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .social.mobile-open,
+  .social.lounge-drawer {
+    z-index: 9100;
+    bottom: 0;
+    background: rgba(10, 11, 16, 0.96);
+  }
+  .social.mobile-open .chat-input-wrap,
+  .social.lounge-drawer .chat-input-wrap {
+    background: rgba(10, 11, 16, 0.98);
+  }
+  body:has(.social.mobile-open) .mobile-bottom-bar {
+    pointer-events: none;
+    visibility: hidden;
+  }
+  .settings-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-nav .signout-btn {
+    position: static;
+    order: 10;
+    margin: 12px 0;
+  }
+}
+
+.es-toast-viewport {
+  position: fixed;
+  top: 68px;
+  right: 20px;
+  left: auto;
+  bottom: auto;
+  z-index: 9600;
+  width: min(400px, calc(100vw - 24px));
+  transform: none;
+}
+.es-toast-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  background: rgba(15, 16, 21, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 14px;
+  backdrop-filter: blur(24px);
+}
+.es-toast-card .es-toast-icon {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+.es-toast-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.es-toast-copy strong {
+  font-size: 13.5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.es-toast-copy .es-toast-message {
+  display: block;
+  font-size: 12px;
+  opacity: 0.78;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.es-toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left;
+  background: var(--song-accent);
+  animation: toast-countdown 3.5s linear forwards;
+}
+@keyframes toast-countdown {
+  to {
+    transform: scaleX(0);
+  }
+}
+.notification-bell-wrap {
+  position: relative;
+  flex: none;
+}
+.stage-actions > .notification-bell-wrap {
+  display: block;
+}
+.stage-actions > .lounge-header-btn {
+  display: inline-flex;
+}
+.notification-bell {
+  position: relative;
+  font-size: 18px;
+}
+.notification-unread {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--song-accent);
+}
+.notification-scrim {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  border: 0;
+  z-index: 9399;
+}
+.notification-popover {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  z-index: 9400;
+  width: 360px;
+  max-height: 65dvh;
+  overflow: auto;
+  padding: 12px;
+  background: rgba(10, 11, 16, 0.98);
+  backdrop-filter: blur(24px);
+  border: 1px solid #ffffff20;
+  border-radius: 16px;
+  box-shadow: 0 20px 80px #000a;
+}
+.notification-popover header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.notification-popover header strong {
+  flex: 1;
+}
+.notification-popover article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #ffffff10;
+}
+.notification-popover article > div {
+  min-width: 0;
+  flex: 1;
+}
+.notification-popover article strong {
+  font-size: 13.5px;
+}
+.notification-popover p {
+  font-size: 12px;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+  opacity: 0.78;
+}
+@media (max-width: 768px) {
+  .es-toast-viewport {
+    top: 12px;
+    right: 12px;
+    left: 12px;
+    bottom: auto;
+    width: auto;
+    transform: none;
+  }
+  .notification-popover {
+    position: fixed;
+    top: 62px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+  .stage-actions {
+    gap: 4px;
+  }
+  .notification-bell {
+    display: inline-flex !important;
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.playlist-more {
+  position: relative;
+}
+.playlist-more-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(10, 11, 16, 0.98);
+  border-radius: 12px;
+  min-width: 180px;
+}
+.album-actions {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+}
+.album-tracklist {
+  overflow-y: auto;
+  max-height: 60dvh;
+  min-height: 0;
+}
+.settings-layout + .signout-btn {
+  position: static;
+  margin: 16px 0 0;
+  align-self: flex-start;
+}

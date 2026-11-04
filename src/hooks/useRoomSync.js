@@ -1,3 +1,5 @@
+import { getPreloadedTrack } from '../services/preloadManager.js'
+import { isFreshLoungeMessage } from '../core/loungeExpiry.js'
 import { createRealtimeTransport } from '../cloud/realtimeTransport.js'
 import {
   loadRoomStateSnapshot,
@@ -69,7 +71,7 @@ export function useRoomSync({
     roomPlaybackActive,
   },
   actions: {
-    handleSocialEvent,
+    handleSocialEvent, acceptRoomInvite,
     handleCloudEvent,
     getPlaybackTime,
     updatePlaybackProgress,
@@ -252,7 +254,12 @@ export function useRoomSync({
     if (viewRef.current === 'room' && !sleepPausedRef.current) {
       const candidate = libraryRef.current[nextId] || SEED_BY_ID[nextId]
       if (candidate) {
-        ensurePlayable(candidate).then((playable) => {
+        const ready = getPreloadedTrack(candidate.id)
+        if (ready?.streamUrl && audioRef.current) {
+          audioRef.current.src = ready.streamUrl
+          audioRef.current.play()?.catch(() => setIsPlaying(false))
+          beginPlayback(roomId, roomQueueRef.current, nextIndex, ready)
+        } else ensurePlayable(candidate).then((playable) => {
           if (!playable || sleepPausedRef.current || activeRoomRef.current !== roomId || roomClockRef.current.index !== nextIndex) return
           beginPlayback(roomId, roomQueueRef.current, nextIndex, playable)
         })
@@ -402,18 +409,20 @@ export function useRoomSync({
             : [...previous, data.invite]
         ))
         if (data.invite.toUserId === currentUserRef.current?.id) {
-          showToast(`@${data.invite.fromHandle || 'a listener'} invited you to ${data.invite.roomName}`)
+          showToast({title:'Room invitation',subtitle:`@${data.invite.fromHandle || 'a listener'} invited you to ${data.invite.roomName}`,category:'room',action:{label:'Join',onClick:()=>acceptRoomInvite(data.invite.id)}})
         }
         return
       }
 
       if (data.type === 'lounge-message' && data.message) {
         const normalized = normalizeLoungeMessage(data.message)
-        if (!normalized) return
+        if (!normalized || !isFreshLoungeMessage(normalized)) return
         const isFreshMessage = !receivedLoungeIdsRef.current.has(normalized.id)
         if (isFreshMessage) {
           rememberBoundedId(receivedLoungeIdsRef.current, normalized.id)
           rememberLoungeUnread(normalized)
+          const handle = currentUserRef.current?.handle
+          if (handle && String(normalized.text || '').toLowerCase().split(/[^a-z0-9_@.-]+/).includes('@' + handle.toLowerCase()) && normalized.author !== currentUserRef.current?.id) showToast({ title:'Mention in Public Lounge', subtitle:normalized.text, category:'chat', action:{label:'Open', onClick:() => document.querySelector('[data-testid="lounge-header-btn"]')?.click()} })
         }
         upsertLoungeMessage(normalized)
         setLoungeTyping((previous) => {
@@ -469,6 +478,15 @@ export function useRoomSync({
         if (!acceptCommand(data)) return
         const incoming = normalizeRoom(data.room)
         if (!incoming) return
+        const previousRoom = roomsRef.current.find(room => room.id === incoming.id)
+        const me = currentUserRef.current?.id
+        if (previousRoom && incoming.id === activeRoomRef.current) {
+          if (previousRoom.roles?.[me] !== incoming.roles?.[me]) showToast({ title:'Room role changed', subtitle:'You are now ' + (incoming.roles?.[me] || 'a listener'), category:'room' })
+          const joined = incoming.members.filter(id => !previousRoom.members.includes(id))
+          const left = previousRoom.members.filter(id => !incoming.members.includes(id))
+          for (const id of joined) showToast({title:'Member joined', subtitle:(memberIndexRef.current[id]?.name || 'A listener') + ' joined the room', category:'room'})
+          for (const id of left) showToast({title:'Member left', subtitle:(memberIndexRef.current[id]?.name || 'A listener') + ' left the room', category:'room'})
+        }
         if (incoming.id === activeRoomRef.current) {
           const clock = roomClockRef.current
           const currentTrackId = clock.trackId || roomQueueRef.current[clock.index] || null

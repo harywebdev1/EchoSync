@@ -17,12 +17,11 @@ import {
   findInstantPreview,
   primeInstantPreview,
   loadRoomStateSnapshot,
-  loadYouTubeApi,
   preResolvedStream,
   fetchYtRadio,
 } from '../lib/appServices.js'
 import { playbackProgressStore, setLiveTelemetry } from '../state/playbackStore'
-import { preloadQueueWindow, preloadCandidateAt } from '../services/preloadManager'
+import { preloadQueueWindow, preloadCandidateAt, getPreloadedTrack } from '../services/preloadManager'
 import { useEffect, useRef } from 'react'
 import { useMediaSession, publishMediaSessionPosition } from './useMediaSession.js'
 
@@ -86,7 +85,6 @@ export function usePlaybackEngine({
     progressRef,
     audioRef,
     sleepPausedRef,
-    ytPlayerRef,
     shuffleSeedRef,
     soloPlayOrderRef,
     soloQueueRef,
@@ -110,7 +108,6 @@ export function usePlaybackEngine({
     roomClockRef,
     playRequestRef,
     previousShuffleRef,
-    ytContainerRef,
     handleEndedRef,
   },
   model: {
@@ -124,7 +121,6 @@ export function usePlaybackEngine({
     queueIds,
     queue,
     roomPlaybackActive,
-    youtubeActive,
     canControlRoom,
     activeRoom,
     currentUser,
@@ -156,7 +152,6 @@ export function usePlaybackEngine({
   const previewUpgradeRef = useRef(false)
   const prefetchInFlightRef = useRef(new Set())
   const upgradeInFlightRef = useRef(new Set())
-  const directWarmRef = useRef(new Set())
   const radioPrimedRef = useRef(new Set())
   const openPreviewGateRef = useRef(() => {})
 
@@ -196,12 +191,6 @@ export function usePlaybackEngine({
       setIsPlaying(true)
       return
     }
-    if (ytPlayerRef.current?.seekTo) {
-      ytPlayerRef.current.seekTo(0, true)
-      updatePlaybackProgress(0)
-      setIsPlaying(true)
-      return
-    }
     if (track?.id) startGuestPreview(track, queue)
   }
 
@@ -228,7 +217,6 @@ export function usePlaybackEngine({
     clearStallTimer()
     if (fadeFrameRef.current) cancelAnimationFrame(fadeFrameRef.current)
     audioRef.current?.pause()
-    ytPlayerRef.current?.pauseVideo?.()
     isPlayingRef.current = false
     setIsPlaying(false)
     setBuffering(false)
@@ -249,11 +237,6 @@ export function usePlaybackEngine({
   }
 
   useEffect(() => { selectSleepTimer('off'); sleepPausedRef.current = false }, [currentUserId, selectSleepTimer])
-
-  function safeYouTubePlay(player) {
-    if (sleepPausedRef.current) return
-    player?.playVideo?.()
-  }
 
   async function safeAudioPlay(audio, attemptId) {
     if (sleepPausedRef.current) return false
@@ -276,6 +259,12 @@ export function usePlaybackEngine({
       })
     }
     if (attemptId !== playAttemptIdRef.current || source !== audio.getAttribute('src')) return false
+    if (!Number.isFinite(audio.duration) || audio.duration < 60) {
+      audio.pause?.()
+      setIsPlaying(false)
+      showToast('Track blocked: full-length audio must be at least 60 seconds', 'lock')
+      return false
+    }
     if (audio.error || audio.readyState < 1) {
       if (!recoveryRef.current.active) await recoverCurrentStream('initial', { force: true, fast: false, wasPlaying: true })
       return false
@@ -377,8 +366,6 @@ export function usePlaybackEngine({
   function getPlaybackTime() {
     const audio = audioRef.current
     if (loadedUrlRef.current && audio) return audio.currentTime || 0
-    const player = ytPlayerRef.current
-    if (player?.getCurrentTime) return player.getCurrentTime() || 0
     return 0
   }
 
@@ -678,7 +665,7 @@ export function usePlaybackEngine({
     primeInstantPreview(candidate)
     if (!currentUser) return
     const existing = libraryRef.current?.[candidate.id]
-    if (existing?.streamUrl || existing?.youtubeVideoId) return
+    if (existing?.streamUrl || !candidate.youtubeVideoId) return
     if (prefetchInFlightRef.current.has(candidate.id)) return
     prefetchInFlightRef.current.add(candidate.id)
     resolveFullTrack(candidate)
@@ -686,7 +673,7 @@ export function usePlaybackEngine({
         if (!ready || (!ready.streamUrl && !ready.youtubeVideoId) || !isFullLengthTrack(ready)) return
         setLibrary((previous) => {
           const entry = previous[candidate.id]
-          if (entry?.streamUrl || entry?.youtubeVideoId) return previous
+          if (entry?.streamUrl) return previous
           return {
             ...previous,
             [candidate.id]: sanitizeTrack({ ...entry, ...ready, id: candidate.id, preview: false, status: 'ready' }),
@@ -701,22 +688,29 @@ export function usePlaybackEngine({
   // RDAMVM radio. The queue keeps its current order; radio rows are appended.
   function primeRadioQueue(candidate) {
     const videoId = candidate?.youtubeVideoId
-    if (!videoId || inRoom || radioActive.current) return
-    if (radioPrimedRef.current.has(videoId)) return
-    radioPrimedRef.current.add(videoId)
+    const room = roomPlaybackActive ? roomsRef.current.find(item => item.id === activeRoomRef.current) : null
+    if (!videoId || (!room && radioActive.current)) return
+    if (room && (!canControlRoom || roomClockRef.current.lastActorId !== currentUser?.id || currentIndex < queue.length - 2)) return
+    const primeKey = (room?.id || 'solo') + ':' + videoId
+    if (radioPrimedRef.current.has(primeKey)) return
+    radioPrimedRef.current.add(primeKey)
     fetchYtRadio(videoId, { limit: 25, artist: candidate.artist })
       .then((tracks) => {
-        const existing = new Set(soloQueueRef.current)
+        if (room && activeRoomRef.current !== room.id) return
+        const latestRoom = room ? roomsRef.current.find(item => item.id === room.id) : null
+        const existing = new Set(latestRoom?.trackIds || soloQueueRef.current)
         const extra = (Array.isArray(tracks) ? tracks : [])
           .filter((item) => item?.id && item.id !== candidate.id && !existing.has(item.id))
         if (!extra.length) return
+        libraryRef.current = { ...libraryRef.current, ...Object.fromEntries(extra.map(item => [item.id, sanitizeTrack(item)])) }
         setLibrary((previous) => {
           const next = { ...previous }
           extra.forEach((item) => { next[item.id] = sanitizeTrack(item) })
           return next
         })
         extra.forEach((item) => saveLibraryEntry(item.id, item))
-        commitSoloQueue([...soloQueueRef.current, ...extra.map((item) => item.id)], { currentId: candidate.id })
+        if (latestRoom) commitRoomQueue(latestRoom, [...latestRoom.trackIds, ...extra.map(item => item.id)])
+        else commitSoloQueue([...soloQueueRef.current, ...extra.map((item) => item.id)], { currentId: candidate.id })
       })
       .catch(() => {})
   }
@@ -739,14 +733,14 @@ export function usePlaybackEngine({
       } catch {
         resolved = null
       }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
+      if (!resolved?.streamUrl) {
         try {
           resolved = await withTimeout(resolveByMetadata(candidate, { forceRefresh: true }), 9000, 'Fallback lookup timed out')
         } catch {
           resolved = null
         }
       }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) return
+      if (!resolved?.streamUrl) return
       const ready = sanitizeTrack({
         ...candidate,
         ...resolved,
@@ -800,8 +794,10 @@ export function usePlaybackEngine({
     }
     const direct = Boolean(
       !forceRefresh &&
-      ((candidate.streamUrl && isFullLengthTrack(candidate) && !isPreviewTrack(candidate)) || candidate.youtubeVideoId),
+      (candidate.streamUrl && isFullLengthTrack(candidate) && !isPreviewTrack(candidate)),
     )
+    const existingReady = libraryRef.current[candidate.id]
+    if (direct && existingReady?.streamUrl === candidate.streamUrl && existingReady.status === 'ready') return existingReady
     const staged = sanitizeTrack({
       ...candidate,
       preview: false,
@@ -823,21 +819,11 @@ export function usePlaybackEngine({
     })
     if (direct) {
       saveLibraryEntry(candidate.id, staged)
-      // The IFrame is already audible. Warm the direct AAC stream in the
-      // background so the cache is hot for the next start (and for hover
-      // pre-resolution) without interrupting what is playing.
-      if (!candidate.streamUrl && candidate.youtubeVideoId && currentUser && !directWarmRef.current.has(candidate.id)) {
-        directWarmRef.current.add(candidate.id)
-        resolveFullTrack({ ...candidate, preview: false }, { budget: 9000 })
-          .catch(() => {})
-          .finally(() => directWarmRef.current.delete(candidate.id))
-      }
       return staged
     }
 
     // No full stream yet: attach any already-resolved direct stream in the
-    // same frame; otherwise hand the known video id to the hidden IFrame while
-    // the direct stream hydrates.
+    // same frame; otherwise resolve a native audio URL before starting.
     let previewUrl = candidate.previewUrl || (candidate.streamUrl && isPreviewTrack(candidate) ? candidate.streamUrl : null)
     if (!previewUrl && !forceRefresh) {
       try {
@@ -877,14 +863,14 @@ export function usePlaybackEngine({
       } catch {
         resolved = null
       }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
+      if (!resolved?.streamUrl && !candidate.youtubeVideoId) {
         resolved = await withTimeout(
           resolveByMetadata(candidate, { forceRefresh }),
           fast ? 2600 : 9000,
           'Fallback stream lookup timed out',
         )
       }
-      if (!resolved || (!resolved.streamUrl && !resolved.youtubeVideoId)) {
+      if (!resolved?.streamUrl) {
         throw new Error('No playable source')
       }
       const ready = sanitizeTrack({
@@ -902,6 +888,11 @@ export function usePlaybackEngine({
       saveLibraryEntry(candidate.id, ready)
       return ready
     } catch {
+      if (queueIdsRef.current[currentIndexRef.current] === candidate.id) {
+        setIsPlaying(false)
+        setBuffering(false)
+        showToast('Audio stream unavailable. Try another track.', 'lock')
+      }
       setLibrary((previous) => ({
         ...previous,
         [candidate.id]: {
@@ -930,7 +921,7 @@ export function usePlaybackEngine({
     let resolved = null
     // Start the full-stream lookup immediately so a slow preview never adds to
     // the total wait; the first available source is the one that plays.
-    const fullTask = (!source.streamUrl && !source.youtubeVideoId)
+    const fullTask = !source.streamUrl
       ? withTimeout(resolveFullTrack({ ...source, preview: false }), 5200, 'Preview lookup timed out').catch(() => null)
       : Promise.resolve(null)
     if (!previewUrl) {
@@ -963,7 +954,7 @@ export function usePlaybackEngine({
     }
     const streamUrl = previewUrl || resolved?.streamUrl || null
     const youtubeVideoId = resolved?.youtubeVideoId || (!streamUrl ? source.youtubeVideoId : '')
-    if (!streamUrl && !youtubeVideoId) return null
+    if (!streamUrl) return null
     return sanitizeTrack({
       ...source,
       ...(resolved || {}),
@@ -1104,7 +1095,7 @@ export function usePlaybackEngine({
       await playIndex(0)
       return
     }
-    if (!track.streamUrl && !track.youtubeVideoId) {
+    if (!track.streamUrl) {
       const playable = await ensurePlayable(track)
       if (!playable) return
       startPlaybackAt(currentIndex, playable)
@@ -1123,7 +1114,6 @@ export function usePlaybackEngine({
         resumeTime,
         validate: Boolean(
           track.streamUrl &&
-          !youtubeActive &&
           (pausedFor > 45000 || Number(audio?.readyState) < 2 || audio?.error || networkNoSource)
         ),
         directRetry: false,
@@ -1172,18 +1162,16 @@ export function usePlaybackEngine({
     if (!currentUser && guestPreviewRef.current && Number(seconds) > GUEST_PREVIEW_SECONDS) {
       try {
         if (track.streamUrl) audioRef.current.currentTime = GUEST_PREVIEW_SECONDS
-        else ytPlayerRef.current?.seekTo?.(GUEST_PREVIEW_SECONDS, true)
       } catch {
         /* ignore */
       }
       updatePlaybackProgress(GUEST_PREVIEW_SECONDS)
       setIsPlaying(false)
       audioRef.current?.pause()
-      ytPlayerRef.current?.pauseVideo?.()
-      openPreviewGate()
+        openPreviewGate()
       return
     }
-    if (!track.streamUrl && !track.youtubeVideoId) return
+    if (!track.streamUrl) return
     const total = duration || track.duration || 0
     const target = Math.max(0, Math.min(Number(seconds) || 0, total || Number(seconds) || 0))
     const audio = audioRef.current
@@ -1194,8 +1182,6 @@ export function usePlaybackEngine({
         pendingSeekRef.current = target
         setSeekSignal((value) => value + 1)
       }
-    } else if (ytPlayerRef.current?.seekTo) {
-      ytPlayerRef.current.seekTo(target, true)
     }
     updatePlaybackProgress(target)
     setJoinPill(null)
@@ -1221,6 +1207,18 @@ export function usePlaybackEngine({
       openPreviewGate()
       return
     }
+    const nativeNextIndex = currentIndex + 1 < queueIds.length ? currentIndex + 1 : repeatMode === 'all' ? 0 : -1
+    const warmedNext = nativeNextIndex >= 0 ? getPreloadedTrack(queueIds[nativeNextIndex]) : null
+    if (repeatMode !== 'one' && warmedNext?.streamUrl && (!roomPlaybackActive || (canControlRoom && roomClockRef.current.lastActorId === currentUser?.id))) {
+      const audio = audioRef.current
+      if (audio) {
+        loadedUrlRef.current = warmedNext.streamUrl
+        audio.src = warmedNext.streamUrl
+        audio.play()?.catch(() => { setIsPlaying(false); showToast('Tap Play to continue playback') })
+        startPlaybackAt(nativeNextIndex, warmedNext)
+        return
+      }
+    }
     if (roomPlaybackActive) {
       if (!canControlRoom) {
         setIsPlaying(false)
@@ -1241,7 +1239,6 @@ export function usePlaybackEngine({
     }
     if (repeatMode === 'one') {
       const audio = audioRef.current
-      const player = ytPlayerRef.current
       setBuffering(false)
       if (track.streamUrl && audio) {
         try {
@@ -1251,10 +1248,6 @@ export function usePlaybackEngine({
         }
         updatePlaybackProgress(0)
         safeAudioPlay(audio, ++playAttemptIdRef.current)
-      } else if (player?.seekTo) {
-        player.seekTo(0, true)
-        if (player.playVideo) safeYouTubePlay(player)
-        updatePlaybackProgress(0)
       }
       setIsPlaying(true)
       return
@@ -1306,10 +1299,16 @@ export function usePlaybackEngine({
     })
   }
 
+  useEffect(() => {
+    if (!track?.id || !isPlaying) return
+    preloadQueueWindow({ queue, currentIndex, repeatMode, resolve: ensurePlayable })
+    if (roomPlaybackActive) primeRadioQueue(track)
+  }, [track?.id, queueIds.join('|'), currentIndex, repeatMode, isPlaying])
+
   function maybePreloadNext(audio) {
     if (!audio || !queueIds.length || repeatMode === 'one') return
     const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : duration
-    if (!total || audio.currentTime / total < 0.55) return
+    if (!total) return
     let nextIndex = currentIndex + 1
     if (nextIndex >= queueIds.length) {
       if (repeatMode !== 'all' && !radioActive.current) return
@@ -1320,6 +1319,7 @@ export function usePlaybackEngine({
   }
 
   function maybeCrossfade(audio) {
+    if (document.hidden) return
     if (sleepTimer.endOfTrack) return
     if (!settings.crossfade || inRoom || crossfadeLockRef.current || !audio || !queueIds.length) return
     if (repeatMode === 'one') return
@@ -1332,17 +1332,13 @@ export function usePlaybackEngine({
     if (remaining <= 0 || remaining > seconds) return
 
     crossfadeLockRef.current = true
-    const player = ytPlayerRef.current
-    const startLevel = youtubeActive && player?.getVolume
-      ? player.getVolume() / 100
-      : audio.volume
+    const startLevel = audio.volume
     const startedAt = performance.now()
     const fadeMs = Math.max(250, Math.min(remaining * 1000, seconds * 1000))
 
     const applyLevel = (level) => {
       const safe = Math.max(0, Math.min(1, level))
       audio.volume = safe
-      if (player?.setVolume) player.setVolume(Math.round(safe * 100))
     }
 
     const tick = (now) => {
@@ -1410,9 +1406,7 @@ export function usePlaybackEngine({
     recoveryRef.current.active = false
   }
 
-  // Silent, local fallback ladder: the stream that is already mounted, a
-  // pre-resolved direct stream, then a provider preview. When none of them
-  // answer, handleAudioError hands the same track to the hidden IFrame.
+  // Recover only through native audio URLs; unavailable providers stay unavailable.
   function streamAlternatives(current) {
     const list = []
     const direct = String(current?.streamUrl || '')
@@ -1544,39 +1538,21 @@ export function usePlaybackEngine({
     setBuffering(false)
     if (resumeAttemptRef.current.directRetry) return
     if (!loadedUrlRef.current) return
-    const current = library[track?.id] || track
-    if (current?.youtubeVideoId) {
-      const resumeTime = Math.max(0, getPlaybackTime() || 0)
-      loadedUrlRef.current = ''
-      pendingSeekRef.current = resumeTime
-      audioRef.current?.pause()
-      clearResolvedStream(current.id)
-      clearResolvedStream(`yt:${current.youtubeVideoId}`)
-      const fallback = {
-        ...current,
-        streamUrl: null,
-        status: 'ready',
-        preview: false,
-        needsHydration: false,
-      }
-      setLibrary((previous) => ({ ...previous, [current.id]: fallback }))
-      saveLibraryEntry(current.id, fallback)
-      setStreamRecovering(true)
-      setIsPlaying(true)
-      return
-    }
     recoverCurrentStream('error')
   }
 
   function acceptJoin() {
     const stored = loadRoomStateSnapshot()
     let target = joinPill?.time || 0
-    if (stored?.roomId === activeRoomId && stored.ts) {
+    if (roomClockRef.current?.roomId === activeRoomId) target = roomClockTime()
+    else if (stored?.roomId === activeRoomId && stored.ts) {
       target = (stored.time || 0) + (stored.isPlaying ? Math.max(0, Date.now() - stored.ts) / 1000 : 0)
     }
     pendingSeekRef.current = target
     setSeekSignal((value) => value + 1)
-    setIsPlaying(true)
+    const playing = Boolean(roomClockRef.current?.isPlaying ?? stored?.isPlaying)
+    setIsPlaying(playing)
+    if (!playing) audioRef.current?.pause()
     setJoinPill(null)
   }
 
@@ -1952,7 +1928,7 @@ export function usePlaybackEngine({
               openPreviewGate()
               return
             }
-            publishMediaSessionPosition(time, audio.duration)
+            publishMediaSessionPosition(time, audio.duration, audio.playbackRate)
             if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.buffered.length) {
               const end = audio.buffered.end(audio.buffered.length - 1)
               setLiveTelemetry({ bufferedPct: Math.min(100, Math.round((end / audio.duration) * 100)) })
@@ -1963,6 +1939,18 @@ export function usePlaybackEngine({
 
   function handleLoadedMetadata(event) {
             const audio = event.currentTarget
+            if (Number.isFinite(audio.duration) && audio.duration > 0 && audio.duration < 60) {
+              audio.pause()
+              playAttemptIdRef.current += 1
+              setIsPlaying(false)
+              isPlayingRef.current = false
+              setBuffering(false)
+              setLibrary(previous => ({ ...previous, [track.id]: { ...previous[track.id], streamUrl:null, status:'error' } }))
+              clearResolvedStream(track.id)
+              if (track.youtubeVideoId) clearResolvedStream(`yt:${track.youtubeVideoId}`)
+              showToast('Track blocked: full-length audio must be at least 60 seconds', 'lock')
+              return
+            }
             if (!currentUser && guestPreviewRef.current) {
               if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(Math.min(audio.duration, GUEST_PREVIEW_SECONDS))
               if (pendingSeekRef.current != null) {
@@ -2076,97 +2064,9 @@ export function usePlaybackEngine({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id])
 
-  useEffect(() => {
-    if (!youtubeActive || !ytContainerRef.current) {
-      if (ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.destroy()
-        } catch {
-          /* ignore a partially-created player */
-        }
-        ytPlayerRef.current = null
-      }
-      return undefined
-    }
-    const container = ytContainerRef.current
-    container.innerHTML = ''
-    const host = document.createElement('div')
-    container.appendChild(host)
-    let cancelled = false
-    let player = null
-
-    loadYouTubeApi()
-      .then((YT) => {
-        if (cancelled || !YT?.Player) return
-        player = new YT.Player(host, {
-          videoId: track.youtubeVideoId,
-          playerVars: {
-            autoplay: 0,
-            controls: 0,
-            disablekb: 1,
-            playsinline: 1,
-            modestbranding: 1,
-            rel: 0,
-            origin: window.location.origin,
-          },
-          events: {
-            onReady: (event) => {
-              if (cancelled) return
-              const instance = event.target
-              instance.setVolume(Math.round((muted ? 0 : volume) * (settings.normalization ? 0.9 : 1) * crossfadeGain * 100))
-              if (pendingSeekRef.current != null) instance.seekTo(pendingSeekRef.current, true)
-              const total = instance.getDuration?.() || 0
-              if (total > 0) setDuration(guestPreviewRef.current ? Math.min(total, GUEST_PREVIEW_SECONDS) : total)
-              if (isPlayingRef.current) safeYouTubePlay(instance)
-            },
-            onStateChange: (event) => {
-              if (cancelled) return
-              if (event.data === 0) {
-                handleEndedRef.current?.()
-              } else if (event.data === 1) {
-                const total = event.target.getDuration?.() || 0
-                if (total > 0) setDuration(guestPreviewRef.current ? Math.min(total, GUEST_PREVIEW_SECONDS) : total)
-                setBuffering(false)
-                setStreamRecovering(false)
-                setIsPlaying(true)
-              }
-            },
-            onError: () => {
-              if (cancelled) return
-              if (isPlayingRef.current) recoverCurrentStream('video')
-            },
-          },
-        })
-        ytPlayerRef.current = player
-      })
-      .catch(() => {
-        /* the silent audio fallback owns recovery */
-      })
-
-    return () => {
-      cancelled = true
-      try {
-        player?.destroy()
-      } catch {
-        /* ignore */
-      }
-      if (ytPlayerRef.current === player) ytPlayerRef.current = null
-      host.remove()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [youtubeActive, track?.youtubeVideoId])
 
   useEffect(() => {
     const audio = audioRef.current
-    if (youtubeActive) {
-      audio?.pause()
-      const player = ytPlayerRef.current
-      if (player?.playVideo) {
-        if (isPlaying) safeYouTubePlay(player)
-        else player.pauseVideo()
-      }
-      return
-    }
     if (!track?.streamUrl || !audio) return
     if (isPlaying) {
       const attemptId = ++playAttemptIdRef.current
@@ -2203,7 +2103,7 @@ export function usePlaybackEngine({
       audio.pause()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, track?.id, track?.streamUrl, youtubeActive, currentUser, recoverySignal])
+  }, [isPlaying, track?.id, track?.streamUrl, currentUser, recoverySignal])
 
   useEffect(() => {
     const target = pendingSeekRef.current
@@ -2231,12 +2131,8 @@ export function usePlaybackEngine({
       audio.addEventListener('loadedmetadata', apply, { once: true })
       return () => audio.removeEventListener('loadedmetadata', apply)
     }
-    if (youtubeActive && ytPlayerRef.current?.seekTo) {
-      ytPlayerRef.current.seekTo(target, true)
-      pendingSeekRef.current = null
-    }
     return undefined
-  }, [seekSignal, track?.streamUrl, youtubeActive])
+  }, [seekSignal, track?.streamUrl])
 
   useEffect(() => {
     const audio = audioRef.current
@@ -2244,13 +2140,8 @@ export function usePlaybackEngine({
     const shouldDuck = speaking || remoteSpeaking || voiceNotePlaying || loungeVoicePlaying
     const normalizationGain = settings.normalization ? 0.9 : 1
     const target = muted ? 0 : (shouldDuck ? volume * duckRatio : volume) * normalizationGain * crossfadeGain
-    const player = ytPlayerRef.current
-    if (player?.setVolume) {
-      player.setVolume(Math.round(target * 100))
-      if (muted) player.mute?.()
-      else player.unMute?.()
-    }
     if (!audio) return undefined
+    if (document.hidden) { audio.volume = target; return undefined }
     const start = audio.volume
     const startedAt = performance.now()
     let frame = 0
@@ -2264,45 +2155,18 @@ export function usePlaybackEngine({
   }, [speaking, remoteSpeaking, voiceNotePlaying, loungeVoicePlaying, volume, muted, settings.duckLevel, settings.normalization, crossfadeGain])
 
   useEffect(() => {
-    if (!youtubeActive) return undefined
-    const timer = setInterval(() => {
-      const player = ytPlayerRef.current
-      if (!player?.getCurrentTime) return
-      const time = player.getCurrentTime() || 0
-      progressRef.current = time
-      playbackProgressStore.set(time)
-      if (guestPreviewRef.current && time >= GUEST_PREVIEW_SECONDS) {
-        player.pauseVideo?.()
-        setIsPlaying(false)
-        isPlayingRef.current = false
-        progressRef.current = GUEST_PREVIEW_SECONDS
-        playbackProgressStore.set(GUEST_PREVIEW_SECONDS)
-        openPreviewGateRef.current()
-        return
-      }
-      const total = player.getDuration?.() || 0
-      publishMediaSessionPosition(time, total)
-      if (total > 0) setDuration(guestPreviewRef.current ? Math.min(total, GUEST_PREVIEW_SECONDS) : total)
-      if (isPlayingRef.current && player.getPlayerState) {
-        const state = player.getPlayerState()
-        if (state === 1) {
-          handleAudioReady()
-        } else if (state === 3 || state === 5) {
-          setBuffering(true)
-          if (!stallTimerRef.current) {
-            stallTimerRef.current = setTimeout(() => {
-              stallTimerRef.current = null
-              recoverCurrentStream('video', { fast: true, force: true })
-            }, 6000)
-          }
-        }
-      }
-    }, 500)
-    return () => {
-      clearInterval(timer)
-      clearStallTimer()
+    const stopBackgroundFade = () => {
+      if (!document.hidden) return
+      if (fadeFrameRef.current) cancelAnimationFrame(fadeFrameRef.current)
+      fadeFrameRef.current = null
+      crossfadeLockRef.current = false
+      crossfadeGainRef.current = 1
+      setCrossfadeGain(1)
     }
-  }, [youtubeActive])
+    document.addEventListener('visibilitychange', stopBackgroundFade)
+    return () => document.removeEventListener('visibilitychange', stopBackgroundFade)
+  }, [])
+
 
   useEffect(() => {
     if (!isPlaying || !track?.id || track.id === 'empty') return
@@ -2335,12 +2199,12 @@ export function usePlaybackEngine({
       previous: previousTrack,
       seek: seekTo,
       position: getPlaybackTime,
+      rate: () => audioRef.current?.playbackRate || 1,
     },
   })
 
   return {
     sleepTimer, setSleepTimer,
-    safeYouTubePlay,
     safeAudioPlay,
     clearAdvanceCheck,
     waitForMediaReady,

@@ -258,7 +258,7 @@ export function FullScreenPlayer({
               onToggleTranslate={onToggleTranslate}
             />
           </div>
-          {mobileTab === 'queue' && <div className="fp-queue" role="tabpanel" aria-label="Up Next">{queue?.slice(Math.max(0,queue.findIndex(item=>item.id===track?.id)+1)).map(item => <button className="fp-queue-row" key={item.id} onClick={() => onPlayIndex?.(queue.indexOf(item))}><Cover track={item} size="cover-size-sm"/><span><strong>{item.title}</strong><ArtistLinks track={item} onOpenArtist={onOpenArtist}/></span></button>)}{queue?.length < 2 && <p>Nothing up next.</p>}</div>}
+          {mobileTab === 'queue' && <div className="fp-queue" role="tabpanel" aria-label="Up Next">{queue?.slice(Math.max(0,queue.findIndex(item=>item.id===track?.id)+1)).map(item => <button className="fp-queue-row" key={item.id} onClick={() => onPlayIndex?.(queue.indexOf(item))}><Cover track={item} size="cover-size-sm"/><span><strong>{item.title}</strong><ArtistLinks track={item} onOpenArtist={onOpenArtist}/></span></button>)}{queue?.findIndex(item => item.id === track?.id) === queue.length - 1 && <p>Nothing up next.</p>}</div>}
         </div>
       </div>
     </div>

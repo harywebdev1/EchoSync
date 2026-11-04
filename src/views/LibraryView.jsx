@@ -104,6 +104,17 @@ export function LibraryView({
       <h1 className="page-title">Everything that sounds like <em>you.</em></h1>
       <p className="page-sub">Your playlists, your liked songs, and the music you keep returning to. All in one place.</p>
 
+            <div className="library-head-actions">
+              {tab === 'liked' && likedTracks.length > 0 && (
+                <button
+                  className="text-btn"
+                  onClick={() => onImportPlaylist?.({ id: 'liked', name: 'Liked songs', trackIds: likedTracks.map((track) => track.id) })}
+                >
+                  <Radio size={12} /> Add Liked to Room
+                </button>
+              )}
+              <button className="text-btn" onClick={onCreatePlaylist}><Plus /> New playlist</button>
+            </div>
       </header>
 
       {activePlaylist ? (
@@ -119,13 +130,13 @@ export function LibraryView({
               <span className="eyebrow"><span className="seg" /> PLAYLIST</span>
               <h2>{activePlaylist.name}</h2>
               <p>{activePlaylist.description || `Made by ${currentUser?.name || 'you'} · ${playlistTracks.length} track${playlistTracks.length === 1 ? '' : 's'}`}</p>
-              <div className="playlist-detail-actions"><button className="text-btn" aria-label="Playlist visibility" onClick={()=>social.toggleVisibility(activePlaylist.id)}>{activePlaylist.visibility==='private'?'🔒 Private':'🌐 Public'}</button>
-                <button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button>
+              <div className="playlist-detail-actions"><button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button><details className="playlist-more"><summary className="text-btn">⋯ More</summary><div className="playlist-more-menu"><button className="text-btn" aria-label="Playlist visibility" onClick={()=>social.toggleVisibility(activePlaylist.id)}>{activePlaylist.visibility==='private'?'🔒 Private':'🌐 Public'}</button>
+
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onShufflePlaylist(activePlaylist)}><Shuffle size={12} /> Shuffle</button>
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>
                 <button className="text-btn" onClick={() => onRenamePlaylist(activePlaylist)}><Pencil size={12} /> Edit</button>
                 <button className="text-btn danger-btn" onClick={() => onDeletePlaylist(activePlaylist)}><Trash2 size={12} /> Delete</button>
-                <button className="text-btn ghosted" onClick={() => onSelectPlaylist(null)}><X size={12} /> Close</button>
+                <button className="text-btn ghosted" onClick={() => onSelectPlaylist(null)}><X size={12} /> Close</button></div></details>
               </div>
             </div>
           </div>
@@ -183,7 +194,7 @@ export function LibraryView({
                 <button className="text-btn" onClick={onSearch}><Search size={12} /> Find songs</button>
               </div>
             ) : playlistTracks.map((track, index) => (
-                <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, likedTracks)}>
+                <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, playlistTracks)}>
                 <span className="num">{String(index + 1).padStart(2, '0')}</span>
                 <Cover track={track} size="cover-size-sm" />
                 <div className="queue-copy">
@@ -221,17 +232,7 @@ export function LibraryView({
             <button className={tab === 'liked' ? 'active' : ''} onClick={() => setTab('liked')}><Heart /> Liked songs</button>
             <button className={tab === 'recent' ? 'active' : ''} onClick={() => setTab('recent')}><Clock3 /> Recently played</button>
             <span className="grow" />
-            <div className="library-head-actions">
-              {tab === 'liked' && likedTracks.length > 0 && (
-                <button
-                  className="text-btn"
-                  onClick={() => onImportPlaylist?.({ id: 'liked', name: 'Liked songs', trackIds: likedTracks.map((track) => track.id) })}
-                >
-                  <Radio size={12} /> Add Liked to Room
-                </button>
-              )}
-              <button className="text-btn" onClick={onCreatePlaylist}><Plus /> New playlist</button>
-            </div>
+
           </div>
 
           {tab === 'playlists' && (
@@ -294,7 +295,7 @@ export function LibraryView({
                   <button className="text-btn" onClick={onSearch}><Search size={12} /> Find something new</button>
                 </div>
               ) : likedTracks.map((track, index) => (
-              <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, playlistTracks)}>
+              <div className="library-row" key={track.id} role="button" tabIndex={0} onClick={() => onPlay(track, likedTracks)}>
                   <span className="num">{String(index + 1).padStart(2, '0')}</span>
                   <Cover track={track} size="cover-size-sm" />
                   <div className="queue-copy">

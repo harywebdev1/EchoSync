@@ -1,3 +1,4 @@
+import { isFreshLoungeMessage } from '../core/loungeExpiry.js'
 import { isCloudVoiceUrl, isSupabaseConfigured } from './supabaseClient.js'
 import { createStorageAdapter } from '../core/storageAdapter.js'
 import { initials, normalizeArtworkUrl, resolveTrackArtwork } from './media'
@@ -6,7 +7,7 @@ import { detectLyricsLanguage, hasDevanagari, transliterateDevanagari, parseLrc 
 
 // One upstream catalog: YouTube Music's own WEB_REMIX InnerTube API.
 const YTMUSIC_BASE = '/api/ytmusic'
-const DIRECT_STREAM_BUDGET = 600
+const DIRECT_STREAM_BUDGET = 3500
 
 let ytmusicBackoffUntil = 0
 
@@ -328,6 +329,7 @@ function loadLoungeMessages() {
   const stored = readStorage(PUBLIC_LOUNGE_KEY, [])
   if (!Array.isArray(stored)) return []
   return stored
+    .filter(message => isFreshLoungeMessage(message))
     .map(normalizeLoungeMessage)
     .filter(Boolean)
     .slice(-LOUNGE_MESSAGE_LIMIT)
@@ -423,7 +425,7 @@ function purgePreviewCaches() {
     let libraryChanged = false
     Object.entries(library).forEach(([key, entry]) => {
       if (isPreviewTrack(entry?.track)) {
-        delete library[key]
+        library[key] = { ...entry, track: { ...entry.track, streamUrl:null, previewUrl:null, preview:false, fullDuration:null, quality:'', duration:Number(entry.track.duration) >= 60 ? entry.track.duration : 0, status:'pending', needsHydration:true } }
         libraryChanged = true
       }
     })
@@ -1332,9 +1334,7 @@ function normalizeYtArtistEntry(entry) {
   return { name, browseId: safeText(entry.browseId) }
 }
 
-// YouTube Music is the only catalog. Every row carries its InnerTube video id,
-// so the player can start the hidden IFrame immediately while a direct audio
-// stream is extracted in the background.
+// Catalog IDs identify the direct stream resolved before native audio playback.
 function normalizeYtTrack(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
   const providerId = safeText(source.providerId)
@@ -1404,16 +1404,23 @@ async function fetchYtmusic(params = {}, options = {}) {
   return payload
 }
 
+const ytSearchInflight = new Map()
 async function fetchYtSearch(query, limit = 40, options = {}) {
   const trimmed = safeText(query).slice(0, 200)
   if (!trimmed) return []
   const cached = !options.fresh && cachedSearchEntry('ytmusic', trimmed, limit)
   if (cached) return cached
   try {
-    const payload = await fetchYtmusic({ action: 'search', q: trimmed, limit }, {
-      timeout: options.timeout || 7000,
-      signal: options.signal,
-    })
+    const key = trimmed.toLowerCase() + ':' + limit
+    let task = !options.signal && ytSearchInflight.get(key)
+    if (!task) {
+      task = fetchYtmusic({ action:'search', q:trimmed, limit }, {timeout:options.timeout || 7000, signal:options.signal})
+      if (!options.signal) {
+        task = task.finally(() => ytSearchInflight.delete(key))
+        ytSearchInflight.set(key,task)
+      }
+    }
+    const payload = await task
     const tracks = normalizeYtTracks(payload?.songs)
       .filter((track) => isFullLengthTrack(track) || !track.duration)
       .slice(0, limit)
@@ -1454,6 +1461,10 @@ async function fetchYtRadio(videoId, options = {}) {
   }
 }
 
+export async function fetchYtAlbum({ browseId = '', name = '' } = {}) {
+  const payload = await fetchYtmusic({ action:'album', browseId, name }, { timeout:9000 })
+  return normalizeYtTracks(payload?.songs).filter(isFullLengthTrack)
+}
 async function fetchYtArtist({ browseId = '', name = '' } = {}) {
   const id = safeText(browseId)
   const label = safeText(name)
@@ -1622,12 +1633,11 @@ function readyYtTrack(target, streamInfo, videoId) {
   })
 }
 
-// Fast Path A runs for 600 ms. If the direct stream is not ready by then the
-// caller gets a video id only, and the hidden persistent IFrame starts at once.
+// Return a playable native stream, never a video-only playback placeholder.
 async function resolveFullTrack(candidate, options = {}) {
   if (!candidate) return null
   const cached = !options.forceRefresh && cachedResolvedStream(candidate.id)
-  if (cached && (cached.streamUrl || cached.youtubeVideoId)) {
+  if (cached?.streamUrl) {
     return { ...candidate, ...cached, id: candidate.id, preview: false, needsHydration: false, status: 'ready' }
   }
   const pre = !options.forceRefresh ? preResolvedStream(candidate) : null
@@ -1639,6 +1649,7 @@ async function resolveFullTrack(candidate, options = {}) {
   const videoId = await resolveVideoId(candidate)
   if (!videoId) return null
   const streamInfo = await directStreamFor(videoId, options.budget ?? DIRECT_STREAM_BUDGET)
+  if (!streamInfo?.streamUrl || (Number(streamInfo.duration) > 0 && Number(streamInfo.duration) < 60)) return null
   const ready = readyYtTrack(candidate, streamInfo, videoId)
   cacheResolvedStream(candidate.id, ready)
   return ready
@@ -1658,7 +1669,7 @@ const resolutionPromises = new Map()
 async function resolveSeed(seed, options = {}) {
   if (!seed?.id) return null
   const cached = !options.forceRefresh && cachedResolvedStream(seed.id)
-  if (cached && (cached.streamUrl || cached.youtubeVideoId)) return { ...cached, id: seed.id }
+  if (cached?.streamUrl) return { ...cached, id: seed.id }
   if (!options.forceRefresh && resolutionPromises.has(seed.id)) return resolutionPromises.get(seed.id)
   const task = (async () => {
     const resolved = await resolveFullTrack(seed, options)
@@ -1711,9 +1722,7 @@ async function searchEverything(query, options = {}) {
   return result
 }
 
-// Guests still get an audible frame in the same tick: the track's video id is
-// already known, so the preview is the hidden YouTube player, capped at 30 s by
-// the playback engine. No second provider lookup is needed.
+// Reuse native streams for the guest excerpt; the engine enforces the 30s cap.
 async function findInstantPreview(track) {
   const pre = preResolvedStream(track)
   return pre?.streamUrl || null
@@ -1747,13 +1756,10 @@ async function fetchArtworkFallback(titleOrTrack, artist = '', videoId = '') {
       artworkFallbackCache.set(key, thumbnail)
       return thumbnail
     }
-    const query = `${title} ${by}`.trim()
-    const found = await withTimeout(fetchYtSearch(query, 8), 4500).catch(() => [])
-    const ranked = rankYtCandidates(found, { ...track, title, artist: by })
-    const cover = normalizeArtworkUrl(ranked[0]?.track?.cover || found[0]?.cover)
-    if (cover) artworkFallbackCache.set(key, cover)
-    else artworkFallbackMisses.add(key)
-    return cover
+    // Unknown artwork stays neutral until catalog/playback supplies a video ID.
+    // Never fan out one catalog search for every missing cover at startup.
+    artworkFallbackMisses.add(key)
+    return null
   })().finally(() => artworkFallbackInflight.delete(key))
 
   artworkFallbackInflight.set(key, task)
@@ -2022,41 +2028,6 @@ function formatBytes(bytes) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-let ytApiPromise = null
-
-function loadYouTubeApi() {
-  if (typeof window === 'undefined') return Promise.reject(new Error('No window'))
-  if (window.YT?.Player) return Promise.resolve(window.YT)
-  if (ytApiPromise) return ytApiPromise
-  ytApiPromise = new Promise((resolve, reject) => {
-    const previous = window.onYouTubeIframeAPIReady
-    window.onYouTubeIframeAPIReady = () => {
-      if (typeof previous === 'function') previous()
-      resolve(window.YT)
-    }
-    const existing = document.querySelector('script[data-echosync-yt]')
-    if (!existing) {
-      const script = document.createElement('script')
-      script.src = 'https://www.youtube.com/iframe_api'
-      script.async = true
-      script.dataset.echosyncYt = 'true'
-      script.onerror = () => {
-        ytApiPromise = null
-        reject(new Error('YouTube IFrame API unavailable'))
-      }
-      document.head.appendChild(script)
-    }
-    setTimeout(() => {
-      if (window.YT?.Player) resolve(window.YT)
-      else {
-        ytApiPromise = null
-        reject(new Error('YouTube IFrame API timed out'))
-      }
-    }, 8000)
-  })
-  return ytApiPromise
-}
-
 export function consumeStorageFailure() {
   if (!pendingStorageFailure) return false
   pendingStorageFailure = false
@@ -2235,8 +2206,6 @@ export {
   ROOM_EMPTY_TRACK,
   publicAccount,
   formatBytes,
-  ytApiPromise,
-  loadYouTubeApi,
 }
 
 /** @public Consumed by integrity-unit.cjs via the vm fixture. */

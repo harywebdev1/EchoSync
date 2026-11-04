@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Lock, X } from 'lucide-react'
+import { X } from 'lucide-react'
 
-const DISMISS_AFTER = 3200
+const DISMISS_AFTER = 3500
 const EXIT_MS = 180
 
 /**
@@ -48,13 +48,13 @@ export function ToastViewport({ toast, onDismiss, children }) {
       {toast ? (
         <div
           key={toast.id}
-          className={`es-toast ${toast.tone || ''} ${leaving ? 'leaving' : ''}`}
+          className={`es-toast es-toast-card ${toast.tone || ''} ${leaving ? 'leaving' : ''}`}
           role="status"
         >
           <span className="es-toast-icon" aria-hidden="true">
-            {toast.tone === 'lock' ? <Lock /> : <Check />}
+            {toast.category === 'music' ? '🎵' : toast.category === 'chat' ? '💬' : toast.category === 'room' ? '🎙️' : '✅'}
           </span>
-          <span className="es-toast-message">{toast.message}</span>
+          <span className="es-toast-copy"><strong>{toast.title || 'EchoSync'}</strong><span className="es-toast-message">{toast.subtitle || toast.message}</span></span>{toast.action && <button className="text-btn" onClick={toast.action.onClick}>{toast.action.label}</button>}<i className="es-toast-progress" />
           <button
             type="button"
             className="es-toast-close"

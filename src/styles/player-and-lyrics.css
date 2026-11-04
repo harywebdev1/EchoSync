@@ -1434,17 +1434,6 @@
   display: none;
 }
 
-.yt-bridge {
-  position: fixed;
-  top: 0;
-  left: -10000px;
-  width: 360px;
-  height: 200px;
-  overflow: hidden;
-  opacity: 0.01;
-  pointer-events: none;
-}
-
 .home-card .queue-heart {
   position: absolute;
   top: 15px;

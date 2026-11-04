@@ -578,6 +578,26 @@ export function createYtmusicHandler({ fetchImpl = globalThis.fetch, timeoutMs =
         return
       }
 
+      if (action === 'album') {
+        let browseId = param('browseId')
+        if (browseId && !/^[A-Za-z0-9_-]{10,80}$/.test(browseId)) { fail(400, 'Invalid album id'); return }
+        if (!browseId) {
+          const name = param('name').trim().slice(0, 160)
+          if (!name) { fail(400, 'Missing album id or name'); return }
+          const found = parseSearch(await innertube('search', { query: name }), 30).albums[0]
+          browseId = found?.browseId
+          if (!browseId) { fail(404, 'Album not found'); return }
+        }
+        const key = 'album:' + browseId
+        const cached = cache.get(key)
+        if (cached && cached.expiresAt > Date.now()) { res.end(JSON.stringify(cached.data)); return }
+        const payload = await innertube('browse', { browseId })
+        const songs = dedupe(walk(payload, 'musicResponsiveListItemRenderer').map(item => parseSongItem(item)).filter(Boolean), song => song.videoId)
+        const data = { browseId, songs }
+        remember(key, ARTIST_TTL, data)
+        if (!res.destroyed) res.end(JSON.stringify(data))
+        return
+      }
       if (action === 'artist') {
         let browseId = param('browseId')
         const name = param('name').trim().slice(0, 160)

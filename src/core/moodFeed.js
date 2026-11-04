@@ -5,7 +5,7 @@ export function collectMoodResults(results) {
   const seen = new Set()
   return results.flatMap(result => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []).filter(track => {
     const key = getCanonicalSongStem(track)
-    if (!track?.id || seen.has(key) || track.preview || !(Number(track.duration) >= 60)) return false
+    if (!track?.id || seen.has(key) || track.preview || (Number(track.duration) > 0 && Number(track.duration) < 60)) return false
     seen.add(key); return true
   })
 }

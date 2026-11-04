@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom'
+import { ModalShell } from '../components/modals/ModalShell.jsx'
 import { useSocial } from '../components/social/SocialContext.jsx'
 import { MemberDrift, RoomVote } from '../components/social/RoomSocialControls.jsx'
 import { useState } from 'react'
@@ -11,7 +13,6 @@ import {
   UserPlus,
   Check,
   RefreshCw,
-  Maximize2,
   Settings,
   Trash2,
   ShieldCheck,
@@ -53,7 +54,6 @@ export function RoomView({
   onInvite,
   onSearch,
   onPlayIndex,
-  onOpenFull,
   currentUser,
   pendingRequest,
   onRequestRole,
@@ -69,8 +69,9 @@ export function RoomView({
   canControlRoom = false,
   onRemoveQueueTrack,
   onClearQueue,
-  onImportPlaylist, onResync,
+  onImportPlaylist, onResync, onOpenChat, unreadCount = 0,
 }) {
+  const upcomingQueue = queue.slice(currentIndex + 1)
   const social = useSocial()
   const [importOpen, setImportOpen] = useState(false)
   const members = useMembers()
@@ -130,12 +131,13 @@ export function RoomView({
         </div>
       </section>
 
+      {!hasTrack && <button className="text-btn room-chat-entry" onClick={onOpenChat}>💬 Chat &amp; Voice{unreadCount > 0 ? ` (${unreadCount})` : ''}</button>}
       {!hasTrack ? <section className="room-stage-empty"><h2>Pick a song</h2><p>Start the room with one of these.</p><div className="room-starters">{starterTracks.slice(0,4).map(item => <button key={item.id} disabled={!canControlRoom} onClick={() => onStartTrack(item)}><Cover track={item} /><strong>{item.title}</strong><span><ArtistLinks track={item} onOpenArtist={onOpenArtist} /></span><Play size={16} /></button>)}</div></section> : <section className={`now-card ${isPlaying ? 'is-playing' : ''}`}>
         <Cover track={track} size="cover-size-hero" playing={isPlaying} />
         <div className="now-main">
           <div className="now-kicker">
             <span className={isPlaying ? 'live-dot' : ''} style={isPlaying ? { color: room.accent } : undefined} />
-            <span>NOW SPINNING IN ROOM</span>
+            <span>{isPlaying ? 'Playing' : 'Paused'}</span>
             {pending && <span className="source-badge"><span className="spinner" style={{ width: 8, height: 8 }} /> Tuning</span>}
           </div>
 
@@ -150,17 +152,12 @@ export function RoomView({
             <span className="host-badge">Admin</span>
             <span className="attribution-you">· You are {ROLE_COPY[role]?.label}</span>
           </div>
-          <div className="room-sync-actions"><TelemetryPill className="room-transport-sync" /><button className="text-btn" onClick={onResync}><RefreshCw size={14} /> Resync</button><button className="text-btn" onClick={onOpenFull}><Maximize2 size={14} /> Open full player</button></div>
+          <div className="room-sync-actions"><button className="text-btn room-chat-entry" onClick={onOpenChat}>💬 Chat &amp; Voice{unreadCount > 0 ? ` (${unreadCount})` : ''}</button><TelemetryPill simple className="room-transport-sync" /><button className="text-btn" onClick={failed ? () => onRetryFull(track) : onResync}><RefreshCw size={14} /> {failed ? 'Retry stream' : 'Resync'}</button></div>
           <div className="now-foot">
             <span>{failed ? 'Paused' : pending ? 'Starting…' : track?.youtubeVideoId && !track?.streamUrl ? 'Full track' : ready ? (track?.quality || '320 kbps') : 'Ready'}</span>
             <span className="dot" />
             <span>{canControl ? 'You have control' : 'Listen-only mode'}</span>
             <span className="grow" />
-            {(failed || track?.needsHydration) && (
-              <button className="text-btn find-full" onClick={() => onRetryFull(track)}>
-                <RefreshCw size={11} /> Retry
-              </button>
-            )}
             <button className={`like-btn ${liked.includes(track?.id) ? 'liked' : ''}`} onClick={() => onLike(track)} aria-label="Like track">
               <Heart />
             </button>
@@ -188,13 +185,12 @@ export function RoomView({
             </div>
           )
         })}
-        {canControlRoom && <button className="text-btn" onClick={social.forceResync}>⚡ Sync All</button>}
       </div>
-      <div className="section-head">
+      <div className="section-head room-queue-header">
         <div>
-          <h3>The room queue</h3>
+          <h3>The room queue · {upcomingQueue.length} upcoming</h3>
           <p>{queue.length
-            ? <><b>{queue.length}</b> {queue.length === 1 ? 'track' : 'tracks'}, in sync for everyone.</>
+            ? <>Playing together</>
             : 'No songs queued.'}</p>
         </div>
         <div className="head-actions">
@@ -204,8 +200,7 @@ export function RoomView({
               <button className="text-btn" onClick={() => setImportOpen((value) => !value)} aria-expanded={importOpen}>
                 <ListPlus /> Import playlist
               </button>
-              {importOpen && (
-                <div className="room-import-popover">
+              {importOpen && createPortal(<ModalShell onClose={() => setImportOpen(false)}><div className="modal-head"><h2>Import playlist</h2><button className="icon-btn" onClick={() => setImportOpen(false)} aria-label="Close import"><X /></button></div><div className="room-import-popover" style={{position:'static',width:'100%'}}>
                   <span className="room-import-label">Add a playlist to the room</span>
                   <button
                     onClick={() => {
@@ -233,14 +228,13 @@ export function RoomView({
                   {!playlists.length && !likedTracks.length && (
                     <p>No saved playlists yet.</p>
                   )}
-                </div>
-              )}
+                </div></ModalShell>, document.querySelector('.app') || document.body)}
             </div>
           )}
           {canControlRoom && queue.length > 0 && (
             <button className="text-btn queue-clear-btn" onClick={onClearQueue}><Trash2 /> Clear queue</button>
           )}
-          <span className="source-badge">{queue.length} {queue.length === 1 ? 'track' : 'tracks'}</span>
+          <span className="source-badge">{upcomingQueue.length} upcoming</span>
         </div>
       </div>
 

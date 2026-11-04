@@ -11,6 +11,7 @@ export function useLiveMoodFeed(mood, profile) {
   useEffect(() => {
     let cancelled = false
     setFeed(previous => ({ mood, tracks: previous.mood === mood ? previous.tracks : [], status: 'loading' }))
+    if (mood === 'all') { setFeed({ mood, tracks: [], status: 'ready' }); return undefined }
     const queries = moodQueries(mood, [artist], rotation.current++)
     Promise.allSettled(queries.map(query => fetchJioSearch(query, 30, { fresh: true, page: 1 + rotation.current % 2 })))
       .then(results => {

@@ -58,7 +58,16 @@ export function createCloudAdapter(client) {
     async directory() {return query(client.from('profile_directory').select('*'))},
     async playlists() {return query(client.from('playlists').select('*'))},
     async rooms() {return query(client.from('rooms').select('*'))},
-    async history() {return (await query(client.from('messages').select('*').order('created_at',{ascending:false}).limit(200))||[]).reverse()},
+    async history() {
+      const session = await client.auth.getSession()
+      if (session.data?.session?.user) await query(client.rpc('echosync_prune_lounge'))
+      const cutoff = new Date(Date.now() - 86400000).toISOString()
+      const [lounge, rooms] = await Promise.all([
+        query(client.from('messages').select('*').eq('context_type','lounge').gte('created_at',cutoff).order('created_at',{ascending:false}).limit(200)),
+        query(client.from('messages').select('*').neq('context_type','lounge').order('created_at',{ascending:false}).limit(200)),
+      ])
+      return [...(lounge || []), ...(rooms || [])].sort((a,b) => Date.parse(a.created_at)-Date.parse(b.created_at))
+    },
     async publish(event,library={}) {
       const type=EVENT_ALIASES[event.type]||event.type
       const payload={...event,type}

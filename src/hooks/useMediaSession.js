@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 
-export function publishMediaSessionPosition(position, duration) {
+export function publishMediaSessionPosition(position, duration, playbackRate = 1) {
   if (typeof navigator === 'undefined' || !navigator.mediaSession?.setPositionState) return
   if (!Number.isFinite(duration) || duration <= 0) return
   try {
-    navigator.mediaSession.setPositionState({ duration, playbackRate: 1, position: Math.max(0, Math.min(duration, position || 0)) })
+    navigator.mediaSession.setPositionState({ duration, playbackRate, position: Math.max(0, Math.min(duration, position || 0)) })
   } catch { /* Position state is optional on some platforms. */ }
 }
 
@@ -45,7 +45,7 @@ export function useMediaSession({ track, isPlaying, duration, canControl, comman
     if (typeof MediaMetadata !== 'undefined') {
       session.metadata = hasTrack ? new MediaMetadata({
         title: track.title || '', artist: track.artist || '', album: track.album || '',
-        artwork: track.cover ? [{ src: track.cover }] : [],
+        artwork: track.cover ? [96, 512].map(size => ({ src: track.cover, sizes: `${size}x${size}`, type: 'image/jpeg' })) : [],
       }) : null
     }
     session.playbackState = hasTrack ? (isPlaying ? 'playing' : 'paused') : 'none'
@@ -61,4 +61,11 @@ export function useMediaSession({ track, isPlaying, duration, canControl, comman
       session.playbackState = 'none'
     }
   }, [track?.id, track?.title, track?.artist, track?.album, track?.cover, track?.duration, duration, isPlaying])
+
+  useEffect(() => {
+    const publish = () => publishMediaSessionPosition(latest.current.position(), Number(duration || track?.duration), latest.current.rate?.() || 1)
+    publish()
+    const timer = setInterval(publish, 5000)
+    return () => clearInterval(timer)
+  }, [duration, track?.duration, isPlaying])
 }

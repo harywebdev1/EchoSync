@@ -4,7 +4,7 @@ import { topTasteLabels } from '../core/listenerProfile.js'
 import { getCanonicalSongStem } from '../core/trackIdentity.js'
 
 // Home is a set of YouTube Music shelves: artist seeds (or the PK/IN/Global
-// defaults), the recent track's own RDAMVM radio, and two discovery searches.
+// defaults), the recent track's RDAMVM radio, and one discovery search.
 const DEFAULT_SEEDS = ['Atif Aslam', 'Arijit Singh', 'Diljit Dosanjh', 'The Weeknd']
 
 function takeUnique(lists, limit, reserved = new Set()) {
@@ -26,20 +26,17 @@ export function useYtHomeFeed({ profile, recentTracks = [], libraryTracks = [], 
   const artists = useMemo(() => topTasteLabels(profile?.artists, 3), [profile?.updatedAt])
   const artistKey = artists.join('|')
   const recentKey = recentTracks.map((track) => track?.id).filter(Boolean).join('|')
-  const libraryKey = libraryTracks.map((track) => track?.id).filter(Boolean).slice(0, 80).join('|')
-  const likedKey = liked.join('|')
-  const [feed, setFeed] = useState({ quick: [], mixed: [], fresh: [], familiar: [], supermix: [], status: 'loading' })
+  const [feed, setFeed] = useState({ quick: [], mixed: [], fresh: [], supermix: [], status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
-    const seeds = (artists.length ? artists : DEFAULT_SEEDS).slice(0, 3)
+    const seeds = (artists.length ? artists : DEFAULT_SEEDS).slice(0, 1)
     const recentVideoId = recentTracks.find((track) => track?.youtubeVideoId)?.youtubeVideoId
     setFeed((previous) => ({ ...previous, status: 'loading' }))
     const tasks = [
       ...seeds.map((name) => fetchYtSearch(`${name} songs`, 24, { timeout: 9000 })),
       recentVideoId ? fetchYtRadio(recentVideoId, { limit: 25 }) : Promise.resolve([]),
       fetchYtSearch('new Bollywood songs', 24, { timeout: 9000 }),
-      fetchYtSearch('global pop hits', 20, { timeout: 9000 }),
     ]
     Promise.allSettled(tasks).then((results) => {
       if (cancelled) return
@@ -52,15 +49,10 @@ export function useYtHomeFeed({ profile, recentTracks = [], libraryTracks = [], 
       const quick = takeUnique([...artistLists, ...discoveryLists], 20)
       const mixed = takeUnique([radio, ...artistLists], 16)
       const fresh = takeUnique([...discoveryLists, ...artistLists], 16)
-      const familiar = takeUnique(
-        [[...recentTracks, ...liked.map((id) => libraryTracks.find((track) => track?.id === id)).filter(Boolean)], libraryTracks],
-        12,
-      )
       setFeed({
         quick,
         mixed,
         fresh,
-        familiar,
         supermix: mixed.length ? mixed : quick,
         status: quick.length || mixed.length ? 'ready' : 'error',
       })
@@ -68,7 +60,10 @@ export function useYtHomeFeed({ profile, recentTracks = [], libraryTracks = [], 
     return () => { cancelled = true }
     // Keys keep the effect stable while arrays are rebuilt on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artistKey, recentKey, libraryKey, likedKey])
+  }, [artistKey, recentKey])
 
-  return feed
+  const familiar = useMemo(() => takeUnique([
+    [...recentTracks, ...liked.map(id => libraryTracks.find(track => track.id === id)).filter(Boolean)], libraryTracks,
+  ], 12), [recentKey, liked, libraryTracks])
+  return { ...feed, familiar }
 }

@@ -1,3 +1,6 @@
+import { useDynamicTasteCatalog } from './useDynamicTasteCatalog.js'
+import { useNotifications } from './useNotifications.js'
+import { isFreshLoungeMessage } from '../core/loungeExpiry.js'
 import { roomFromCloud, cloudFingerprint, messageFromCloud } from '../cloud/cloudAdapter.js'
 import { normalizeTasteProfile } from '../core/listenerProfile.js'
 import { useCloudBackend } from './useCloudBackend.js'
@@ -86,7 +89,6 @@ import { compareCommands } from '../core/roomCommandPolicy.js'
 import { ROLE_COPY } from '../components/shared/roomRoles'
 import { usePlaybackEngine } from './usePlaybackEngine.js'
 import { useRoomSync } from './useRoomSync.js'
-import { useDynamicTasteCatalog } from './useDynamicTasteCatalog.js'
 import { rankBySearchSimilarity, searchSimilarity } from '../core/searchRanking.js'
 import { useTrackPalette } from './useTrackPalette.js'
 import { artistPath, artistSlug, normalizeHandle, parseRoute, ROUTE_KEY, slugToArtistName, userPath } from '../lib/router.js'
@@ -301,8 +303,6 @@ export function useEchoSyncController() {
     typingClearRef,
     micRef,
     duckRef,
-    ytPlayerRef,
-    ytContainerRef,
     handleEndedRef,
     hasInteractedRef,
     pendingAuthActionRef,
@@ -339,8 +339,8 @@ export function useEchoSyncController() {
   const lastRoutePathRef = useRef(
     typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}`,
   )
-  const dynamicTasteCatalog = useDynamicTasteCatalog(tasteProfile, currentUserId || 'guest', fetchJioSearch)
-  const dynamicCatalogTracks = dynamicTasteCatalog.tracks
+  const { notifications, notify, markNotificationsRead, clearNotifications } = useNotifications(setToast)
+  const dynamicCatalogTracks = useDynamicTasteCatalog(tasteProfile, currentUserId || 'guest', fetchJioSearch, dailyRefresh > 0).tracks
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
 
@@ -770,15 +770,10 @@ export function useEchoSyncController() {
   }, [invites])
 
   useEffect(() => {
-    const visible = liked.filter((id) => library[id])
-    if (visible.length !== liked.length) {
-      setLiked(visible)
-      return
-    }
     writeUserValue(
       LIKES_KEY,
       currentUserId || 'guest',
-      visible.map((id) => sanitizeTrack(library[id])),
+      liked.map(id => library[id] ? sanitizeTrack(library[id]) : id),
     )
   }, [currentUserId, liked, library])
 
@@ -822,6 +817,11 @@ export function useEchoSyncController() {
       profileVibes: topTasteLabels(tasteProfile.vibes, 3),
       profileSearches: tasteProfile.searches.slice(0, 2).map((entry) => entry.query),
       profileEvents: tasteProfile.events,
+    }
+    if (dailyRefresh === 0) {
+      setDailyFeed(fillDailyFeed(existing, starter, userKey))
+      setDailyStatus('ready')
+      return undefined
     }
     buildDailyFeed({
       dayKey: dailyDayKey,
@@ -888,7 +888,6 @@ export function useEchoSyncController() {
 
   useEffect(() => {
     const onResize = () => {
-      if (window.innerWidth <= 1050) setChatOpen(false)
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -1224,9 +1223,7 @@ export function useEchoSyncController() {
     return {}
   }
 
-  function showToast(message, tone = 'info') {
-    setToast({ id: Date.now() + Math.random(), message, tone })
-  }
+  function showToast(message, tone = 'info') { notify(message, tone) }
 
   function lockToast() {
     showToast(LOCK_MESSAGE, 'lock')
@@ -1896,13 +1893,13 @@ export function useEchoSyncController() {
 
   function upsertLoungeMessage(message) {
     const normalized = normalizeLoungeMessage(message)
-    if (!normalized) return
+    if (!normalized || !isFreshLoungeMessage(normalized)) return
     setLoungeMessages((previous) => {
       const index = previous.findIndex((item) => item.id === normalized.id)
       const next = index >= 0
         ? previous.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
         : [...previous, normalized]
-      return next.slice(-LOUNGE_MESSAGE_LIMIT)
+      return next.filter(message => isFreshLoungeMessage(message)).slice(-LOUNGE_MESSAGE_LIMIT)
     })
   }
 
@@ -2363,7 +2360,6 @@ export function useEchoSyncController() {
     setSearchOpen(false)
   }
 
-  const youtubeActive = Boolean(track?.youtubeVideoId && !track?.streamUrl)
 
   useEffect(() => {
     let cancelled = false
@@ -2526,7 +2522,6 @@ export function useEchoSyncController() {
       progressRef,
       audioRef,
       sleepPausedRef,
-      ytPlayerRef,
       shuffleSeedRef,
       soloPlayOrderRef,
       soloQueueRef,
@@ -2550,7 +2545,6 @@ export function useEchoSyncController() {
       roomClockRef,
       playRequestRef,
       previousShuffleRef,
-      ytContainerRef,
       handleEndedRef,
     },
     model: {
@@ -2564,7 +2558,6 @@ export function useEchoSyncController() {
       queueIds,
       queue,
       roomPlaybackActive,
-      youtubeActive,
       canControlRoom,
       activeRoom,
       currentUser,
@@ -2720,7 +2713,7 @@ export function useEchoSyncController() {
       let id;try{id=sessionStorage.getItem('echosync_active_user_id')||localStorage.getItem('echosync_remember_user_id')}catch{return null}
       if(!id||accounts[id]?.cloud)return null
       const likes=readUserValue(LIKES_KEY,id,[])
-      return {likes:likes.map(item=>typeof item==='string'?library[item]:item).filter(Boolean),playlists:readUserValue(PLAYLISTS_KEY,id,[]),taste:loadTasteProfile(id),library}
+      return {likes:likes.map(item=>typeof item==='string'?(library[item]||{id:item}):item).filter(Boolean),playlists:readUserValue(PLAYLISTS_KEY,id,[]),taste:loadTasteProfile(id),library}
     },
     onPasswordRecovery:()=>{setAuthMode('recovery');setAuthReason('Choose a new password for your account.');setAuthOpen(true)},
     clearLocalIdentity:()=>{setCurrentUserId(null);setRooms(previous=>previous.filter(room=>room.cloud))},onSignedOut:localSignOut,
@@ -2759,7 +2752,7 @@ export function useEchoSyncController() {
     }
     if(data.type==='cloud-history'){
       const pending=new Set(data.pending),lounge=[],grouped={}
-      for(const row of data.rows){const message=messageFromCloud(row);if(row.context_type==='lounge')lounge.push(message);else(grouped[row.context_id] ||= []).push(message)}
+      for(const row of data.rows){const message=messageFromCloud(row);if(row.context_type==='lounge'){if(isFreshLoungeMessage(message))lounge.push(message)}else(grouped[row.context_id] ||= []).push(message)}
       const combine=(saved,old)=>[...saved,...old.filter(m=>pending.has(m.id)&&!saved.some(item=>item.id===m.id))]
       setLoungeMessages(previous=>{const next=combine(lounge,previous);return cloudFingerprint(next)===cloudFingerprint(previous)?previous:next})
       setMessages(previous=>{const next={};for(const key of new Set([...Object.keys(grouped),...Object.keys(previous)]))next[key]=combine(grouped[key]||[],previous[key]||[]);return cloudFingerprint(next)===cloudFingerprint(previous)?previous:next})
@@ -2792,7 +2785,7 @@ export function useEchoSyncController() {
   }
   const cloudEventRef=useRef(handleCloudEvent);cloudEventRef.current=handleCloudEvent
   const social = useSocialFeatures({ currentUser, tasteProfile, library, playlists, recent, liked: likedSet, members:memberIndex, rooms, activeRoom, roomPlaybackActive, isPlaying, track,
-    channelRef, tabIdRef, roomsRef, activeRoomRef, roomClockRef, roomQueueRef, setRooms, setMessages, setPlaylists,
+    channelRef, tabIdRef, roomsRef, activeRoomRef, roomClockRef, roomQueueRef, setRooms, setMessages, setPlaylists, setLoungeMessages,
     rememberTrack, toggleLike, queueSoloTrack, playSearchTrack: (candidate, context) => { searchTargetRef.current = { mode: 'solo', roomId: null }; return playSearchTrack(candidate, context) }, playPlaylist, joinRoom, inviteLoungeUser, showToast, upsertLoungeMessage, openUserChannel,
     getPlaybackTime: (...args)=>getPlaybackTime(...args), roomClockTime: (...args)=>roomClockTime(...args),
     roomSnapshot: (...args)=>roomSnapshot(...args), applyRemoteState: (...args)=>applyRemoteState(...args),
@@ -2865,6 +2858,7 @@ export function useEchoSyncController() {
     actions: {
       handleCloudEvent: data => cloudEventRef.current(data),
       handleSocialEvent: data => socialRef.current.handleEvent(data),
+      acceptRoomInvite: id => resolveInvite(id, true),
       getPlaybackTime: (...args) => getPlaybackTime(...args),
       updatePlaybackProgress: (...args) => updatePlaybackProgress(...args),
       ensurePlayable: (...args) => ensurePlayable(...args),
@@ -3389,7 +3383,6 @@ export function useEchoSyncController() {
     memberIndex,
     rootStyle,
     audioRef,
-    ytContainerRef,
     track,
     handleTimeUpdate,
     handleLoadedMetadata,
@@ -3606,6 +3599,7 @@ export function useEchoSyncController() {
     setAddTrack,
     toast,
     setToast,
+    notifications, markNotificationsRead, clearNotifications,
   })
 
 }

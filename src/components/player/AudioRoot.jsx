@@ -1,12 +1,4 @@
-function YouTubeBridge({ containerRef }) {
-  return (
-    <div className="yt-bridge" aria-hidden="true">
-      <div ref={containerRef} />
-    </div>
-  )
-}
-
-export function AudioRootContainer({ audioRef, containerRef, trackId, onTimeUpdate, onLoadedMetadata, onCanPlay, onPlaying, onWaiting, onStalled, onEnded, onError }) {
+export function AudioRootContainer({ audioRef, trackId, onTimeUpdate, onLoadedMetadata, onCanPlay, onPlaying, onWaiting, onStalled, onEnded, onError }) {
   return (
     <div className="audio-root" data-testid="audio-root" data-track-id={trackId || ''}>
       <audio
@@ -22,7 +14,6 @@ export function AudioRootContainer({ audioRef, containerRef, trackId, onTimeUpda
         onEnded={onEnded}
         onError={onError}
       />
-      <YouTubeBridge containerRef={containerRef} />
     </div>
   )
 }

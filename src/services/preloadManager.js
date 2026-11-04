@@ -1,28 +1,12 @@
 const warmAudio = new Map()
 const resolvedTracks = new Map()
-let metadataAudio = null
-let metadataLink = null
+const readyTracks = new Map()
+export function getPreloadedTrack(id) {
+  const entry = readyTracks.get(id)
+  if (!entry || entry.expiresAt <= Date.now()) { readyTracks.delete(id); if (entry) resolvedTracks.delete(id); return null }
+  return entry.track
+}
 const MAX_WARM_TRACKS = 5
-
-function getMetadataAudio() {
-  if (metadataAudio || typeof document === 'undefined') return metadataAudio
-  metadataAudio = document.createElement('audio')
-  metadataAudio.preload = 'metadata'
-  metadataAudio.setAttribute('aria-hidden', 'true')
-  metadataAudio.style.display = 'none'
-  document.body.appendChild(metadataAudio)
-  return metadataAudio
-}
-
-function getPreloadLink() {
-  if (metadataLink || typeof document === 'undefined') return metadataLink
-  metadataLink = document.createElement('link')
-  metadataLink.rel = 'preload'
-  metadataLink.as = 'audio'
-  metadataLink.dataset.echosyncPreload = 'true'
-  document.head.appendChild(metadataLink)
-  return metadataLink
-}
 
 function trimWarmAudio() {
   while (warmAudio.size > MAX_WARM_TRACKS) {
@@ -40,24 +24,16 @@ function trimWarmAudio() {
 }
 
 function warmStream(url) {
-  if (!url || warmAudio.has(url)) return
+  if (!url) return null
+  if (warmAudio.has(url)) return warmAudio.get(url)
   try {
     const audio = new Audio()
     audio.preload = 'auto'
     audio.src = url
     warmAudio.set(url, audio)
     audio.load()
-    const metadata = getMetadataAudio()
-    if (metadata) {
-      metadata.src = url
-      metadata.load()
-    }
-    const link = getPreloadLink()
-    if (link) {
-      link.href = url
-      link.removeAttribute('crossorigin')
-    }
     trimWarmAudio()
+    return audio
   } catch {
     /* prewarming is best-effort */
   }
@@ -66,12 +42,30 @@ function warmStream(url) {
 export function preloadTrack(track, { resolve, force = false } = {}) {
   const id = track?.id
   if (!id || id === 'empty' || /^http/i.test(id)) return Promise.resolve(null)
+  if (readyTracks.has(id) && !getPreloadedTrack(id)) resolvedTracks.delete(id)
   if (!force && resolvedTracks.has(id)) return resolvedTracks.get(id)
   const task = Promise.resolve()
     .then(() => (typeof resolve === 'function' ? resolve(track) : track))
     .then((resolved) => {
       const candidate = resolved && typeof resolved === 'object' ? resolved : track
-      if (candidate?.streamUrl && !candidate.preview) warmStream(candidate.streamUrl)
+      if (candidate?.streamUrl && !candidate.preview) {
+        const audio = warmStream(candidate.streamUrl)
+        const confirm = () => {
+          if (!Number.isFinite(audio?.duration) || audio.duration < 60) { resolvedTracks.delete(id); return }
+          let expiresAt = Date.now() + 10 * 60_000
+          try {
+            const url = new URL(candidate.streamUrl, location.origin)
+            const stream = url.searchParams.has('url') ? new URL(url.searchParams.get('url')) : url
+            const signedExpiry = Number(stream.searchParams.get('expire')) * 1000
+            if (signedExpiry) expiresAt = Math.min(expiresAt, signedExpiry - 60000)
+          } catch { /* Relative native streams use the bounded cache lifetime. */ }
+          readyTracks.set(id, { track: { ...candidate, duration: audio.duration }, expiresAt })
+          while (readyTracks.size > 10) readyTracks.delete(readyTracks.keys().next().value)
+        }
+        if (audio?.readyState >= 1) confirm()
+        else audio?.addEventListener('loadedmetadata', confirm, { once:true })
+        audio?.addEventListener('error', () => { readyTracks.delete(id); resolvedTracks.delete(id); warmAudio.delete(candidate.streamUrl) }, { once:true })
+      }
       if (!resolved?.streamUrl && !resolved?.youtubeVideoId && resolvedTracks.get(id) === task) resolvedTracks.delete(id)
       return candidate || null
     })
@@ -99,6 +93,7 @@ export function preloadCandidateAt(queue, index, resolve) {
 }
 
 export function clearPreloadSession() {
+  readyTracks.clear()
   resolvedTracks.clear()
   warmAudio.forEach((audio) => {
     try {
@@ -110,13 +105,4 @@ export function clearPreloadSession() {
     }
   })
   warmAudio.clear()
-  if (metadataAudio) {
-    try {
-      metadataAudio.removeAttribute('src')
-      metadataAudio.load()
-    } catch {
-      /* ignore */
-    }
-  }
-  if (metadataLink) metadataLink.removeAttribute('href')
 }

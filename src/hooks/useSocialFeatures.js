@@ -1,3 +1,4 @@
+import { isFreshLoungeMessage } from '../core/loungeExpiry.js'
 import { useEffect, useRef, useState } from 'react'
 import { loadTasteProfile, readUserValue, PLAYLISTS_KEY, RECENT_KEY, LIKES_KEY, sanitizeTrack, uid, clockNow } from '../lib/appServices.js'
 import { mergeVote, rankRoomQueue } from '../core/roomVotes.js'
@@ -5,6 +6,15 @@ import { computeMemberDrift } from '../core/roomSyncMath.js'
 
 export function useSocialFeatures(options) {
   const latest = useRef(options); latest.current = options
+  useEffect(() => {
+    const prune = () => latest.current.setLoungeMessages(previous => {
+      const fresh = previous.filter(message => isFreshLoungeMessage(message))
+      return fresh.length === previous.length ? previous : fresh
+    })
+    prune()
+    const timer = setInterval(prune, 60000)
+    return () => clearInterval(timer)
+  }, [])
   const [profiles, setProfiles] = useState({}), [telemetry, setTelemetry] = useState({}), [profileId, setProfileId] = useState(null)
   const now = () => latest.current
   const send = data => now().channelRef.current?.postMessage({ ...data, sender: now().tabIdRef.current })

@@ -1,8 +1,9 @@
+import { createPortal } from 'react-dom'
+import { ModalShell } from '../components/modals/ModalShell.jsx'
 import { distinctAlbum } from '../core/songDisplay.js'
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
-  BadgeCheck,
   Disc3,
   Heart,
   ListPlus,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-react'
 import { ArtistLinks } from '../components/ArtistLinks.jsx'
 import { Cover } from '../components/Cover'
-import { fetchYtArtist, fetchYtSearch } from '../lib/appServices.js'
+import { fetchYtArtist, fetchYtAlbum } from '../lib/appServices.js'
 import { formatTime } from '../lib/time'
 
 const WIDE_SIZE = '=w1280-h532-l90-rj'
@@ -73,6 +74,7 @@ export function ArtistProfileView({
   const [status, setStatus] = useState('loading')
   const [expanded, setExpanded] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [albumSheet, setAlbumSheet] = useState(null)
   const [albumBusy, setAlbumBusy] = useState('')
   const key = `${profile?.browseId || ''}:${profile?.slug || ''}:${profile?.name || ''}`
 
@@ -110,8 +112,8 @@ export function ArtistProfileView({
 
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined') return `/artist/${profile?.slug || ''}`
-    return `${window.location.origin}/artist/${encodeURIComponent(profile?.slug || '')}`
-  }, [profile?.slug])
+    return `${window.location.origin}/artist/${encodeURIComponent(profile?.slug || '')}${profile?.browseId ? `?browseId=${encodeURIComponent(profile.browseId)}` : ''}`
+  }, [profile?.slug, profile?.browseId])
 
   const startShuffle = () => {
     if (!canPlay) return
@@ -137,8 +139,8 @@ export function ArtistProfileView({
     if (!album?.name || albumBusy) return
     setAlbumBusy(album.browseId || album.name)
     try {
-      const tracks = await fetchYtSearch(`${album.name} ${name}`, 30)
-      if (tracks.length) onPlay?.(tracks[0], tracks)
+      const tracks = await fetchYtAlbum({ browseId:album.browseId, name:`${album.name} ${name}` })
+      if (tracks.length) setAlbumSheet({ ...album, tracks })
       else showToast?.(`No playable songs found for ${album.name}`)
     } catch {
       showToast?.(`Could not open ${album.name}`)
@@ -151,6 +153,7 @@ export function ArtistProfileView({
 
   return (
     <div className="artist-page" data-testid="artist-profile">
+      {albumSheet && createPortal(<ModalShell onClose={() => setAlbumSheet(null)} size="modal-album"><div className="modal-head"><h2>{albumSheet.name}</h2><button className="text-btn" onClick={() => setAlbumSheet(null)}>Close</button></div><div className="album-actions"><button className="primary-btn" onClick={() => onPlay?.(albumSheet.tracks[0], albumSheet.tracks)}>▶ Play Album</button><button className="text-btn" onClick={() => { const tracks = shuffleList(albumSheet.tracks); onPlay?.(tracks[0], tracks) }}>🔀 Shuffle</button></div><div className="album-tracklist">{albumSheet.tracks.map(item => <button className="fp-queue-row" key={item.id} onClick={() => onPlay?.(item, albumSheet.tracks)}><Cover track={item} size="cover-size-sm" /><span><strong>{item.title}</strong><small>{item.artist}</small></span></button>)}</div></ModalShell>, document.querySelector('.app') || document.body)}
       <section className="artist-hero" style={banner ? { '--artist-banner': `url("${banner}")` } : undefined}>
         <div className="artist-hero-art" aria-hidden="true" />
         <div className="artist-hero-melt" aria-hidden="true" />
@@ -159,7 +162,7 @@ export function ArtistProfileView({
           <span className="artist-kicker"><Sparkles size={12} /> Artist</span>
           <h1 className="artist-name">
             {name}
-            {artist?.browseId && <BadgeCheck className="artist-verified" aria-label="Verified artist" />}
+
           </h1>
           <p className="artist-subscribers">{subscribers}</p>
           {bio && (
@@ -263,7 +266,7 @@ export function ArtistProfileView({
                     className="artist-album-card"
                     onClick={() => playAlbum(album)}
                     disabled={albumBusy === (album.browseId || album.name)}
-                    aria-label={`Play ${album.name}`}
+                    aria-label={`Open ${album.name}`}
                   >
                     <span
                       className="artist-album-art"

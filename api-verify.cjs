@@ -133,6 +133,7 @@ function innertubeFixture(url) {
   async function check(name, run) { await run(); passed++; console.log(`PASS ${name}`) }
   const mediaPath = url => '/api/media?url=' + encodeURIComponent(url)
   const target = 'https://r1.googlevideo.com/stream'
+
   try {
     await check('ytmusic and its saavn alias search one WEB_REMIX upstream without touching any legacy provider', async () => {
       const calls = []
@@ -189,6 +190,12 @@ function innertubeFixture(url) {
       assert.equal(artist.songs.length, 1)
       assert.equal(calls[1].url.pathname, '/youtubei/v1/browse')
       assert.equal(calls[1].body.browseId, 'UCaliSethi01')
+      const albumResponse=await fetch(base + '/api/ytmusic?action=album&browseId=MPREalbum01')
+      assert.equal(albumResponse.status,200)
+      const album=await albumResponse.json()
+      assert.equal(album.browseId,'MPREalbum01')
+      assert.ok(album.songs.length>0)
+      assert.equal(calls[2].body.browseId,'MPREalbum01')
     })
 
     await check('invalid actions are rejected before fetch and failures stay honest', async () => {
@@ -200,6 +207,8 @@ function innertubeFixture(url) {
         '/api/ytmusic?action=radio&videoId=short',
         '/api/ytmusic?action=artist&browseId=..%2Fprivate',
         '/api/ytmusic?action=artist',
+        '/api/ytmusic?action=album&browseId=..%2Fprivate',
+        '/api/ytmusic?action=album',
         '/api/ytmusic?action=deezer',
       ]) assert.equal((await fetch(base + path)).status, 400, path)
       assert.equal((await fetch(base + '/api/ytmusic', { method: 'POST' })).status, 405)

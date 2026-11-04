@@ -153,7 +153,6 @@ export function SettingsModal({
           <button className={tab === 'social' ? 'active' : ''} onClick={() => setTab('social')}><UsersRound /> Social & privacy</button>
           <button className={tab === 'storage' ? 'active' : ''} onClick={() => setTab('storage')}><HardDrive /> Storage & cache</button>
           <span className="grow" />
-          <button className="signout-btn" onClick={onSignOut}><LogOut /> Sign out</button>
         </nav>
 
         <div className="settings-body">
@@ -379,6 +378,7 @@ export function SettingsModal({
           )}
         </div>
       </div>
+      <button className="signout-btn" onClick={onSignOut}><LogOut /> Sign out</button>
     </ModalShell>
   )
 }
