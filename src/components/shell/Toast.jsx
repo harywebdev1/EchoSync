@@ -54,7 +54,7 @@ export function ToastViewport({ toast, onDismiss, children }) {
           <span className="es-toast-icon" aria-hidden="true">
             {toast.category === 'music' ? '🎵' : toast.category === 'chat' ? '💬' : toast.category === 'room' ? '🎙️' : '✅'}
           </span>
-          <span className="es-toast-copy"><strong>{toast.title || 'EchoSync'}</strong><span className="es-toast-message">{toast.subtitle || toast.message}</span></span>{toast.action && <button className="text-btn" onClick={toast.action.onClick}>{toast.action.label}</button>}<i className="es-toast-progress" />
+          <span className="es-toast-copy"><strong>{toast.title || 'EchoSync'}</strong><span className="es-toast-message">{toast.subtitle || toast.message}</span></span><span className="es-toast-actions">{toast.actions?.map(action=><button key={action.label} className="text-btn" onClick={action.onClick}>{action.label}</button>)}{toast.action && <button className="text-btn" onClick={toast.action.onClick}>{toast.action.label}</button>}</span><i className="es-toast-progress" />
           <button
             type="button"
             className="es-toast-close"

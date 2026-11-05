@@ -1,3 +1,5 @@
+import { rankBySearchSimilarity } from '../src/core/searchRanking.js'
+import { sameRecording } from '../src/core/playbackCandidates.js'
 // Pure YouTube Music InnerTube client (WEB_REMIX), the same public protocol
 // used by music.youtube.com and sigma67/ytmusicapi. No API key, no third-party
 // mirrors: search, artist radio and artist profiles all come from one upstream.
@@ -313,28 +315,24 @@ function parseSearch(payload, limit = 50) {
   }
 }
 
-function mergeSearchResults(primary, secondary, limit) {
+function mergeSearchResults(primary, secondary, limit, query = '') {
   const songs = new Map()
-  for (const song of [...(primary.songs || []), ...(secondary.songs || [])]) {
-    const existing = songs.get(song.videoId)
-    if (!existing) { songs.set(song.videoId, song); continue }
-    // Top-result rows omit duration/album metadata. The songs-filter pass has
-    // it, so fill the gaps without changing the upstream order.
-    const merged = { ...existing }
-    if (!merged.duration && song.duration) merged.duration = song.duration
-    if (!merged.year && song.year) merged.year = song.year
-    if ((!merged.artists || merged.artists.every(artist => !artist.browseId)) && (song.artists || []).some(artist => artist.browseId)) {
-      merged.artists = song.artists
-      merged.artist = song.artist
-    }
-    if ((!merged.album?.name || merged.album.name === 'Single') && song.album?.name && song.album.name !== 'Single') {
-      merged.album = song.album
-    }
-    if (!merged.cover && song.cover) merged.cover = song.cover
-    songs.set(song.videoId, merged)
+  for (const song of primary.songs || []) songs.set(song.videoId, song)
+  for (const raw of secondary.songs || []) {
+    const song={...raw,audioTrack:true}
+    const pair = [...songs.entries()].find(([id, existing]) => id === song.videoId || sameRecording(song, existing))
+    if (!pair) { songs.set(song.videoId, song); continue }
+    const [oldId, existing] = pair
+    const merged = { ...existing, ...song, id: 'yt-' + song.videoId, videoId: song.videoId,
+      duration: song.duration || existing.duration,
+      album: song.album?.name && song.album.name !== 'Single' ? song.album : existing.album,
+      altVideoIds: [...new Set([oldId, ...(existing.altVideoIds || []), ...(song.altVideoIds || [])])].filter(id => id !== song.videoId) }
+    // Keep primary ranking, but make the songs-filter recording authoritative.
+    const entries = [...songs.entries()].map(([id, value]) => id === oldId ? [song.videoId, merged] : [id, value])
+    songs.clear(); for (const [id, value] of entries) songs.set(id, value)
   }
   return {
-    songs: [...songs.values()].slice(0, limit),
+    songs: (query ? rankBySearchSimilarity([...songs.values()],query) : [...songs.values()]).slice(0, limit),
     artists: dedupe([...(primary.artists || []), ...(secondary.artists || [])], artist => artist.browseId || artist.name.toLowerCase()).slice(0, 12),
     albums: dedupe([...(primary.albums || []), ...(secondary.albums || [])], album => album.browseId || album.name.toLowerCase()).slice(0, 12),
   }
@@ -549,7 +547,7 @@ export function createYtmusicHandler({ fetchImpl = globalThis.fetch, timeoutMs =
         ])
         const top = parseSearch(unfiltered, limit)
         const songsOnly = filtered ? parseSearch(filtered, limit) : { songs: [], artists: [], albums: [] }
-        const data = mergeSearchResults(top, songsOnly, limit)
+        const data = mergeSearchResults(top, songsOnly, limit, query)
         remember(key, SEARCH_TTL, data)
         if (!res.destroyed) {
           res.setHeader('X-EchoSync-Catalog', 'ytmusic-web-remix')

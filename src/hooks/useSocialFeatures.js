@@ -16,6 +16,16 @@ export function useSocialFeatures(options) {
     return () => clearInterval(timer)
   }, [])
   const [profiles, setProfiles] = useState({}), [telemetry, setTelemetry] = useState({}), [profileId, setProfileId] = useState(null)
+  const [readReceipts, setReadReceipts] = useState({})
+  useEffect(() => {
+    const publish = () => {
+      const o=latest.current
+      if (!o.chatOpen || document.hidden || !o.activeRoom?.members.includes(o.currentUser?.id)) return
+      o.channelRef.current?.postMessage({type:'CHAT_READ',receipt:true,roomId:o.activeRoom.id,userId:o.currentUser.id,readAt:Date.now(),sender:o.tabIdRef.current})
+    }
+    publish(); document.addEventListener('visibilitychange',publish)
+    return ()=>document.removeEventListener('visibilitychange',publish)
+  },[options.chatOpen,options.activeRoom?.id,options.messages?.length])
   const now = () => latest.current
   const send = data => now().channelRef.current?.postMessage({ ...data, sender: now().tabIdRef.current })
   function snapshot() {
@@ -70,6 +80,11 @@ export function useSocialFeatures(options) {
     o.setRooms(previous=>previous.map(r=>r.id===room.id?updated:r))
   }
   function handleEvent(data) {
+    if (data.type === 'CHAT_READ' || (data.type === 'typing' && data.receipt)) {
+      const room=now().roomsRef.current.find(item=>item.id===data.roomId)
+      if(room?.members.includes(data.userId) && data.userId!==now().currentUser?.id && Number.isFinite(data.readAt) && data.readAt<=Date.now()+5000) setReadReceipts(previous=>({...previous,[data.roomId]:{...previous[data.roomId],[data.userId]:Math.max(previous[data.roomId]?.[data.userId]||0,data.readAt)}}))
+      return true
+    }
     const o = now()
     if (data.type === 'channel-profile' && data.profile?.userId && o.members[data.profile.userId]) {
       if (Number.isFinite(data.profile.ts) && Math.abs(Date.now()-data.profile.ts)<15000) setProfiles(previous=>previous[data.profile.userId]?.ts>data.profile.ts?previous:{...previous,[data.profile.userId]:data.profile}); return true
@@ -141,5 +156,5 @@ export function useSocialFeatures(options) {
   function toggleVisibility(id) { now().setPlaylists(p=>p.map(item=>item.id===id?{...item,visibility:item.visibility==='private'?'public':'private'}:item)) }
   function playPlaylist(playlist) { const o=now(); playlist.tracks.forEach(o.rememberTrack); if(playlist.tracks[0]) o.playSearchTrack(playlist.tracks[0],playlist.tracks) }
   function play(candidate) { now().playSearchTrack(candidate) }
-  return { profiles, telemetry, profileId, openProfile, closeProfile:()=>setProfileId(null), profileFor, handleEvent, shareSong, toggleVote, forceResync, savePublicPlaylist, toggleVisibility, playPlaylist, play, like:options.toggleLike, queue:options.queueSoloTrack, liked:options.liked, currentUser:options.currentUser, currentTaste:options.tasteProfile, joinRoom:options.joinRoom, invite:options.inviteLoungeUser, rooms:options.rooms }
+  return { readReceipts, profiles, telemetry, profileId, openProfile, closeProfile:()=>setProfileId(null), profileFor, handleEvent, shareSong, toggleVote, forceResync, savePublicPlaylist, toggleVisibility, playPlaylist, play, like:options.toggleLike, queue:options.queueSoloTrack, liked:options.liked, currentUser:options.currentUser, currentTaste:options.tasteProfile, joinRoom:options.joinRoom, invite:options.inviteLoungeUser, rooms:options.rooms }
 }

@@ -78,15 +78,15 @@ export function MobileBottomBar({
         )}
       </button>
       <button
-        className={`mobile-lounge-btn ${loungeOpen ? 'active' : ''}`}
-        onClick={onLounge}
+        className={`mobile-lounge-btn ${(inRoom ? chatOpen : loungeOpen) ? 'active' : ''}`}
+        onClick={inRoom ? onChat : onLounge}
         data-testid="lounge-mobile-btn"
       >
         <span className="tab-icon"><Globe2 /></span>
-        <span>Lounge</span>
-        {unreadLoungeCount > 0 && (
+        <span>{inRoom ? 'Room Chat' : 'Lounge'}</span>
+        {(inRoom ? unreadRoomCount : unreadLoungeCount) > 0 && (
           <b className="mobile-tab-badge" data-testid="lounge-mobile-unread">
-            {unreadLoungeCount > 99 ? '99+' : unreadLoungeCount}
+            {(inRoom ? unreadRoomCount : unreadLoungeCount) > 99 ? '99+' : (inRoom ? unreadRoomCount : unreadLoungeCount)}
           </b>
         )}
       </button>

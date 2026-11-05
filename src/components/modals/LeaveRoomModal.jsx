@@ -3,7 +3,7 @@ import { Crown, DoorOpen, ShieldCheck, X } from 'lucide-react'
 import { ModalShell } from './ModalShell.jsx'
 import { Avatar } from '../Avatar'
 
-export function LeaveRoomModal({ prompt, room, members = {}, onClose, onAssignLeave }) {
+export function LeaveRoomModal({ prompt, room, members = {}, onClose, onAssignLeave, onKeepBackground }) {
   const candidates = (prompt?.members || []).filter(Boolean)
   const [assignee, setAssignee] = useState(candidates[0] || '')
 
@@ -12,7 +12,7 @@ export function LeaveRoomModal({ prompt, room, members = {}, onClose, onAssignLe
       <div className="modal-head">
         <div>
           <span className="eyebrow"><span className="seg" /> {room?.name || 'Listening room'}</span>
-          <h2>Assign an Admin or DJ before leaving</h2>
+          <h2>Keep listening with your room?</h2>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Close leave room dialog"><X /></button>
       </div>
@@ -46,15 +46,15 @@ export function LeaveRoomModal({ prompt, room, members = {}, onClose, onAssignLe
             )
           })}
         </div>
-        <div className="leave-handover-actions">
+        <div className="leave-handover-actions"><button type="button" className="primary-btn" onClick={onKeepBackground}>Keep Room in Background</button>
           <button type="button" className="text-btn" onClick={onClose}>Stay in room</button>
           <button
             type="button"
             className="primary-btn"
-            disabled={!assignee}
+            disabled={candidates.length > 0 && !assignee}
             onClick={() => onAssignLeave?.(assignee)}
           >
-            <DoorOpen size={14} /> Assign &amp; Leave
+            <DoorOpen size={14} /> Leave Room
           </button>
         </div>
       </div>

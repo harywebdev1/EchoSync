@@ -1,3 +1,4 @@
+import { alternateVideoIds } from '../core/playbackCandidates.js'
 import { useSleepTimer } from './useSleepTimer.js'
 import {
   clearResolvedStream,
@@ -15,6 +16,7 @@ import {
   resolveFullTrack,
   resolveByMetadata,
   resolveVideoId,
+  fetchYtSearch,
   primeInstantPreview,
   loadRoomStateSnapshot,
   preResolvedStream,
@@ -147,6 +149,15 @@ export function usePlaybackEngine({
     autoplayTracks,
   },
 }) {
+  const listeningRef = useRef({id:null,seconds:0,lastTime:0,awarded:false,completed:false})
+  function learnListening(time) {
+    const item=listeningRef.current
+    if(item.id!==track?.id) listeningRef.current={id:track?.id,seconds:0,lastTime:time,awarded:false,completed:false}
+    const live=listeningRef.current
+    if(isPlaying) live.seconds+=Math.max(0,Math.min(1,time-live.lastTime))
+    live.lastTime=time
+    if(live.seconds>=60&&!live.awarded){live.awarded=true;recordTasteSignal('listened',{track})}
+  }
   const radioActive = useRef(false)
   const guestPreviewRef = useRef(false)
   const previewGateRef = useRef(false)
@@ -155,6 +166,9 @@ export function usePlaybackEngine({
   const upgradeInFlightRef = useRef(new Set())
   const radioPrimedRef = useRef(new Set())
   const openPreviewGateRef = useRef(() => {})
+  const pendingNativeRef = useRef(new Map())
+  const blockedVideoIdsRef = useRef(new Set())
+  const retryRef = useRef({ id: null, count: 0, busy: false })
   const frameActive = Boolean(track?.youtubeVideoId && !track?.streamUrl && track?.status === 'ready')
   const frameState = useRef(null)
   const duck = speaking || remoteSpeaking || voiceNotePlaying || loungeVoicePlaying
@@ -168,8 +182,38 @@ export function usePlaybackEngine({
     let cancelled = false, bridge
     const id = track.id
     audioRef.current?.pause()
-    const fail = reason => {
+    const fail = async (reason, code) => {
       if (cancelled || queueIdsRef.current[currentIndexRef.current] !== id) return
+      if (reason !== 'short' && (code == null || [2,5,100,101,150].includes(code))) {
+        blockedVideoIdsRef.current.add(track.youtubeVideoId)
+        if (retryRef.current.id !== id) retryRef.current = { id, count:0, busy:false }
+        const retry = retryRef.current
+        if (retry.busy) return
+        retry.busy = true
+        let ids = alternateVideoIds(track, [], blockedVideoIdsRef.current)
+        if (!ids.length && retry.count < 3) {
+          const matches = await withTimeout(fetchYtSearch(track.title + ' ' + track.artist + ' audio', 20, { fresh:true }), 4000, 'Alternate lookup').catch(() => [])
+          ids = alternateVideoIds(track, matches, blockedVideoIdsRef.current)
+        }
+        retry.busy = false
+        if (cancelled || queueIdsRef.current[currentIndexRef.current] !== id) return
+        if (ids.length && retry.count < 3) {
+          retry.count++
+          const next = { ...track, youtubeVideoId:ids[0], videoId:ids[0], streamUrl:null, playbackPath:'iframe', altVideoIds:ids.slice(1), status:'ready' }
+          libraryRef.current = { ...libraryRef.current, [id]:next }
+          setLibrary(previous => ({ ...previous, [id]:next }))
+          return
+        }
+      }
+      const nativeTask=pendingNativeRef.current.get(id)
+      if(nativeTask && reason!=='short') {
+        const native=await withTimeout(nativeTask,14000,'Native completion').catch(()=>null)
+        if(cancelled) return
+        if(native?.streamUrl && isFullLengthTrack(native)) {
+          const ready=sanitizeTrack({...track,...native,id,status:'ready',playbackPath:'audio'})
+          libraryRef.current={...libraryRef.current,[id]:ready};setLibrary(previous=>({...previous,[id]:ready}));return
+        }
+      }
       setIsPlaying(false); isPlayingRef.current = false
       setBuffering(false); setStreamRecovering(false)
       setLibrary(previous => ({ ...previous, [id]: { ...previous[id], status:'error' } }))
@@ -194,7 +238,7 @@ export function usePlaybackEngine({
         onProgress:(time,total) => {
           if (cancelled) return
           if (guestPreviewRef.current && time >= GUEST_PREVIEW_SECONDS) { youtubeRef.current?.pauseVideo(); updatePlaybackProgress(GUEST_PREVIEW_SECONDS); openPreviewGate(); return }
-          updatePlaybackProgress(time); publishMediaSessionPosition(time,total)
+          learnListening(time); updatePlaybackProgress(time); publishMediaSessionPosition(time,total)
         },
         onEnded:() => { if (!cancelled) handleEndedRef.current?.() }, onError:fail,
         onBlocked:() => { if (!cancelled) { setIsPlaying(false); setBuffering(false) } },
@@ -635,12 +679,13 @@ export function usePlaybackEngine({
     const previousTrack = track
     const elapsed = Number(progressRef.current) || 0
     const sameTrack = Boolean(candidate?.id && previousTrack?.id === candidate.id)
-    if (key === SOLO_ROOM_ID && previousTrack?.id && previousTrack.id !== 'empty' && candidate?.id) {
+    if (previousTrack?.id && previousTrack.id !== 'empty' && candidate?.id) {
       if (sameTrack && elapsed > 0.5) recordTasteSignal('replay', { track: previousTrack })
-      else if (!sameTrack && elapsed > 0.5 && elapsed < 15) recordTasteSignal('skip', { track: previousTrack })
+      else if (!sameTrack && elapsed > 0.5 && !listeningRef.current.completed) recordTasteSignal('skip', { track: previousTrack, elapsed })
     }
+    listeningRef.current={id:candidate?.id,seconds:0,lastTime:0,awarded:false,completed:false}
     sleepPausedRef.current = false
-    isPlayingRef.current = key === SOLO_ROOM_ID || (viewRef.current === 'room' && activeRoomRef.current === key)
+    isPlayingRef.current = key === SOLO_ROOM_ID || (activeRoomRef.current === key)
     playAttemptIdRef.current += 1
     clearAdvanceCheck()
     progressRef.current = 0
@@ -667,7 +712,7 @@ export function usePlaybackEngine({
         time: 0,
         isPlaying: true,
       })
-      if (viewRef.current !== 'room' || activeRoomRef.current !== key) {
+      if (activeRoomRef.current !== key) {
         setIsPlaying(false)
       } else {
         setIsPlaying(true)
@@ -688,6 +733,7 @@ export function usePlaybackEngine({
   // full-length URL is known, a provider preview starts audibly in the same
   // tick while the full stream resolves in the background.
   function stageTrack(candidate, options = {}) {
+    import('../services/youtubePlayer.js').then(module=>module.warmYouTubeApi()).catch(()=>{})
     if (!candidate?.id) return null
     // A hovered card has already resolved its stream in the prefetch map.
     const pre = options.forceRefresh ? null : preResolvedStream(candidate)
@@ -755,7 +801,8 @@ export function usePlaybackEngine({
   // RDAMVM radio. The queue keeps its current order; radio rows are appended.
   function primeRadioQueue(candidate) {
     const videoId = candidate?.youtubeVideoId
-    const room = roomPlaybackActive ? roomsRef.current.find(item => item.id === activeRoomRef.current) : null
+    if (activeRoomRef.current) return
+    const room = null
     if (!videoId || (!room && radioActive.current)) return
     if (room && (!canControlRoom || roomClockRef.current.lastActorId !== currentUser?.id || currentIndex < queue.length - 2)) return
     const primeKey = (room?.id || 'solo') + ':' + videoId
@@ -893,10 +940,19 @@ export function usePlaybackEngine({
 
     try {
       let resolved = null
+      const nativeTask=resolveFullTrack(candidate,{forceRefresh,budget:14000})
+      pendingNativeRef.current.set(candidate.id,nativeTask)
+      if(pendingNativeRef.current.size>100)pendingNativeRef.current.delete(pendingNativeRef.current.keys().next().value)
+      nativeTask.then(native=>{
+        const current=libraryRef.current[candidate.id]
+        if(!native?.streamUrl || !isFullLengthTrack(native) || !isPlayingRef.current || queueIdsRef.current[currentIndexRef.current]!==candidate.id || current?.playbackPath!=='iframe' || youtubeRef.current?.ready)return
+        const ready=sanitizeTrack({...candidate,...native,id:candidate.id,status:'ready',playbackPath:'audio'})
+        libraryRef.current={...libraryRef.current,[candidate.id]:ready};setLibrary(previous=>({...previous,[candidate.id]:ready}))
+      }).catch(()=>{})
       try {
         resolved = await withTimeout(
-          resolveFullTrack(candidate, { forceRefresh }),
-          3500,
+          nativeTask,
+          1200,
           'Primary stream lookup timed out',
         )
       } catch {
@@ -1040,7 +1096,7 @@ export function usePlaybackEngine({
   }
 
   function startPlaybackAt(index, candidate) {
-    const key = viewRef.current === 'room' && activeRoomRef.current ? activeRoomRef.current : SOLO_ROOM_ID
+    const key = activeRoomRef.current ? activeRoomRef.current : SOLO_ROOM_ID
     const ids = key === SOLO_ROOM_ID
       ? (shuffleEnabled ? soloPlayOrderRef.current : soloQueueRef.current)
       : queueIdsRef.current
@@ -1194,6 +1250,7 @@ export function usePlaybackEngine({
       openPreviewGate()
       return
     }
+    if(track?.id && track.id!=='empty' && !listeningRef.current.completed) {recordTasteSignal('complete',{track,affinityAwarded:listeningRef.current.awarded});listeningRef.current.completed=true}
     const nativeNextIndex = currentIndex + 1 < queueIds.length ? currentIndex + 1 : repeatMode === 'all' ? 0 : -1
     const warmedNext = nativeNextIndex >= 0 ? getPreloadedTrack(queueIds[nativeNextIndex]) : null
     if (repeatMode !== 'one' && warmedNext?.streamUrl && (!roomPlaybackActive || (canControlRoom && roomClockRef.current.lastActorId === currentUser?.id))) {
@@ -1211,14 +1268,35 @@ export function usePlaybackEngine({
         setIsPlaying(false)
         return
       }
-      advanceRoomClock()
+      const clock = roomClockRef.current
+      const room = roomsRef.current.find(item => item.id === activeRoomRef.current)
+      if (clock.lastActorId !== currentUser?.id) return
+      if (room && clock.index === room.trackIds.length - 1) {
+        const endedId = room.trackIds[clock.index]
+        const key = room.id + ':ended:' + endedId + ':' + clock.stateVersion
+        if (radioPrimedRef.current.has(key)) return
+        radioPrimedRef.current.add(key)
+        setRoomClock({ ...clock, isPlaying:false, time:getPlaybackTime() })
+        fetchYtRadio(track.youtubeVideoId || track.videoId, { limit:1, artist:track.artist }).then(tracks => {
+          const latest = roomsRef.current.find(item => item.id === room.id)
+          if (!latest || activeRoomRef.current !== room.id || roomClockRef.current.lastActorId !== currentUser?.id || latest.trackIds.at(-1) !== endedId) return
+          const next = tracks.find(item => item?.id && item.id !== endedId)
+          if (!next) { setIsPlaying(false); announce({isPlaying:false}); return }
+          libraryRef.current={...libraryRef.current,[next.id]:sanitizeTrack(next)}
+          rememberTrack(next)
+          const ids = [...latest.trackIds, next.id]
+          commitRoomQueue(latest, ids)
+          startRoomQueueAt(room.id, ids, ids.length - 1)
+          announce({ index:ids.length - 1, time:0, isPlaying:true })
+        }).catch(() => { setIsPlaying(false); announce({isPlaying:false}) })
+      } else advanceRoomClock()
       return
     }
     if (inRoom && !canControl) {
       setIsPlaying(false)
       return
     }
-    if (track?.id && track.id !== 'empty') recordTasteSignal('complete', { track })
+
     if (!queueIds.length) {
       setIsPlaying(false)
       updatePlaybackProgress(0)
@@ -1290,7 +1368,7 @@ export function usePlaybackEngine({
   useEffect(() => {
     if (!track?.id || !isPlaying) return
     preloadQueueWindow({ queue, currentIndex, repeatMode, resolve: ensurePlayable })
-    if (roomPlaybackActive) primeRadioQueue(track)
+
   }, [track?.id, queueIds.join('|'), currentIndex, repeatMode, isPlaying])
 
   function maybePreloadNext(audio) {
@@ -1685,6 +1763,7 @@ export function usePlaybackEngine({
   async function playSearchTrack(candidate, contextTracks = null) {
     if (!candidate) return
     radioActive.current = false
+    recordTasteSignal('searchPlay',{track:candidate})
     const targetRoom = searchRoomTarget()
     const requestId = playRequestRef.current.seq + 1
     if (targetRoom) {
@@ -1812,6 +1891,7 @@ export function usePlaybackEngine({
   }
 
   async function playSoloTrack(candidate, contextTracks = null, options = {}) {
+    if(activeRoomRef.current){searchTargetRef.current={mode:'room',roomId:activeRoomRef.current};return playSearchTrack(candidate,contextTracks)}
     if (!candidate?.id) return
     if (!currentUser) {
       startGuestPreview(candidate, contextTracks, options)
@@ -1904,6 +1984,7 @@ export function usePlaybackEngine({
   function handleTimeUpdate(event) {
             const audio = event.currentTarget
             const time = audio.currentTime || 0
+            learnListening(time)
             progressRef.current = time
             playbackProgressStore.set(time)
             if (!currentUser && guestPreviewRef.current && time >= GUEST_PREVIEW_SECONDS - 0.05) {

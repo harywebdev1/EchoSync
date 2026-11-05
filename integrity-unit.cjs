@@ -582,11 +582,22 @@ const artistPayload = {
       for (const [ms, color] of [[0, 'green'], [299.99, 'green'], [300, 'amber'], [1000, 'amber'], [1000.01, 'red']]) assert.equal(room.classifyDrift(ms), color)
     })
 
+    await check('songs-filter IDs replace matching video IDs and alternates reject wrong artists and blocked IDs', async () => {
+      const {alternateVideoIds}=await import('./src/core/playbackCandidates.js')
+      const primary={songs:[{videoId:'oldXXXXXXXX',title:'Pehli Nazar Mein',artist:'Atif Aslam'}]}
+      const song={videoId:'newXXXXXXXX',title:'Pehli Nazar Mein',artist:'Atif Aslam',duration:290}
+      const merged=mergeSearchResults(primary,{songs:[song]},10).songs
+      const credited=mergeSearchResults({songs:[{...primary.songs[0],title:'Pehli Nazar Mein Atif Aslam Full Video',artist:'Label'}]},{songs:[song]},10).songs;assert.equal(credited.length,1);assert.equal(credited[0].videoId,song.videoId);
+      assert.equal(merged.length,1);assert.equal(merged[0].videoId,song.videoId);assert.deepEqual(merged[0].altVideoIds,['oldXXXXXXXX'])
+      assert.deepEqual(alternateVideoIds(song,[{...song,videoId:'badXXXXXXXX',artist:'Different singer'},{...song,videoId:'goodXXXXXXX'}],new Set(['oldXXXXXXXX'])),['goodXXXXXXX'])
+      assert.equal(mergeSearchResults(primary,{songs:[{...song,artist:'Different singer'}]},10).songs.length,2)
+      assert.equal((await import('./src/lib/router.js')).parseRoute('/playlist/shared').playlistId,'shared')
+    })
     await check('listener signals keep weighted artist/vibe/language learning, search deduplication and input immutability', () => {
       const empty = profile.emptyTasteProfile()
       const original = JSON.stringify(empty)
       const track = { id: 'song', title: 'Romantic song', artist: 'Arijit Singh', language: 'Hindi' }
-      let next = profile.applyTasteSignal(empty, 'play', { track }, () => 1234)
+      let next = profile.applyTasteSignal(empty, 'listened', { track }, () => 1234)
       assert.equal(JSON.stringify(empty), original)
       assert.equal(next.artists['arijit singh'].weight, 3)
       assert.equal(next.vibeWeights.romantic.weight, 2)
@@ -595,7 +606,7 @@ const artistPayload = {
       assert.equal(next.updatedAt, 1234)
       assert.equal(next.events, 1)
       next = profile.applyTasteSignal(next, 'like', { track }, () => 1235)
-      assert.equal(next.artists['arijit singh'].weight, 9)
+      assert.equal(next.artists['arijit singh'].weight, 8)
       assert.equal(next.vibeWeights.romantic.weight, 6)
       assert.equal(next.languageWeights.hindi.weight, 2)
       next = profile.applyTasteSignal(next, 'search', { query: '  ARIJIT ' }, () => 1236)
@@ -612,6 +623,17 @@ const artistPayload = {
       assert.equal(Object.keys(capped.artists).length, 30)
     })
 
+    await check('affinities award 3 once per listened/completed song, 5 for intent, early skip penalties, and rerank every three outcomes',()=>{
+      const track={id:'weight-check',title:'Song',artist:'Singer'}
+      let next=profile.applyTasteSignal(null,'play',{track})
+      assert.equal(next.artists.singer,undefined)
+      for(const type of ['like','playlist','searchPlay','listened'])next=profile.applyTasteSignal(next,type,{track})
+      assert.equal(next.artists.singer.weight,18);assert.equal(next.trackWeights[track.id],18)
+      next=profile.applyTasteSignal(next,'complete',{track,affinityAwarded:true})
+      assert.equal(next.artists.singer.weight,18)
+      next=profile.applyTasteSignal(next,'skip',{track,elapsed:10});next=profile.applyTasteSignal(next,'skip',{track,elapsed:20})
+      assert.equal(next.artists.singer.weight,17);assert.equal(next.trackWeights[track.id],15);assert.equal(next.rerankVersion,1)
+    })
     await check('taste compatibility is symmetric, bounded, volume-invariant and safe for empty profiles', () => {
       const a = { artists: { alpha: 3, beta: 1 }, genres: { indie: 1 } }
       const b = { artists: { alpha: 30, beta: 10 }, genres: { indie: 100 } }
@@ -675,7 +697,7 @@ const artistPayload = {
     })
 
     await check('listener learning caps momentum and never invents its own artist radio', () => {
-      let next = profile.applyTasteSignal(null, 'play', { track: { id: 'collab', title: 'Sufi Soul', artist: 'Atif Aslam & Arijit Singh', language: 'Hindi' } })
+      let next = profile.applyTasteSignal(null, 'listened', { track: { id: 'collab', title: 'Sufi Soul', artist: 'Atif Aslam & Arijit Singh', language: 'Hindi' } })
       assert.ok(next.artistWeights['atif aslam'].weight > 0)
       assert.ok(Object.keys(next.vibeWeights).length)
       assert.ok(next.languageWeights.hindi.weight > 0)

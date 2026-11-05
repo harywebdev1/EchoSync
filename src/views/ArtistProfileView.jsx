@@ -112,7 +112,7 @@ export function ArtistProfileView({
 
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined') return `/artist/${profile?.slug || ''}`
-    return `${window.location.origin}/artist/${encodeURIComponent(profile?.slug || '')}${profile?.browseId ? `?browseId=${encodeURIComponent(profile.browseId)}` : ''}`
+    return `${window.location.origin}/artist/${encodeURIComponent(profile?.slug || '')}${profile?.browseId ? `?id=${encodeURIComponent(profile.browseId)}` : ''}`
   }, [profile?.slug, profile?.browseId])
 
   const startShuffle = () => {

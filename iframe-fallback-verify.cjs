@@ -2,14 +2,15 @@ const assert = require('node:assert/strict')
 const { fixtureState, installFixtures } = require('./integrity-fixtures.cjs')
 
 // Controlled API-boundary tests only. These are NOT live YouTube/audio measurements.
-async function installOfficialPlayerDouble(context, { fail = false, seconds = 180, timeout = false } = {}) {
+async function installOfficialPlayerDouble(context, { fail = false, seconds = 180, timeout = false, blockedIds = [], readyDelay = 0 } = {}) {
   await context.route('**/api/youtube-audio?*', async route => {
     if (timeout) await new Promise(resolve => setTimeout(resolve, 6000))
     await route.fulfill({status:502,contentType:'application/json',body:'{"error":"controlled direct-path failure"}'}).catch(()=>{})
   })
-  await context.addInitScript(({fail,seconds}) => {
+  await context.addInitScript(({fail,seconds,blockedIds,readyDelay}) => {
     const library=JSON.parse(localStorage.getItem('echosync.library.v1'))
     for(const [id,entry] of Object.entries(library)) entry.track={...entry.track,streamUrl:null,previewUrl:null,preview:false,status:'pending',youtubeVideoId:(id.replace(/[^A-Za-z0-9_-]/g,'')+'XXXXXXXXXXX').slice(0,11)}
+    if(blockedIds.length)library.chaleya.track.altVideoIds=['goodXXXXXXX']
     localStorage.setItem('echosync.library.v1',JSON.stringify(library))
     localStorage.removeItem('echosync_stream_cache_v4')
     window.__playerDouble=[]
@@ -22,7 +23,7 @@ async function installOfficialPlayerDouble(context, { fail = false, seconds = 18
         this.frame=document.createElement('iframe');this.frame.src='about:blank';host.replaceWith(this.frame)
         window.__playerDouble.push(this)
         this.timer=setInterval(()=>{if(this.status===1){this.time+=.05;if(this.time>=this.total){this.status=0;this.options.events.onStateChange({data:0})}}},50)
-        setTimeout(()=>fail?options.events.onError({data:150}):options.events.onReady({target:this}),0)
+        setTimeout(()=>fail||blockedIds.includes(options.videoId)?options.events.onError({data:150}):options.events.onReady({target:this}),readyDelay)
       }
       playVideo(){if(this.status===1)return;if(this.time>=this.total)this.time=0;this.status=1;this.options.events.onStateChange({data:1})}
       pauseVideo(){this.status=2}
@@ -36,7 +37,7 @@ async function installOfficialPlayerDouble(context, { fail = false, seconds = 18
       getPlaybackRate(){return 1}
       destroy(){clearInterval(this.timer);this.frame.remove()}
     }}
-  },{fail,seconds})
+  },{fail,seconds,blockedIds,readyDelay})
 }
 const playing = page => page.waitForFunction(()=>{const p=window.__playerDouble.at(-1);const id=document.querySelector('[data-testid=audio-root]').dataset.trackId;const videoId=id.startsWith('yt-')?id.slice(3):(id.replace(/[^A-Za-z0-9_-]/g,'')+'XXXXXXXXXXX').slice(0,11);return p?.options.videoId===videoId&&p.status===1&&!p.muted&&p.time>.1})
 
@@ -67,17 +68,23 @@ module.exports=async function verifyIframeFallback({browser,check,open}){
     await page.locator('.player-dock input[aria-label=Volume]').fill('0.3')
     await page.waitForFunction(()=>window.__playerDouble.at(-1).volume<=30)
     assert.ok(await page.evaluate(()=>navigator.mediaSession.metadata?.title))
+    const instances=await page.evaluate(()=>window.__playerDouble.length)
+    await page.evaluate(()=>window.__sessionActions.seekto({seekTime:120}))
+    await page.waitForFunction(()=>window.__playerDouble.at(-1).time>120.2)
+    await page.evaluate(()=>window.__sessionActions.seekto({seekTime:10}))
+    await page.waitForFunction(()=>window.__playerDouble.at(-1).time>14.5&&window.__playerDouble.at(-1).status===1)
+    assert.equal(await page.evaluate(()=>window.__playerDouble.length),instances,'Backward seek must not trigger a false stalled-player retry')
     await page.evaluate(()=>{const p=window.__playerDouble.at(-1);p.time=p.total-.01})
     await page.waitForFunction(id=>document.querySelector('[data-testid=audio-root]').dataset.trackId!==id,first)
     await playing(page)
   })
-  await check('IFrame boundary: stalled extraction hands off within the 3.5s client deadline',{},async page=>{
+  await check('IFrame boundary: stalled extraction hands off within the 1.2s client deadline',{},async page=>{
     await installOfficialPlayerDouble(page.context(),{timeout:true})
     await open(page)
     const start=Date.now()
     await page.getByRole('button',{name:'Play Chaleya',exact:true}).first().click()
     await playing(page)
-    assert.ok(Date.now()-start<5500,'Fallback exceeded deadline plus player setup allowance')
+    assert.ok(Date.now()-start<3200,'Fallback exceeded deadline plus player setup allowance')
     assert.equal(await page.locator('.es-toast-message').filter({hasText:/unavailable/}).count(),0)
   })
   await check('IFrame boundary: both failed paths show one terminal error; short embeds never unmute',{},async page=>{
@@ -87,6 +94,18 @@ module.exports=async function verifyIframeFallback({browser,check,open}){
     await page.locator('.es-toast-message').filter({hasText:'Audio stream unavailable'}).waitFor()
     assert.equal(await page.locator('.es-toast-card').count(),1)
     assert.equal(await page.getByTestId('root-audio').evaluate(node=>node.paused),true)
+  })
+  await check('IFrame boundary: error 150 retries a matching alternate before any error toast',{},async page=>{
+    await installOfficialPlayerDouble(page.context(),{blockedIds:['chaleyaXXXX']})
+    await open(page)
+    await page.getByRole('button',{name:'Play Chaleya',exact:true}).first().click()
+    await page.waitForFunction(()=>{const p=window.__playerDouble.at(-1);return p?.options.videoId==='goodXXXXXXX'&&p.status===1&&!p.muted&&p.time>.1})
+    assert.equal(await page.locator('.es-toast-message').filter({hasText:/unavailable/}).count(),0)
+  })
+  await check('IFrame boundary: slow handshake gets its own deadline before the advancing-clock watchdog',{},async page=>{
+    await installOfficialPlayerDouble(page.context(),{readyDelay:4200})
+    await open(page);await page.getByRole('button',{name:'Play Chaleya',exact:true}).first().click();await playing(page)
+    assert.equal(await page.locator('.es-toast-message').filter({hasText:/unavailable/}).count(),0)
   })
   await check('IFrame boundary: actual 30s duration is blocked before unmuting',{},async page=>{
     await installOfficialPlayerDouble(page.context(),{seconds:30})

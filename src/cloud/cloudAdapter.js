@@ -6,7 +6,7 @@ export function mergeMigrationTaste(a={},b={}) {
 export const cloudFingerprint=value=>JSON.stringify(value,(_key,entry)=>entry&&typeof entry==='object'&&!Array.isArray(entry)?Object.fromEntries(Object.entries(entry).sort(([a],[b])=>a.localeCompare(b))):entry)
 const unwrap = result => { if(result?.error) throw new Error(result.error.message || 'Cloud request failed'); return result?.data }
 const unique = items => [...new Map(items.filter(t=>t?.id).map(t=>[t.id,t])).values()]
-export const EVENT_ALIASES={ROOM_STATE:'state',CLOCK_SYNC:'state',FORCE_RESYNC:'FORCE_RESYNC',QUEUE_VOTE:'room-vote',MEMBER_TELEMETRY:'member-telemetry',ROLE_UPDATE:'room-updated',CHAT_MESSAGE:'chat',VOICE_NOTE:'chat'}
+export const EVENT_ALIASES={CHAT_READ:'typing',ROLE_REQUEST:'role-request',ROOM_STATE:'state',CLOCK_SYNC:'state',FORCE_RESYNC:'FORCE_RESYNC',QUEUE_VOTE:'room-vote',MEMBER_TELEMETRY:'member-telemetry',ROLE_UPDATE:'room-updated',CHAT_MESSAGE:'chat',VOICE_NOTE:'chat'}
 export function roomToCloud(room,library={}) {
   return {id:room.id,code:room.code,name:room.name,tagline:room.tagline,description:room.description,gradient:room.gradient,privacy:room.private?'private':'public',host_id:room.ownerId||room.createdBy||room.dj||room.leader,queue:(room.trackIds||[]).map(id=>library[id]||{id}),members:room.members||[],roles:room.roles||{},metadata:{stateVersion:room.stateVersion||0,lastActorId:room.lastActorId||null,accent:room.accent,accent2:room.accent2,c1:room.c1,c2:room.c2,requests:room.requests||[],queueVotes:room.queueVotes||{},queueOrder:room.queueOrder||room.trackIds||[],ownerId:room.ownerId||room.createdBy||room.host_id||null,vibe:room.vibe||'',currentTrack:room.currentTrack||null,isPrivate:Boolean(room.private)}}
 }

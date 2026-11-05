@@ -451,7 +451,7 @@ export function ChatDrawer({
                       )}
                       <span className="bubble-meta">
                         {message.time}
-                        {mine && (message.read ? <CheckCheck /> : <Check />)}
+                        {mine && (()=>{ const seen=Math.max(0,...Object.entries(social.readReceipts?.[room.id] || {}).filter(([id])=>id!==currentUser?.id).map(([,at])=>at)); const read=Number(message.createdAt)>0 && Number(message.createdAt)<=seen;return <span aria-label={read?'Seen':room.members.length>1?'Delivered':'Sent'} style={{color:read?'#38bdf8':'#94a3b8'}}>{room.members.length>1 || read ? <CheckCheck style={{color:'inherit'}}/> : <Check style={{color:'inherit'}}/>}</span> })()}
                       </span>
                           <button className="message-chevron" aria-label="Message options" aria-haspopup="menu" aria-expanded={menuFor?.id === message.id} onClick={event=>setMenuFor(menuFor?.id===message.id?null:{id:message.id,anchor:event.currentTarget})}>⌄</button>
                       {menuFor?.id === message.id && <MessageContextMenu anchor={menuFor.anchor} onClose={()=>setMenuFor(null)} onReply={()=>onReply(message)} onProfile={()=>social.openProfile(author.id)} onPlay={message.track ? ()=>social.play(message.track) : undefined} onDelete={canDelete ? ()=>onDeleteMessage(message.id) : undefined} onReact={emoji=>onReact(message.id,emoji)} />}

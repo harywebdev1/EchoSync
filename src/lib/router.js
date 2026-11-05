@@ -34,6 +34,9 @@ export function parseRoute(pathname = '/', search = '') {
   if (clean === '/rooms') return { view: 'rooms', path: '/rooms' }
   if (clean === '/library') return { view: 'library', path: '/library' }
 
+  const playlist = clean.match(/^\/playlist\/([^/]+)$/)
+  if(playlist) return {view:'playlist',path:clean,playlistId:decodeURIComponent(playlist[1])}
+
   const room = clean.match(/^\/room\/([^/]+)$/)
   if (room) {
     const code = decodeURIComponent(room[1])

@@ -80,6 +80,6 @@ export function useDynamicTasteCatalog(profile, userKey, search, enabled = true)
       clearTimeout(timer)
       controller.abort()
     }
-  }, [userKey, profile?.events, search, enabled])
+  }, [userKey, profile?.rerankVersion, search, enabled])
   return catalog
 }

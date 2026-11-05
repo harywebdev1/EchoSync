@@ -45,6 +45,9 @@ async function installFixtures(context) {
   const audio = new Map()
   await context.route('**/*', async route => {
     let url = new URL(route.request().url())
+    // Native fixtures warm the optional official script, but never execute a
+    // JSON provider fixture as JavaScript. Fallback tests install their own API double.
+    if (url.hostname === 'www.youtube.com' && url.pathname === '/iframe_api') return route.fulfill({contentType:'application/javascript',body:'/* official API omitted in native-only controlled fixtures */'})
     if(url.pathname==='/api/youtube-audio') {
       const id=url.searchParams.get('videoId');const seed=seeds.find(track=>(track.id.replace(/[^A-Za-z0-9_-]/g,'')+'XXXXXXXXXXX').slice(0,11)===id);const track=configured[seed?.id]?.track
       return route.fulfill({contentType:'application/json',body:JSON.stringify({url:track?.streamUrl||'https://aac.saavncdn.com/integrity/fixture.wav?seconds=180',duration:Number(new URL(track?.streamUrl||'https://aac.saavncdn.com/?seconds=180').searchParams.get('seconds'))||180,mimeType:'audio/wav'})})

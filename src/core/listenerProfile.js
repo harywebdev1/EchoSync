@@ -24,13 +24,15 @@ export const ARTIST_LANGUAGE = {
 
 // Invisible learning only. Every dimension is artist, vibe, or language-era.
 export const TASTE_WEIGHTS = {
-  play: { artist: 3, vibe: 2, language: 1 },
-  complete: { artist: 5, vibe: 3, language: 1 },
-  replay: { artist: 5, vibe: 3, language: 1 },
-  like: { artist: 6, vibe: 4, language: 1 },
-  playlist: { artist: 6, vibe: 4, language: 1 },
+  play: { artist: 0, track:0, vibe: 0, language: 0 },
+  listened: { artist:3, track:3, vibe:2, language:1 },
+  searchPlay: {artist:5,track:5,vibe:2,language:1},
+  complete: { artist: 3, track:3, vibe: 3, language: 1 },
+  replay: { artist: 0, track:0, vibe: 0, language: 0 },
+  like: { artist: 5, track:5, vibe: 4, language: 1 },
+  playlist: { artist: 5, track:5, vibe: 4, language: 1 },
   search: { keyword: 3 },
-  skip: { artist: -2, vibe: -2, language: 0 },
+  skip: { artist: -1, track:-3, vibe: -2, language: 0 },
 }
 
 export const TASTE_VIBES = ['Romantic', 'Sufi & Soul', 'Indie & Acoustic', 'Punjabi & Upbeat', 'Late Night Lo-Fi', 'Workout & Energy', 'Global Pop']
@@ -76,7 +78,7 @@ export function emptyTasteProfile() {
     keywords: {},
     searches: [],
     tuned: [],
-    events: 0,
+    trackWeights: {}, songEvents:0, rerankVersion:0, events: 0,
     updatedAt: 0,
     coArtistGraph: {}, sessionMomentum: [],
   }
@@ -102,6 +104,8 @@ export function normalizeTasteProfile(raw) {
       .slice(0, 30)
     return Object.fromEntries(entries)
   }
+  profile.trackWeights = Object.fromEntries(Object.entries(raw.trackWeights || {}).filter(([,value])=>Number.isFinite(value)).slice(-200))
+  profile.songEvents=Number(raw.songEvents)||0;profile.rerankVersion=Number(raw.rerankVersion)||0
   profile.artists = copyWeights(raw.artistWeights || raw.artists)
   profile.languages = copyWeights(raw.languageWeights || raw.languages)
   profile.genres = copyWeights(raw.genres)
@@ -210,7 +214,9 @@ function learnAffinities(profile, track, artistAmount, vibeAmount, languageAmoun
 }
 
 export function applyTasteSignal(profile, type, payload = {}, now = Date.now) {
-  const config = TASTE_WEIGHTS[type]
+  const config = {...TASTE_WEIGHTS[type]}
+  if(!TASTE_WEIGHTS[type]) return profile
+  if ((type==='complete' && payload.affinityAwarded) || (type==='skip' && payload.elapsed>=15)) {config.artist=0;config.track=0}
   if (!config) return profile
   const next = normalizeTasteProfile(profile)
   next.events += 1
@@ -226,12 +232,14 @@ export function applyTasteSignal(profile, type, payload = {}, now = Date.now) {
     normalize(query).split(' ').filter(token => token.length > 2).slice(0, 4).forEach((token) => {
       bumpTasteWeight(next.keywords, token, token, config.keyword)
     })
-    if (payload.track) learnAffinities(next, payload.track, 2, 1, 1)
+
     return next
   }
 
   const track = payload.track
   if (!track?.id) return next
+  if(type==='skip'||type==='complete'){next.songEvents++;next.rerankVersion=Math.floor(next.songEvents/3)}
+  if(config.track) next.trackWeights[track.id]=Math.max(-30,Math.min(100,(next.trackWeights[track.id]||0)+config.track))
   const amount = Number(config.artist) || 0
   artistNames(track).forEach((artist) => {
     bumpTasteWeight(next.artists, normalize(artist), artist, amount)
@@ -330,7 +338,7 @@ export function rankListenerTracks(tracks = [], { profile, liked = [], recent = 
     const artistWeight = artistNames(track).reduce((sum, artist) => sum + (profile?.artists?.[normalize(artist)]?.weight || 0), 0)
     const vibeWeight = tasteVibesForTrack(track).reduce((sum, vibe) => sum + (profile?.vibeWeights?.[normalize(vibe)]?.weight || 0), 0)
     const text = [track.title, track.artist, track.album, track.genre, ...(track.tags || [])].join(' ')
-    const score = (pattern?.test(text) ? 1000 : 0) +
+    const score = (profile?.trackWeights?.[track.id] || 0) * 3 + (pattern?.test(text) ? 1000 : 0) +
       Math.min(artistWeight * 2 + vibeWeight, 160) +
       (known.has(track.id) ? 20 : 0) +
       (played.has(track.id) ? 8 : 0)

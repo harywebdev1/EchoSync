@@ -411,6 +411,7 @@ let passed = 0
       await page.locator('[data-testid=root-audio]').evaluate(audio=>{audio.currentTime=30.1;audio.dispatchEvent(new Event('timeupdate'))})
       await page.getByTestId('preview-ended-card').waitFor();assert.equal(await page.getByTestId('root-audio').evaluate(audio=>audio.paused),true);await page.getByRole('button',{name:'Dismiss preview notice'}).click();assert.equal(await page.getByTestId('preview-ended-card').count(),0)
     })
+    await require('./product-completion-verify.cjs')({check,open})
     await require('./iframe-fallback-verify.cjs')({browser,check,open})
     await require('./production-overhaul-verify.cjs')({check,open})
     await require('./overhaul-verify.cjs')({browser,check,open,APP_URL})

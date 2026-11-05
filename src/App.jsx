@@ -5,7 +5,7 @@ import { SocialContext } from './components/social/SocialContext.jsx'
 import { ArtworkContext } from './components/Cover'
 import { MembersContext } from './components/shared/MembersContext'
 import { AudioRootContainer } from './components/player/AudioRoot.jsx'
-const Sidebar = makeLazySurface(() => import('./components/shell/Sidebar.jsx'), 'Sidebar', 'view')
+const Sidebar = makeLazySurface(() => import('./components/shell/Sidebar.jsx'), 'Sidebar', 'sidebar')
 import { ROLE_COPY } from './components/shared/roomRoles'
 import { formatTime } from './lib/time'
 import { AudioLines } from 'lucide-react'
@@ -13,7 +13,7 @@ import { StageBar } from './components/shell/StageBar.jsx'
 import { ErrorBoundary } from './components/shell/ErrorBoundary.jsx'
 import { HomeView } from './views/HomeView'
 import { searchEverything, normalizeRoomCode } from './lib/appServices.js'
-const PlayerDock = makeLazySurface(() => import('./components/player/PlayerDock'), 'PlayerDock', 'drawer')
+const PlayerDock = makeLazySurface(() => import('./components/player/PlayerDock'), 'PlayerDock', 'dock')
 import { PreviewEndedCard } from './components/player/PreviewEndedCard'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
 const QueueDrawer = makeLazySurface(() => import('./components/player/QueueDrawer'), 'QueueDrawer', 'drawer')
@@ -22,6 +22,7 @@ import { ToastViewport } from './components/shell/Toast.jsx'
 import { GUEST_PREVIEW_BANNER } from './hooks/usePlaybackEngine.js'
 
 const RoomsView = makeLazySurface(() => import('./views/RoomsView'), 'RoomsView', 'view', () => import('./views/RoomsView?retry=1'))
+const PublicPlaylistView = makeLazySurface(()=>import('./views/PublicPlaylistView.jsx'),'PublicPlaylistView','view')
 const LibraryView = makeLazySurface(() => import('./views/LibraryView'), 'LibraryView', 'view', () => import('./views/LibraryView?retry=1'))
 const RoomView = makeLazySurface(() => import('./views/RoomView'), 'RoomView', 'view', () => import('./views/RoomView?retry=1'))
 const ChatPanel = makeLazySurface(() => import('./components/social/ChatDrawer'), 'ChatDrawer', 'drawer', () => import('./components/social/ChatDrawer?retry=1'))
@@ -66,7 +67,7 @@ async function requestStartupPermissions() {
 
 export default function App() {
   useEffect(()=>{
-    const preload=()=>{SearchOverlay.preload();AuthModal.preload();RoomsView.preload();PublicLoungeDrawer.preload()}
+    const preload=()=>{import('./services/youtubePlayer.js').then(module=>module.warmYouTubeApi()).catch(()=>{});SearchOverlay.preload();AuthModal.preload();RoomsView.preload();PublicLoungeDrawer.preload()}
     if(window.requestIdleCallback){const id=window.requestIdleCallback(preload,{timeout:400});return()=>window.cancelIdleCallback(id)}
     const id=setTimeout(preload,400);return()=>clearTimeout(id)
   },[])
@@ -104,7 +105,7 @@ export default function App() {
     replayGuestPreview,
     leavePrompt,
     requestLeaveRoom,
-    confirmLeaveRoom,
+    confirmLeaveRoom, keepRoomInBackground,
     navigateView,
     openArtistProfile,
     openUserChannel,
@@ -115,7 +116,7 @@ export default function App() {
     requestCreateRoom,
     openProfile,
     openCreatePlaylist,
-    openPlaylist,
+    openPlaylist, sharePlaylist, sharedPlaylistId,
     unreadRoomCounts,
     latestRoomPreview,
     loungeOpen,
@@ -351,6 +352,7 @@ export default function App() {
           />
 
           <main className="stage">
+            {inRoom && view !== 'room' && <button className="room-return-bar text-btn" onClick={()=>navigateView('room')}>Return to Room · {activeRoom.name}</button>}
             {joinPill && inRoom && (
               <button className="join-live-pill" onClick={acceptJoin}>
                 <span className="join-live-dot" />
@@ -460,6 +462,7 @@ export default function App() {
                 />
               )}
 
+              {view === 'playlist' && <PublicPlaylistView id={sharedPlaylistId} localPlaylist={playlists.find(item=>item.id===sharedPlaylistId)} library={library} onPlay={playSoloTrack} onSignIn={openProfile}/>}
               {view === 'library' && (
                 <LibraryView
                   searchTracks={searchEverything}
@@ -485,6 +488,7 @@ export default function App() {
                   onDeletePlaylist={deletePlaylist}
                   onRemoveFromPlaylist={removeTrackFromPlaylist}
                   onShufflePlaylist={shufflePlaylist}
+                  onSharePlaylist={sharePlaylist}
                   onOpenPlaylist={openPlaylist}
                   onImportPlaylist={importPlaylistToRoom}
                 />
@@ -590,10 +594,11 @@ export default function App() {
               onNavigate={navigateView}
               onSearch={openSearchExperience}
               onLounge={openLounge}
+              onChat={()=>setChatOpen(value=>!value)}
             />
           </main>
 
-          {inRoom && view === 'room' && !loungeOpen && !shellQueueOpen && (
+          {inRoom && !loungeOpen && !shellQueueOpen && (
             <ChatPanel
               room={activeRoom}
               activeTab={activeTab}
@@ -801,6 +806,7 @@ export default function App() {
             members={memberIndex}
             onClose={() => setLeavePrompt(null)}
             onAssignLeave={confirmLeaveRoom}
+            onKeepBackground={keepRoomInBackground}
           />
         )}
 

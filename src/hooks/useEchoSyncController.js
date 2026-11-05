@@ -2,13 +2,13 @@ import { useDynamicTasteCatalog } from './useDynamicTasteCatalog.js'
 import { useNotifications } from './useNotifications.js'
 import { isFreshLoungeMessage } from '../core/loungeExpiry.js'
 import { roomFromCloud, cloudFingerprint, messageFromCloud } from '../cloud/cloudAdapter.js'
-import { normalizeTasteProfile } from '../core/listenerProfile.js'
+import { normalizeTasteProfile, rankListenerTracks } from '../core/listenerProfile.js'
 import { useCloudBackend } from './useCloudBackend.js'
-import { isSupabaseConfigured } from '../lib/supabaseClient.js'
+import { isSupabaseConfigured, getSupabaseClient } from '../lib/supabaseClient.js'
 import { useSocialFeatures } from './useSocialFeatures.js'
 import { useOverlayHistory } from './useOverlayHistory.js'
 import { useStableActions } from './useStableActions.js'
-import { useEffect, useMemo, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useCallback, useRef, useState } from 'react'
 import {
   consumeStorageFailure,
   accountDisplay,
@@ -336,10 +336,12 @@ export function useEchoSyncController() {
     searchTargetRef,
     playRequestRef,
   } = useAppState()
+  const [sharedPlaylistId,setSharedPlaylistId]=useState(()=>parseRoute(typeof window==='undefined'?'/':window.location.pathname,typeof window==='undefined'?'':window.location.search).playlistId || null)
   const lastRoutePathRef = useRef(
     typeof window === 'undefined' ? '/' : `${window.location.pathname}${window.location.search}`,
   )
   const { notifications, notify, markNotificationsRead, clearNotifications } = useNotifications(setToast)
+  const roleRequestRef = useRef(resolveRoleRequest); roleRequestRef.current = resolveRoleRequest
   const dynamicCatalogTracks = useDynamicTasteCatalog(tasteProfile, currentUserId || 'guest', fetchJioSearch, dailyRefresh > 0).tracks
 
   const currentAccount = currentUserId ? accounts[currentUserId] : null
@@ -373,14 +375,14 @@ export function useEchoSyncController() {
 
   function applyRoute(route) {
     if (!route) return
+    if(route.view==='playlist'){setSharedPlaylistId(route.playlistId);setView('playlist');viewRef.current='playlist';return}
     if (route.view === 'artist' || route.view === 'user') {
       setSearchOpen(false)
       setFullPlayer(false)
       setLoungeOpen(false)
       setChatOpen(false)
       setQueueOpen(false)
-      if (viewRef.current === 'room') suspendRoomPlayback()
-      if (route.view === 'artist') {
+        if (route.view === 'artist') {
         setArtistProfile(route.artist || null)
         setUserProfile(null)
         setView('artist')
@@ -464,7 +466,7 @@ export function useEchoSyncController() {
 
   const inRoom = Boolean(activeRoom)
 
-  const roomPlaybackActive = Boolean(activeRoom && view === 'room')
+  const roomPlaybackActive = Boolean(activeRoom)
 
   const role = inRoom ? activeRoom.roles?.[currentUserId] || 'listener' : 'listener'
 
@@ -644,7 +646,7 @@ export function useEchoSyncController() {
   }, [fullPlayer])
 
   useEffect(() => {
-    if (!activeRoomId || view !== 'room') return
+    if (!activeRoomId || !chatOpen || document.hidden) return
     setUnreadRoomCounts((previous) => {
       if (!previous[activeRoomId]) return previous
       const next = { ...previous }
@@ -926,12 +928,6 @@ export function useEchoSyncController() {
     writeRoute('/', { replace: true })
   }, [rooms, activeRoomId])
 
-  useEffect(() => {
-    if (view === 'room' || !activeRoomId) return
-    audioRef.current?.pause()
-    setIsPlaying(false)
-    setJoinPill(null)
-  }, [view, activeRoomId])
 
   useEffect(() => {
     if (activeRoomId) return
@@ -1251,7 +1247,7 @@ export function useEchoSyncController() {
     // first row is the seed, so a station always continues with new songs.
     const videoId = seed.youtubeVideoId || await resolveVideoId(seed).catch(() => '')
     if (videoId) {
-      const radio = await fetchYtRadio(videoId, { limit: 25, artist: seed.artist })
+      const radio = rankListenerTracks(await fetchYtRadio(videoId, { limit: 25, artist: seed.artist }), {profile:tasteProfile,liked:likedSet,recent})
       if (radio.length) {
         radio.forEach((track) => rememberTrack(track))
         return radio
@@ -1694,7 +1690,7 @@ export function useEchoSyncController() {
     }
     const nextRoom = { ...activeRoom, requests: [...(activeRoom.requests || []), request] }
     setRooms((previous) => previous.map((room) => (room.id === nextRoom.id ? nextRoom : room)))
-    channelRef.current?.postMessage({ type: 'role-request', sender: tabIdRef.current, roomId: nextRoom.id, request })
+    channelRef.current?.postMessage({ type: 'ROLE_REQUEST', sender: tabIdRef.current, roomId: nextRoom.id, request })
     showToast('Request sent — a room Admin will review it.')
   }
 
@@ -1766,12 +1762,11 @@ export function useEchoSyncController() {
 
   function requestLeaveRoom() {
     if (!activeRoom) return
-    const others = activeRoom.members.filter((id) => id !== currentUserId)
-    if (role === 'admin' && others.length) {
-      setLeavePrompt({ roomId: activeRoom.id, members: others })
-      return
-    }
-    leaveRoom()
+    const others = role === 'admin' ? activeRoom.members.filter(id => id !== currentUserId) : []
+    setLeavePrompt({ roomId:activeRoom.id, members:others })
+  }
+  function keepRoomInBackground() {
+    setLeavePrompt(null); setFullPlayer(false); setView('home'); viewRef.current='home'; writeRoute('/')
   }
 
   function confirmLeaveRoom(assigneeId) {
@@ -1850,11 +1845,12 @@ export function useEchoSyncController() {
   }
 
   function rememberRoomUnread(roomId, message) {
-    if (!roomId || !message) return
+    if (!roomId || !message || message.author === currentUserId) return
     const member = memberIndexRef.current[message.author]
     const sender = message.userName || member?.name || member?.handle || 'Someone'
     const rawText = message.type === 'voice' ? '🎙️ Voice note' : String(message.text || 'New message')
     const text = rawText.replace(/\s+/g, ' ').trim().slice(0, 74)
+    if (roomId === activeRoomRef.current) showToast({title:'@' + (message.authorHandle || member?.handle || sender), subtitle:text, category:'chat', action:{label:'Open Chat',onClick:()=>openRoomChat()}})
     setUnreadRoomCounts((previous) => ({
       ...previous,
       [roomId]: Math.min(99, (previous[roomId] || 0) + 1),
@@ -2099,6 +2095,7 @@ export function useEchoSyncController() {
       time: clockNow(),
       reactions: [],
       read: false,
+      createdAt: Date.now(),
       ...(replySnapshot ? { replyTo: replySnapshot } : {}),
     }
     setMessages((previous) => ({ ...previous, [activeRoomId]: [...(previous[activeRoomId] || []), message] }))
@@ -2132,6 +2129,7 @@ export function useEchoSyncController() {
       time: clockNow(),
       reactions: [],
       read: false,
+      createdAt: Date.now(),
       ...(replySnapshot ? { replyTo: replySnapshot } : {}),
     }
     setMessages((previous) => ({ ...previous, [activeRoomId]: [...(previous[activeRoomId] || []), message] }))
@@ -2271,6 +2269,19 @@ export function useEchoSyncController() {
     showToast('Removed from playlist')
   }
 
+  async function sharePlaylist(playlist) {
+    try {
+      const client=await getSupabaseClient()
+      if(!client || !currentUser?.cloud){showToast('Sign in to a cloud account to share this playlist');return}
+      const session=await client.auth.getSession()
+      if(session.error || !session.data?.session?.user)throw new Error('Sign in to share this playlist')
+      const result=await client.from('playlists').upsert({id:playlist.id,owner_id:session.data.session.user.id,name:playlist.name,description:playlist.description||'',visibility:'public',tracks:playlist.trackIds.map(id=>libraryRef.current[id]).filter(Boolean).map(track=>sanitizeTrack({...track,streamUrl:null,previewUrl:null,status:'pending',needsHydration:true}))})
+      if(result.error)throw result.error
+      setPlaylists(previous=>previous.map(item=>item.id===playlist.id?{...item,visibility:'public'}:item))
+      await navigator.clipboard.writeText(window.location.origin+'/playlist/'+encodeURIComponent(playlist.id))
+      showToast('Playlist link copied')
+    } catch(error){showToast(error.message || 'Playlist could not be shared','lock')}
+  }
   function openPlaylist(playlist) {
     if (requireAuth({ type: 'library' }, 'Log in to open your playlists.')) return
     setActivePlaylistId(playlist.id)
@@ -2340,7 +2351,7 @@ export function useEchoSyncController() {
 
   function openSearchExperience() {
     document.getElementById('canonical-search-input')?.focus()
-    const targetRoom = viewRef.current === 'room' ? activeRoomRef.current : null
+    const targetRoom = activeRoomRef.current
     const room = targetRoom ? roomsRef.current.find((candidate) => candidate.id === targetRoom) : null
     searchTargetRef.current = {
       mode: targetRoom ? 'room' : 'solo',
@@ -2784,7 +2795,7 @@ export function useEchoSyncController() {
     return false
   }
   const cloudEventRef=useRef(handleCloudEvent);cloudEventRef.current=handleCloudEvent
-  const social = useSocialFeatures({ currentUser, tasteProfile, library, playlists, recent, liked: likedSet, members:memberIndex, rooms, activeRoom, roomPlaybackActive, isPlaying, track,
+  const social = useSocialFeatures({ chatOpen, messages:activeRoom ? messages[activeRoom.id] || [] : [], currentUser, tasteProfile, library, playlists, recent, liked: likedSet, members:memberIndex, rooms, activeRoom, roomPlaybackActive, isPlaying, track,
     channelRef, tabIdRef, roomsRef, activeRoomRef, roomClockRef, roomQueueRef, setRooms, setMessages, setPlaylists, setLoungeMessages,
     rememberTrack, toggleLike, queueSoloTrack, playSearchTrack: (candidate, context) => { searchTargetRef.current = { mode: 'solo', roomId: null }; return playSearchTrack(candidate, context) }, playPlaylist, joinRoom, inviteLoungeUser, showToast, upsertLoungeMessage, openUserChannel,
     getPlaybackTime: (...args)=>getPlaybackTime(...args), roomClockTime: (...args)=>roomClockTime(...args),
@@ -2864,6 +2875,7 @@ export function useEchoSyncController() {
       ensurePlayable: (...args) => ensurePlayable(...args),
       beginPlayback: (...args) => beginPlayback(...args),
       showToast,
+      notifyRoleRequest:(roomId,request)=>{ const room=roomsRef.current.find(item=>item.id===roomId);if(room?.roles?.[currentUserId]==='admin') showToast({title:'@'+(memberIndexRef.current[request.userId]?.handle || 'listener')+' wants DJ controls',subtitle:room.name,category:'room',actions:[{label:'✓ Make DJ',onClick:()=>roleRequestRef.current(request.id,true)},{label:'✕ Dismiss',onClick:()=>roleRequestRef.current(request.id,false)}]}) },
       rememberLoungeUnread,
       upsertLoungeMessage,
       applyLoungeReaction,
@@ -3185,10 +3197,7 @@ export function useEchoSyncController() {
       { type: 'library' },
       'Log in to open your library and saved playlists.',
     )) return
-    if (viewRef.current === 'room' && nextView !== 'room') {
-      suspendRoomPlayback()
-      setFullPlayer(false)
-    }
+    if (viewRef.current === 'room' && nextView === 'home') { requestLeaveRoom(); return }
     if (nextView === 'room' && activeRoomRef.current) {
       if (viewRef.current !== 'room') resumeRoomOnEntry(activeRoomRef.current)
       setFullPlayer(false)
@@ -3230,7 +3239,6 @@ export function useEchoSyncController() {
     setLoungeOpen(false)
     setChatOpen(false)
     setQueueOpen(false)
-    if (viewRef.current === 'room') suspendRoomPlayback()
     setView('artist')
     viewRef.current = 'artist'
     writeRoute(artistPath(profile, browseId))
@@ -3247,7 +3255,6 @@ export function useEchoSyncController() {
     setLoungeOpen(false)
     setChatOpen(false)
     setQueueOpen(false)
-    if (viewRef.current === 'room') suspendRoomPlayback()
     setView('user')
     viewRef.current = 'user'
     writeRoute(userPath(handle))
@@ -3412,7 +3419,7 @@ export function useEchoSyncController() {
     requestCreateRoom,
     openProfile,
     openCreatePlaylist,
-    openPlaylist,
+    openPlaylist, sharePlaylist, sharedPlaylistId,
     leaveRoom,
     unreadRoomCounts,
     latestRoomPreview,
@@ -3431,7 +3438,7 @@ export function useEchoSyncController() {
     prefetchTrack,
     leavePrompt,
     requestLeaveRoom,
-    confirmLeaveRoom,
+    confirmLeaveRoom, keepRoomInBackground,
     inRoom,
     acceptJoin,
     chatOpen,

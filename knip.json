@@ -7,9 +7,15 @@
     "integrity-unit.cjs",
     "api-verify.cjs",
     "integrity-browser.cjs",
-    "integrity-fixtures.cjs"
+    "integrity-fixtures.cjs",
+    "live-playback-verify.cjs"
   ],
-  "project": ["src/**/*.{js,jsx,css}", "api/**/*.js", "server/**/*.js", "*.cjs"],
+  "project": [
+    "src/**/*.{js,jsx,css}",
+    "api/**/*.js",
+    "server/**/*.js",
+    "*.cjs"
+  ],
   "ignoreExportsUsedInFile": true,
   "includeEntryExports": false
 }

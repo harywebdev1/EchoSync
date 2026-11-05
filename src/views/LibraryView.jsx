@@ -40,7 +40,7 @@ export function LibraryView({
   onRenamePlaylist,
   onDeletePlaylist,
   onRemoveFromPlaylist,
-  onShufflePlaylist,
+  onShufflePlaylist, onSharePlaylist,
   onOpenPlaylist,
   onImportPlaylist,
 }) {
@@ -130,7 +130,7 @@ export function LibraryView({
               <span className="eyebrow"><span className="seg" /> PLAYLIST</span>
               <h2>{activePlaylist.name}</h2>
               <p>{activePlaylist.description || `Made by ${currentUser?.name || 'you'} · ${playlistTracks.length} track${playlistTracks.length === 1 ? '' : 's'}`}</p>
-              <div className="playlist-detail-actions"><button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button><details className="playlist-more"><summary className="text-btn">⋯ More</summary><div className="playlist-more-menu"><button className="text-btn" aria-label="Playlist visibility" onClick={()=>social.toggleVisibility(activePlaylist.id)}>{activePlaylist.visibility==='private'?'🔒 Private':'🌐 Public'}</button>
+              <div className="playlist-detail-actions"><button className="primary-btn" disabled={!playlistTracks.length} onClick={() => onPlayPlaylist(activePlaylist)}><Play /> Play</button><button className="text-btn" onClick={()=>onSharePlaylist?.(activePlaylist)}>🔗 Share</button><details className="playlist-more"><summary className="text-btn">⋯ More</summary><div className="playlist-more-menu"><button className="text-btn" aria-label="Playlist visibility" onClick={()=>social.toggleVisibility(activePlaylist.id)}>{activePlaylist.visibility==='private'?'🔒 Private':'🌐 Public'}</button>
 
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onShufflePlaylist(activePlaylist)}><Shuffle size={12} /> Shuffle</button>
                 <button className="text-btn" disabled={!playlistTracks.length} onClick={() => onImportPlaylist?.(activePlaylist)}><Radio size={12} /> Add to Room</button>

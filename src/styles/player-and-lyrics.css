@@ -2965,3 +2965,50 @@ input[type="range"] {
   pointer-events: none;
   overflow: hidden;
 }
+.skeleton-sidebar {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 240px;
+}
+.skeleton-dock {
+  position: fixed;
+  left: 240px;
+  right: 0;
+  bottom: 0;
+  height: 88px;
+  min-height: 88px;
+}
+.room-return-bar {
+  width: 100%;
+  min-height: 36px;
+}
+@media (max-width: 1050px) {
+  .mobile-mini {
+    height: 58px;
+    min-height: 58px;
+    bottom: 56px;
+  }
+  .skeleton-sidebar {
+    display: none;
+  }
+  .skeleton-dock {
+    display: none;
+  }
+}
+.es-toast-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+.es-toast-card .es-toast-icon {
+  flex: 0 0 36px;
+}
+@media (max-width: 600px) {
+  .es-toast-actions {
+    flex-direction: column;
+  }
+}

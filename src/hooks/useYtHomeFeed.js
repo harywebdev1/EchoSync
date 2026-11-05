@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchYtSearch, fetchYtRadio } from '../lib/appServices.js'
-import { topTasteLabels } from '../core/listenerProfile.js'
+import { topTasteLabels, rankListenerTracks } from '../core/listenerProfile.js'
 import { getCanonicalSongStem } from '../core/trackIdentity.js'
 
 // Home is a set of YouTube Music shelves: artist seeds (or the PK/IN/Global
@@ -23,9 +23,10 @@ function takeUnique(lists, limit, reserved = new Set()) {
 }
 
 export function useYtHomeFeed({ profile, recentTracks = [], libraryTracks = [], liked = [] } = {}) {
-  const artists = useMemo(() => topTasteLabels(profile?.artists, 3), [profile?.updatedAt])
+  const artists = useMemo(() => topTasteLabels(profile?.artists, 3), [profile?.rerankVersion])
   const artistKey = artists.join('|')
   const recentKey = recentTracks.map((track) => track?.id).filter(Boolean).join('|')
+  const cycle=profile?.rerankVersion || 0
   const [feed, setFeed] = useState({ quick: [], mixed: [], fresh: [], supermix: [], status: 'loading' })
 
   useEffect(() => {
@@ -46,8 +47,8 @@ export function useYtHomeFeed({ profile, recentTracks = [], libraryTracks = [], 
       const artistLists = seeds.map((_, index) => at(index))
       const radio = at(seeds.length)
       const discoveryLists = [at(seeds.length + 1), at(seeds.length + 2)]
-      const quick = takeUnique([...artistLists, ...discoveryLists], 20)
-      const mixed = takeUnique([radio, ...artistLists], 16)
+      const quick = rankListenerTracks(takeUnique([...artistLists, ...discoveryLists], 20),{profile,liked})
+      const mixed = rankListenerTracks(takeUnique([radio, ...artistLists], 16),{profile,liked})
       const fresh = takeUnique([...discoveryLists, ...artistLists], 16)
       setFeed({
         quick,
@@ -60,7 +61,7 @@ export function useYtHomeFeed({ profile, recentTracks = [], libraryTracks = [], 
     return () => { cancelled = true }
     // Keys keep the effect stable while arrays are rebuilt on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artistKey, recentKey])
+  }, [artistKey, cycle])
 
   const familiar = useMemo(() => takeUnique([
     [...recentTracks, ...liked.map(id => libraryTracks.find(track => track.id === id)).filter(Boolean)], libraryTracks,

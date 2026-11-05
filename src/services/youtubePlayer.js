@@ -1,6 +1,6 @@
 let apiPromise
 
-function loadOfficialApi() {
+export function warmYouTubeApi() {
   if (window.YT?.Player) return Promise.resolve(window.YT)
   if (apiPromise) return apiPromise
   apiPromise = new Promise((resolve, reject) => {
@@ -21,22 +21,24 @@ function loadOfficialApi() {
 // Official embed only. Mobile web may suspend YouTube during screen lock;
 // reliable native background/lock-screen playback belongs to Expo phase 4.
 export async function createYouTubeBridge({ host, videoId, state, onDuration, onProgress, onPlaying, onEnded, onError, onBlocked }) {
-  const YT = await loadOfficialApi()
+  const YT = await warmYouTubeApi()
   let disposed = false, verified = false, apiReady = false, ended = false, player
+  let lastTime = 0, lastAdvanceAt = Date.now()
   let watchdog
   const mount = document.createElement('div')
   host.appendChild(mount)
-  const fail = (reason) => {
+  const fail = (reason, code) => {
     if (disposed) return
     disposed = true
     clearTimeout(watchdog)
     clearInterval(poll)
     player?.pauseVideo?.()
-    onError(reason)
+    onError(reason, code)
   }
-  const arm = () => {
+  const arm = (timeout = 4000) => {
+    lastAdvanceAt=Date.now();lastTime=Number(player?.getCurrentTime?.()) || 0
     clearTimeout(watchdog)
-    watchdog = setTimeout(() => fail('unavailable'), 12000)
+    watchdog = setTimeout(() => fail('unavailable'), timeout)
   }
   const sync = () => {
     if (!apiReady || disposed) return
@@ -64,22 +66,28 @@ export async function createYouTubeBridge({ host, videoId, state, onDuration, on
     if (!validate()) return
     const desired = state()
     const status = player.getPlayerState()
-    if (status === 1 && desired.playing) { clearTimeout(watchdog); onPlaying() }
+    if (desired.playing) {
+      const time = Number(player.getCurrentTime()) || 0
+      if (time > lastTime + .01) { lastTime=time; lastAdvanceAt=Date.now(); clearTimeout(watchdog); if(status===1) onPlaying() }
+      else if (Date.now()-lastAdvanceAt>=4000) { fail('unavailable'); return }
+    } else { lastAdvanceAt=Date.now(); lastTime=Number(player.getCurrentTime()) || 0 }
     if (!desired.playing && status === 1) player.pauseVideo()
     onProgress(Number(player.getCurrentTime()) || 0, Number(player.getDuration()))
   }, 250)
-  arm()
+  // Bound the embed handshake separately; the 4s advancing-clock deadline
+  // begins when the official player is ready to accept its first play call.
+  arm(8000)
   try { player = new YT.Player(mount, {
     width: 360, height: 240, videoId,
     playerVars: { autoplay: 0, controls: 0, disablekb: 1, playsinline: 1, origin: window.location.origin },
     events: {
-      onReady: () => { if (disposed) return; apiReady = true; player.mute(); sync() },
+      onReady: () => { if (disposed) return; apiReady = true; arm(); player.mute(); sync() },
       onStateChange: event => {
         if (disposed || !validate()) return
-        if (event.data === 1 && state().playing) { ended = false; clearTimeout(watchdog); onPlaying() }
+        if (event.data === 1 && state().playing) { ended = false; onPlaying() }
         if (event.data === 0 && !ended && state().playing) { ended = true; onEnded() }
       },
-      onError: () => fail('unavailable'),
+      onError: event => fail('unavailable', event.data),
       onAutoplayBlocked: () => { if (!disposed) { clearTimeout(watchdog); onBlocked() } },
     },
   }) } catch (error) { clearInterval(poll); clearTimeout(watchdog); mount.remove(); throw error }
@@ -91,7 +99,7 @@ export async function createYouTubeBridge({ host, videoId, state, onDuration, on
     getPlaybackRate: () => Number(player.getPlaybackRate?.()) || 1,
     playVideo: () => { if (apiReady && !disposed) { if (verified) player.unMute(); player.playVideo(); arm() } },
     pauseVideo: () => { if (apiReady) player.pauseVideo(); clearTimeout(watchdog) },
-    seekTo: time => { if (apiReady && verified) { ended = false; player.seekTo(time, true); if (!state().playing) player.pauseVideo() } },
+    seekTo: time => { if (apiReady && verified) { ended = false; clearTimeout(watchdog); lastTime=Math.max(0,Number(time)||0); lastAdvanceAt=Date.now(); player.seekTo(time, true); if (!state().playing) player.pauseVideo() } },
     setVolume: () => { if (apiReady) player.setVolume(Math.round(state().volume * 100)) },
     destroy: () => { disposed = true; clearTimeout(watchdog); clearInterval(poll); player.destroy(); mount.remove() },
   }
