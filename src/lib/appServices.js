@@ -1723,11 +1723,6 @@ async function searchEverything(query, options = {}) {
 }
 
 // Reuse native streams for the guest excerpt; the engine enforces the 30s cap.
-async function findInstantPreview(track) {
-  const pre = preResolvedStream(track)
-  return pre?.streamUrl || null
-}
-
 function primeInstantPreview(track) {
   const pre = preResolvedStream(track)
   return Promise.resolve(pre?.streamUrl || null)
@@ -2179,7 +2174,6 @@ export {
   fetchYtRadio,
   fetchYtArtist,
   fetchJioSearch,
-  findInstantPreview,
   primeInstantPreview,
   artworkFallbackCache,
   artworkFallbackMisses,

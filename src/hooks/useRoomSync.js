@@ -47,7 +47,7 @@ export function useRoomSync({
     activeRoomRef,
     currentIndexRef,
     roomQueueRef,
-    audioRef,
+    audioRef, youtubeRef,
     sleepPausedRef,
     isPlayingRef,
     viewRef,
@@ -168,7 +168,7 @@ export function useRoomSync({
     const audio = audioRef.current
     const liveTime = getPlaybackTime()
     const sameTrack = Boolean(clock?.trackId && clock.trackId === trackId)
-    const ready = Boolean(audio && Number.isFinite(audio.duration) && audio.duration > 0 && audio.readyState >= 2)
+    const ready = Boolean(youtubeRef.current?.ready || (audio && Number.isFinite(audio.duration) && audio.duration > 0 && audio.readyState >= 2))
     const closeToWall = clock?.isPlaying
       ? Math.abs(liveTime - wallTime) <= 2
       : liveTime > 0
@@ -187,6 +187,7 @@ export function useRoomSync({
     if (!activeRoomRef.current) return null
     const clock = viewRef.current === 'room' ? syncRoomClockFromPlayback() : roomClockRef.current
     audioRef.current?.pause()
+    youtubeRef.current?.pauseVideo()
     setIsPlaying(false)
     setJoinPill(null)
     setBuffering(false)
@@ -320,7 +321,7 @@ export function useRoomSync({
       ? Boolean(roomClockRef.current.isPlaying)
       : Boolean(data.isPlaying)
     // Stop the audio on receipt; do not wait for a catalog-sized React commit.
-    if (!nextPlaying && viewRef.current === 'room') audioRef.current?.pause()
+    if (!nextPlaying && viewRef.current === 'room') { audioRef.current?.pause(); youtubeRef.current?.pauseVideo() }
     const baseTime = Math.max(0, Number(data.time) || 0)
     const stamp = Number(data.ts) || Date.now()
     setRoomClock({
@@ -341,7 +342,7 @@ export function useRoomSync({
     if (indexChanged) {
       updatePlaybackProgress(0)
       const candidate = libraryRef.current[roomQueue[index]] || SEED_BY_ID[roomQueue[index]]
-      if (candidate && !candidate.streamUrl && !candidate.youtubeVideoId) {
+      if (candidate && !candidate.streamUrl && candidate.status !== 'ready') {
         ensurePlayable(candidate)
       }
     }
@@ -362,7 +363,7 @@ export function useRoomSync({
     if (correction.seek) {
       pendingSeekRef.current = target
       setSeekSignal((value) => value + 1)
-    } else if (nextPlaying && audioRef.current) {
+    } else if (nextPlaying && audioRef.current && !youtubeRef.current?.active) {
       audioRef.current.playbackRate = correction.rate
       if (correction.rate !== 1) nudgeTimerRef.current = setTimeout(() => { if (audioRef.current) audioRef.current.playbackRate = 1 }, 1500)
     }

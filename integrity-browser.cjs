@@ -261,19 +261,23 @@ let passed = 0
       const drawer = page.locator('[data-testid=solo-queue-drawer]')
       await drawer.locator('.queue-drawer-list').waitFor()
       const titles = () => drawer.locator('[data-testid=queue-drawer-row] .queue-copy strong').allTextContents()
+      // Hydration can replace placeholder titles during a move. Compare the
+      // complete stable track identities, rather than transient display labels.
+      const identities = () => drawer.getByTestId('queue-drawer-row').evaluateAll(nodes => nodes.map(node => node[Object.keys(node).find(key => key.startsWith('__reactFiber'))].key.replace(/-\d+$/, '')))
+      const originalIds = await identities()
       const all = await titles()
       assert.ok(all.length > 2, JSON.stringify({upcoming:all,model:await drawer.evaluate(el=>{let fiber=el[Object.keys(el).find(k=>k.startsWith('__reactFiber'))];while(fiber&&!Array.isArray(fiber.memoizedProps?.queue))fiber=fiber.return;return fiber?{index:fiber.memoizedProps.currentIndex,ids:fiber.memoizedProps.queue.map(t=>t.id)}:null}),quick:await page.locator('.quick-card .quick-copy strong').allTextContents(),now:await drawer.locator('[data-testid=queue-now-playing]').innerText()}))
       // Phase B removed the numbered/filter chrome from the drawer markup.
       assert.equal(await drawer.locator('.queue-filter-chips').count(), 0)
       assert.equal(await drawer.locator('.queue-index').count(), 0)
       await drawer.getByRole('button', { name: 'Shuffle queue', exact: true }).waitFor()
-      const movable = all[1]
-      await drawer.getByTestId('queue-drawer-row').nth(1).getByRole('button', { name: `Move ${movable} down`, exact: true }).click()
-      assert.equal((await titles())[2], movable)
-      await drawer.getByTestId('queue-drawer-row').nth(2).getByRole('button', { name: `Move ${movable} up`, exact: true }).click()
-      assert.deepEqual(await titles(), all)
-      await drawer.getByTestId('queue-drawer-row').nth(1).getByRole('button', { name: `Remove ${movable} from queue`, exact: true }).click()
-      assert.equal((await titles()).filter(title=>title===movable).length, all.filter(title=>title===movable).length-1)
+      const movable = originalIds[1]
+      await drawer.getByTestId('queue-drawer-row').nth(1).getByTitle('Move down', { exact: true }).click()
+      assert.equal((await identities())[2], movable)
+      await drawer.getByTestId('queue-drawer-row').nth(2).getByTitle('Move up', { exact: true }).click()
+      assert.deepEqual(await identities(), originalIds)
+      await drawer.getByTestId('queue-drawer-row').nth(1).getByTitle('Remove from queue', { exact: true }).click()
+      assert.deepEqual(await identities(), originalIds.filter((_, index) => index !== 1))
       assert.ok((await drawer.locator('[data-testid=queue-now-playing]').innerText()).includes(chosenTitle))
       assert.deepEqual(await page.locator('[data-testid=root-audio]').evaluate((audio, previous) => ({ same: audio === previous, paused: audio.paused, source: audio.currentSrc }), original), { same: true, paused: false, source })
     })
@@ -407,6 +411,7 @@ let passed = 0
       await page.locator('[data-testid=root-audio]').evaluate(audio=>{audio.currentTime=30.1;audio.dispatchEvent(new Event('timeupdate'))})
       await page.getByTestId('preview-ended-card').waitFor();assert.equal(await page.getByTestId('root-audio').evaluate(audio=>audio.paused),true);await page.getByRole('button',{name:'Dismiss preview notice'}).click();assert.equal(await page.getByTestId('preview-ended-card').count(),0)
     })
+    await require('./iframe-fallback-verify.cjs')({browser,check,open})
     await require('./production-overhaul-verify.cjs')({check,open})
     await require('./overhaul-verify.cjs')({browser,check,open,APP_URL})
     console.log(`Application browser integrity: ${passed} checks passed`)

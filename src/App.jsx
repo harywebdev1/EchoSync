@@ -5,7 +5,7 @@ import { SocialContext } from './components/social/SocialContext.jsx'
 import { ArtworkContext } from './components/Cover'
 import { MembersContext } from './components/shared/MembersContext'
 import { AudioRootContainer } from './components/player/AudioRoot.jsx'
-import { Sidebar } from './components/shell/Sidebar.jsx'
+const Sidebar = makeLazySurface(() => import('./components/shell/Sidebar.jsx'), 'Sidebar', 'view')
 import { ROLE_COPY } from './components/shared/roomRoles'
 import { formatTime } from './lib/time'
 import { AudioLines } from 'lucide-react'
@@ -13,7 +13,7 @@ import { StageBar } from './components/shell/StageBar.jsx'
 import { ErrorBoundary } from './components/shell/ErrorBoundary.jsx'
 import { HomeView } from './views/HomeView'
 import { searchEverything, normalizeRoomCode } from './lib/appServices.js'
-import { PlayerDock } from './components/player/PlayerDock'
+const PlayerDock = makeLazySurface(() => import('./components/player/PlayerDock'), 'PlayerDock', 'drawer')
 import { PreviewEndedCard } from './components/player/PreviewEndedCard'
 import { MobileMiniPlayer, MobileBottomBar } from './components/MobileBottomBar'
 const QueueDrawer = makeLazySurface(() => import('./components/player/QueueDrawer'), 'QueueDrawer', 'drawer')
@@ -79,7 +79,7 @@ export default function App() {
     artworkContextValue,
     memberIndex,
     rootStyle,
-    audioRef,
+    audioRef, youtubeHostRef,
     track,
     handleTimeUpdate,
     handleLoadedMetadata,
@@ -307,7 +307,7 @@ export default function App() {
       <div className="app" style={rootStyle}>
         <div className="ambient" />
         <AudioRootContainer
-          audioRef={audioRef}
+          audioRef={audioRef} youtubeHostRef={youtubeHostRef}
           trackId={track?.id}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}

@@ -18,6 +18,8 @@ const [buffering, setBuffering] = useState(false)
 const [streamRecovering, setStreamRecovering] = useState(false)
 const sleepPausedRef = useRef(false)
 const audioRef = useRef(null)
+const youtubeRef = useRef(null)
+const youtubeHostRef = useRef(null)
 const loadedUrlRef = useRef('')
 const pendingSeekRef = useRef(null)
 const progressRef = useRef(0)
@@ -69,7 +71,7 @@ const playRequestRef = useRef({ seq: 0, id: '' })
     setBuffering,
     streamRecovering,
     setStreamRecovering,
-    audioRef,
+    audioRef, youtubeRef, youtubeHostRef,
     loadedUrlRef,
     pendingSeekRef,
     progressRef,
