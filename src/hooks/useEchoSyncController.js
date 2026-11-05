@@ -480,9 +480,9 @@ export function useEchoSyncController() {
 
   const voiceSpeaking = speaking || remoteSpeaking
 
-  const repeatMode = ['off', 'all', 'one'].includes(settings.repeatMode) ? settings.repeatMode : 'off'
+  const repeatMode = roomPlaybackActive ? 'off' : ['off', 'all', 'one'].includes(settings.repeatMode) ? settings.repeatMode : 'off'
 
-  const shuffleEnabled = Boolean(settings.shuffleEnabled)
+  const shuffleEnabled = !roomPlaybackActive && Boolean(settings.shuffleEnabled)
 
   const soloPlaybackIds = useMemo(() => shuffleEnabled && soloQueue.length
     ? [

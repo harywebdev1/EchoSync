@@ -1,0 +1,228 @@
+{
+  "base": "https://echosync-social.vercel.app",
+  "method": "Real catalog originals loaded into a local playlist; media/player/resolver unmocked. First advancing unmuted >=60s media; OS output muted.",
+  "rows": [
+    {
+      "width": 390,
+      "song": "Pehli Dafa",
+      "recording": "Pehli Dafa",
+      "artist": "Atif Aslam",
+      "videoId": "gOSM2dEqwsE",
+      "path": "iframe",
+      "ms": 8045,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Pehli Nazar Mein",
+      "recording": "Pehli Nazar Mein",
+      "artist": "Pritam, Atif Aslam",
+      "videoId": "swcCuuQKGJ4",
+      "path": "iframe",
+      "ms": 2420,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Jeene Laga Hoon",
+      "recording": "Jeene Laga Hoon",
+      "artist": "Atif Aslam, Shreya Ghoshal",
+      "videoId": "3M3o3Ak1qBY",
+      "path": "iframe",
+      "ms": 1837,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Woh Lamhe Woh Baatein",
+      "recording": "Woh Lamhe Woh Baatein - Trending Version",
+      "artist": "Atif Aslam, Roop Kumar Rathod, Mithoon, Naresh Sharma",
+      "videoId": "NEX1CbRXnic",
+      "path": "iframe",
+      "ms": 1546,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Mahi Ve",
+      "recording": "Mahi Ve (Eternal Mix)",
+      "artist": "Atif Aslam, Sachin Gupta",
+      "videoId": "vlGNBtZtGpE",
+      "path": "iframe",
+      "ms": 2312,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Chaleya",
+      "recording": "Chaleya",
+      "artist": "Arijit Singh, Shilpa Rao",
+      "videoId": "V_jp5_VAzXk",
+      "path": "iframe",
+      "ms": 2249,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Kesariya",
+      "recording": "Kesariya (From \"Brahmastra\") (Tu Fuljhadiyo Wale Tyohaaro Jesi - Happy Diwali)",
+      "artist": "Arijit Singh",
+      "videoId": "NJAv_7lHUIU",
+      "path": "iframe",
+      "ms": 2006,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Pasoori",
+      "recording": "Pasoori",
+      "artist": "Ali Sethi, Shae Gill",
+      "videoId": "vKb9xwSRrsU",
+      "path": "iframe",
+      "ms": 2159,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Excuses",
+      "recording": "Excuses",
+      "artist": "AP Dhillon, Gurinder Gill, Intense",
+      "videoId": "x18b0D8sTwo",
+      "path": "iframe",
+      "ms": 1874,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 390,
+      "song": "Husn",
+      "recording": "Husn",
+      "artist": "Anuv Jain",
+      "videoId": "_deqdZmKzyg",
+      "path": "iframe",
+      "ms": 1784,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Pehli Dafa",
+      "recording": "Pehli Dafa",
+      "artist": "Atif Aslam",
+      "videoId": "gOSM2dEqwsE",
+      "path": "iframe",
+      "ms": 6740,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Pehli Nazar Mein",
+      "recording": "Pehli Nazar Mein",
+      "artist": "Pritam, Atif Aslam",
+      "videoId": "swcCuuQKGJ4",
+      "path": "iframe",
+      "ms": 2206,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Jeene Laga Hoon",
+      "recording": "Jeene Laga Hoon",
+      "artist": "Atif Aslam, Shreya Ghoshal",
+      "videoId": "3M3o3Ak1qBY",
+      "path": "iframe",
+      "ms": 1748,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Woh Lamhe Woh Baatein",
+      "recording": "Woh Lamhe Woh Baatein - Trending Version",
+      "artist": "Atif Aslam, Roop Kumar Rathod, Mithoon, Naresh Sharma",
+      "videoId": "NEX1CbRXnic",
+      "path": "iframe",
+      "ms": 1729,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Mahi Ve",
+      "recording": "Mahi Ve (Eternal Mix)",
+      "artist": "Atif Aslam, Sachin Gupta",
+      "videoId": "vlGNBtZtGpE",
+      "path": "iframe",
+      "ms": 1605,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Chaleya",
+      "recording": "Chaleya",
+      "artist": "Arijit Singh, Shilpa Rao",
+      "videoId": "V_jp5_VAzXk",
+      "path": "iframe",
+      "ms": 1830,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Kesariya",
+      "recording": "Kesariya (From \"Brahmastra\") (Tu Fuljhadiyo Wale Tyohaaro Jesi - Happy Diwali)",
+      "artist": "Arijit Singh",
+      "videoId": "NJAv_7lHUIU",
+      "path": "iframe",
+      "ms": 2019,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Pasoori",
+      "recording": "Pasoori",
+      "artist": "Ali Sethi, Shae Gill",
+      "videoId": "vKb9xwSRrsU",
+      "path": "iframe",
+      "ms": 1843,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Excuses",
+      "recording": "Excuses",
+      "artist": "AP Dhillon, Gurinder Gill, Intense",
+      "videoId": "x18b0D8sTwo",
+      "path": "iframe",
+      "ms": 1788,
+      "errors": [],
+      "iframeFailures": []
+    },
+    {
+      "width": 1440,
+      "song": "Husn",
+      "recording": "Husn",
+      "artist": "Anuv Jain",
+      "videoId": "_deqdZmKzyg",
+      "path": "iframe",
+      "ms": 2017,
+      "errors": [],
+      "iframeFailures": []
+    }
+  ],
+  "verifiedCommit": "ed65ea4",
+  "scope": "Solo playback on the deployed zero-wait build; final room-only repeat/shuffle isolation does not alter this path."
+}

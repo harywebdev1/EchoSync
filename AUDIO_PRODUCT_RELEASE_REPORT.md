@@ -16,7 +16,7 @@ Base: fa2ce8e on fix/audio-p0. The official player restoration and single AudioR
 ## Application gates
 
 - audit:clean: clean, 111 source files checked, no lint fixes needed.
-- build: passed. Main entry: 493,820 bytes (493.82 kB), below 500,000 bytes.
+- build: passed. Main entry: 493,834 bytes (493.83 kB), below 500,000 bytes.
 - integrity-unit.cjs: 42 checks passed.
 - api-verify.cjs: 13 controlled-upstream checks passed.
 - integrity-browser.cjs: 41 checks passed, including the final slow-handshake and backward-seek watchdog checks.
@@ -79,3 +79,9 @@ Commit d5fccfd was merged, pushed, and deployed to https://echosync-social.verce
 That measured 1.2-second native head start was then removed for known YouTube IDs. Cached native URLs remain immediate; otherwise the official player starts while the native request continues concurrently. The controlled stalled-resolver test now requires known-video playback to start in under 1,200 ms including setup. The final production measurements are reported separately after the optimized deployment. Universal sub-1.8-second playback remains unproven and must not be claimed.
 
 A .gitattributes CSS LF rule also keeps Windows branch checkouts consistent with Biome, without changing the visual styles.
+
+## Optimized production result and room repeat isolation
+
+Production build ed65ea4 returned HTTP 200 and served a 493,820-byte entry. Its real Chromium matrix again started 20/20 recordings with zero terminal errors, all through the official iframe. Median 1940 ms; minimum 1546 ms; maximum 8045 ms; 6/20 under 1,800 ms. The measured median improved from 3,330.5 ms to 1,940 ms. **Universal sub-1.8-second startup is still NOT achieved.** AUDIO_PRODUCTION_RESULTS.json preserves this measured deployment and its catalog recording/version names.
+
+A final room-only correction masks Solo repeat/shuffle preferences while a room is joined, preserving the saved preferences for Solo. Otherwise a prewarmed Repeat-all source could loop the last room song and bypass the one-track radio continuation. The room regression now explicitly starts with saved Solo Repeat all + Shuffle on and still requires zero prefill and exactly one appended radio track after end. This guard does not change the measured Solo production playback path. Final entry size: 493,834 bytes.

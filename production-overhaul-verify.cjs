@@ -163,7 +163,7 @@ module.exports = async function verifyProductionOverhaul({ check, open }) {
     await page.evaluate(()=>window.__notificationPeer.close())
   })
   await check('Production Room radio appends real catalog candidates and advances with honest upcoming counts', {trackOverrides:{chaleya:{youtubeVideoId:'chaleyaXXXX'}}}, async page=>{
-    await page.addInitScript(()=>{const rooms=JSON.parse(localStorage.getItem('echosync_rooms_v3'));rooms[0].trackIds=['chaleya'];localStorage.setItem('echosync_rooms_v3',JSON.stringify(rooms))})
+    await page.addInitScript(()=>{const rooms=JSON.parse(localStorage.getItem('echosync_rooms_v3'));rooms[0].trackIds=['chaleya'];localStorage.setItem('echosync_rooms_v3',JSON.stringify(rooms));localStorage.setItem('echosync_settings_v1',JSON.stringify({integrity:{repeatMode:'all',shuffleEnabled:true}}))})
     await page.route('**/api/ytmusic?*',route=>{
       if(new URL(route.request().url()).searchParams.get('action')!=='radio')return route.fallback()
       return route.fulfill({contentType:'application/json',body:JSON.stringify({songs:[{videoId:'excusesXXXX',title:'Excuses',artist:'AP Dhillon',duration:180},{videoId:'kesariyaXXX',title:'Kesariya',artist:'Arijit Singh',duration:180}]})})
