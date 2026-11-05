@@ -952,7 +952,7 @@ export function usePlaybackEngine({
       try {
         resolved = await withTimeout(
           nativeTask,
-          1200,
+          candidate.youtubeVideoId ? 0 : 1200,
           'Primary stream lookup timed out',
         )
       } catch {

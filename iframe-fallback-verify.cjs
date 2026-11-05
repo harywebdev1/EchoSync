@@ -78,13 +78,13 @@ module.exports=async function verifyIframeFallback({browser,check,open}){
     await page.waitForFunction(id=>document.querySelector('[data-testid=audio-root]').dataset.trackId!==id,first)
     await playing(page)
   })
-  await check('IFrame boundary: stalled extraction hands off within the 1.2s client deadline',{},async page=>{
+  await check('IFrame boundary: known video starts the official player without waiting for the stalled native probe',{},async page=>{
     await installOfficialPlayerDouble(page.context(),{timeout:true})
     await open(page)
     const start=Date.now()
     await page.getByRole('button',{name:'Play Chaleya',exact:true}).first().click()
     await playing(page)
-    assert.ok(Date.now()-start<3200,'Fallback exceeded deadline plus player setup allowance')
+    assert.ok(Date.now()-start<1200,'Known-video playback waited for the native probe instead of starting in parallel')
     assert.equal(await page.locator('.es-toast-message').filter({hasText:/unavailable/}).count(),0)
   })
   await check('IFrame boundary: both failed paths show one terminal error; short embeds never unmute',{},async page=>{

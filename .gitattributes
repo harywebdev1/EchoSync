@@ -1,0 +1,2 @@
+# Match Biome's CSS line-ending policy on Windows checkouts.
+*.css text eol=lf

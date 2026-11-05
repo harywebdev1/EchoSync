@@ -6,7 +6,7 @@ Base: fa2ce8e on fix/audio-p0. The official player restoration and single AudioR
 ## Application changes
 
 1. Search merges prefer the songs-filter recording ID, retain alternate IDs, and use title/credited-artist/version matching. This includes label-uploaded music videos whose creator appears in the title instead of the uploader field. Different singers, edits, and materially different durations are excluded.
-2. The official API warms in parallel. The initial direct resolver probe is 1,200 ms; its existing bounded native request can complete concurrently. Up to three unblocked alternate IDs are tried. The four-second advancing-clock watchdog starts after the official player is ready; the embed handshake has a separate bounded deadline. Backward seeks reset the watchdog. Terminal errors appear only after usable paths are exhausted. No extractor or stream-proxy implementation was added or extended.
+2. The official API warms in parallel. Known YouTube IDs have zero initial native-probe wait; unknown IDs retain a bounded 1,200 ms lookup probe; its existing bounded native request can complete concurrently. Up to three unblocked alternate IDs are tried. The four-second advancing-clock watchdog starts after the official player is ready; the embed handshake has a separate bounded deadline. Backward seeks reset the watchdog. Terminal errors appear only after usable paths are exhausted. No extractor or stream-proxy implementation was added or extended.
 3. Room audio remains connected behind Library, Search and profile navigation. Home from the Room opens Keep Room in Background / Leave Room. Mobile center navigation changes from Lounge to Room Chat and back on explicit leave. The root audio node stays mounted.
 4. Room radio does not prefill. Only the clock-owner handling the last ended event requests and appends one related track. The authoritative clock and ordered commands remain intact.
 5. Room text and voice sends now have creation timestamps. Own ticks depend on member count and actual peer read receipts. CHAT_READ maps to the existing authenticated typing transport with a receipt flag; no privileged client broadcast or schema bypass was added. Closed-chat messages notify with Open Chat and unread counts. Admin DJ requests support decline from the toast and approval from the bell.
@@ -16,7 +16,7 @@ Base: fa2ce8e on fix/audio-p0. The official player restoration and single AudioR
 ## Application gates
 
 - audit:clean: clean, 111 source files checked, no lint fixes needed.
-- build: passed. Main entry: 493,801 bytes (493.80 kB), below 500,000 bytes.
+- build: passed. Main entry: 493,820 bytes (493.82 kB), below 500,000 bytes.
 - integrity-unit.cjs: 42 checks passed.
 - api-verify.cjs: 13 controlled-upstream checks passed.
 - integrity-browser.cjs: 41 checks passed, including the final slow-handshake and backward-seek watchdog checks.
@@ -71,3 +71,11 @@ The main shell bounding boxes do not move when Sidebar/PlayerDock chunks are del
 Room convergence tests use isolated browser contexts and controlled transport/player boundaries; physical two-device cloud/audio behavior and mobile OS screen-lock behavior were not certified. Existing comments explain the YouTube mobile-web background limitation and Expo phase 4. Public-playlist routing was tested with a local public collection and live database policy inspection; publishing as a real cloud user was not exercised.
 
 No temporary screenshots are retained. The reusable verification suites and evidence report are intentional repository files. desktop.ini remains untouched and excluded from staging. Production verification is reported separately after deployment.
+
+## Production verification and final startup optimization
+
+Commit d5fccfd was merged, pushed, and deployed to https://echosync-social.vercel.app. The public page/catalog returned HTTP 200 and served a 493,801-byte entry. Its live production matrix started 20/20 recordings, all through the official iframe, with no terminal errors. Median 3330.5 ms; maximum 15485 ms; none under 1,800 ms. The production catalog selected the official Trending Version release for Woh Lamhe Woh Baatein; the other matching catalog releases are recorded by the live runner.
+
+That measured 1.2-second native head start was then removed for known YouTube IDs. Cached native URLs remain immediate; otherwise the official player starts while the native request continues concurrently. The controlled stalled-resolver test now requires known-video playback to start in under 1,200 ms including setup. The final production measurements are reported separately after the optimized deployment. Universal sub-1.8-second playback remains unproven and must not be claimed.
+
+A .gitattributes CSS LF rule also keeps Windows branch checkouts consistent with Biome, without changing the visual styles.
